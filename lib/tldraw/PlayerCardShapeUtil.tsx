@@ -5,7 +5,6 @@ import {
   HTMLContainer,
   Rectangle2d,
   resizeBox,
-  type TLOnResizeHandler,
 } from "tldraw";
 
 function getInitials(name?: string) {
@@ -185,7 +184,8 @@ export class PlayerCardShapeUtil extends BaseBoxShapeUtil<any> {
     return <rect width={shape.props.w} height={shape.props.h} rx={12} ry={12} />;
   }
 
-  override onResize: TLOnResizeHandler<any> = (shape, info) => {
+  // ✅ No TLOnResizeHandler typing — compatible across tldraw versions
+  override onResize(shape: any, info: any) {
     return resizeBox(shape, info);
-  };
+  }
 }
