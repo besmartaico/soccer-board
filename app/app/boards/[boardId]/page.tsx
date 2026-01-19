@@ -37,7 +37,6 @@ type PlayerRow = {
   potentialPrimary: string;
   notes: string;
   picture: string;
-
   pictureProxyUrl?: string;
 };
 
@@ -61,37 +60,8 @@ export default function BoardPage() {
 
   const [board, setBoard] = useState<BoardRow | null>(null);
 
-  // IMPORTANT: default to Edit mode
+  // default to Edit mode
   const [editMode, setEditMode] = useState(true);
-  
-  // Debug: Log editMode on mount and changes
-  useEffect(() => {
-    console.log("[APP] ===== INITIAL STATE =====");
-    console.log("[APP] editMode:", editMode);
-    console.log("[APP] showTools:", showTools);
-    console.log("[APP] players count:", players.length);
-    console.log("[APP] filteredPlayers count:", filteredPlayers.length);
-  }, [editMode, showTools, players.length, filteredPlayers.length]);
-  
-  useEffect(() => {
-    console.log("[APP] editMode changed to:", editMode);
-  }, [editMode]);
-
-  // Debug: Log editMode on mount and changes
-  useEffect(() => {
-    console.log("[APP] ===== INITIAL STATE =====");
-    console.log("[APP] editMode:", editMode);
-    console.log("[APP] showTools:", showTools);
-    console.log("[APP] players count:", players.length);
-    console.log("[APP] filteredPlayers count:", filteredPlayers.length);
-  }, [editMode, showTools, players.length, filteredPlayers.length]);
-
-  useEffect(() => {
-    console.log("[APP] editMode changed to:", editMode);
-  }, [editMode]);
-
-  // Tools visibility (this fixes "button toggles but tools never show")
-  const [showTools, setShowTools] = useState(true);
 
   // Left sidebar collapse
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -121,6 +91,9 @@ export default function BoardPage() {
     null
   );
 
+  // Drag overlay state (this is the reliable way to drop onto TLDraw)
+  const [isDraggingPlayer, setIsDraggingPlayer] = useState(false);
+
   // Store + editor ref
   const makeStore = () =>
     createTLStore({
@@ -148,9 +121,20 @@ export default function BoardPage() {
     if (editor && typeof editor.updateInstanceState === "function") {
       editor.updateInstanceState({ isReadonly: !editMode });
     }
-    console.log("[APP] editMode changed to:", editMode);
   }, [editMode]);
 
+  // Safety: if a drag gets "stuck", clear it (prevents invisible overlays)
+  useEffect(() => {
+    const clear = () => setIsDraggingPlayer(false);
+    window.addEventListener("dragend", clear);
+    window.addEventListener("drop", clear);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("dragend", clear);
+      window.removeEventListener("drop", clear);
+      window.removeEventListener("blur", clear);
+    };
+  }, []);
 
   // --------- tldraw snapshot helpers ---------
   const getStoreSnapshotSafe = (s: any): TLStoreSnapshot => {
@@ -166,9 +150,7 @@ export default function BoardPage() {
       s.loadSnapshot(snap);
       return;
     }
-    console.warn(
-      "This version of tldraw store does not support loadSnapshot()."
-    );
+    console.warn("This version of tldraw store does not support loadSnapshot().");
   };
 
   // --------- DB helpers ---------
@@ -311,7 +293,6 @@ export default function BoardPage() {
           const rawPic = (r[idxPicture] ?? "").toString();
           const normalized = normalizePictureUrl(rawPic);
 
-          // IMPORTANT: add a cache buster so new photos appear in prod
           const proxy = normalized
             ? `/api/image-proxy?url=${encodeURIComponent(normalized)}&ts=${Date.now()}`
             : "";
@@ -378,20 +359,11 @@ export default function BoardPage() {
       }
       if (filters.grade.length && !filters.grade.includes((p.grade ?? "").trim()))
         return false;
-      if (
-        filters.returning.length &&
-        !filters.returning.includes((p.returning ?? "").trim())
-      )
+      if (filters.returning.length && !filters.returning.includes((p.returning ?? "").trim()))
         return false;
-      if (
-        filters.primary.length &&
-        !filters.primary.includes((p.potentialPrimary ?? "").trim())
-      )
+      if (filters.primary.length && !filters.primary.includes((p.potentialPrimary ?? "").trim()))
         return false;
-      if (
-        filters.likelihood.length &&
-        !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim())
-      )
+      if (filters.likelihood.length && !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim()))
         return false;
       return true;
     });
@@ -408,9 +380,10 @@ export default function BoardPage() {
 
   // ----- drag/drop -----
   function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
-    console.log("[DRAG] ===== DRAG START =====");
-    console.log("[DRAG] Player:", p.name, p.id);
-    
+    if (!editMode) return;
+
+    setIsDraggingPlayer(true);
+
     const payload = {
       id: p.id,
       name: p.name,
@@ -424,149 +397,89 @@ export default function BoardPage() {
     };
 
     const json = JSON.stringify(payload);
-    console.log("[DRAG] Payload:", payload);
 
-    // IMPORTANT: Safari / some prod browsers need text/plain
     e.dataTransfer.setData(PLAYER_DRAG_MIME, json);
     e.dataTransfer.setData("text/plain", json);
-    
-    const typesSet = Array.from(e.dataTransfer.types || []);
-    console.log("[DRAG] DataTransfer types:", typesSet);
-
     e.dataTransfer.effectAllowed = "copy";
   }
 
-  // IMPORTANT: use capture so we can intercept before tldraw
-  function onCanvasDragOverCapture(e: React.DragEvent) {
-    if (!editMode) {
-      console.log("[DRAG] DragOver: editMode is false, ignoring");
-      return;
-    }
+  function onCanvasDragOver(e: React.DragEvent) {
+    if (!editMode) return;
 
-    // Some browsers only advertise text/plain
     const types = Array.from(e.dataTransfer.types || []);
-    const hasOurType =
-      types.includes(PLAYER_DRAG_MIME) || types.includes("text/plain");
+    const hasOurType = types.includes(PLAYER_DRAG_MIME) || types.includes("text/plain");
+    if (!hasOurType) return;
 
-    console.log("[DRAG] DragOver capture - types:", types, "hasOurType:", hasOurType);
-
-    if (hasOurType) {
-      e.preventDefault();
-      e.stopPropagation(); // Stop propagation to prevent tldraw from interfering
-      e.dataTransfer.dropEffect = "copy";
-      console.log("[DRAG] DragOver: prevented default, set dropEffect to copy");
-    }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
   }
 
-  function onCanvasDropCapture(e: React.DragEvent) {
-    console.log("[DRAG] Drop capture event fired");
-    
-    if (!editMode) {
-      console.log("[DRAG] Drop: editMode is false, ignoring");
-      return;
-    }
+  function onCanvasDrop(e: React.DragEvent) {
+    setIsDraggingPlayer(false);
+
+    if (!editMode) return;
 
     const raw =
       e.dataTransfer.getData(PLAYER_DRAG_MIME) ||
       e.dataTransfer.getData("text/plain");
 
-    console.log("[DRAG] Drop: raw data:", raw ? "present" : "missing", raw?.substring(0, 100));
-
-    if (!raw) {
-      console.log("[DRAG] Drop: No data found, aborting");
-      return;
-    }
+    if (!raw) return;
 
     e.preventDefault();
-    e.stopPropagation(); // Stop here to prevent tldraw from handling our custom drop
-    console.log("[DRAG] Drop: prevented default and stopped propagation");
 
     let data: any;
     try {
       data = JSON.parse(raw);
-      console.log("[DRAG] Drop: parsed data:", data);
-    } catch (err) {
-      console.error("[DRAG] Drop: Failed to parse JSON:", err, "raw:", raw);
+    } catch {
       return;
     }
 
     const editor = editorRef.current;
-    console.log("[DRAG] Drop: editor ref:", editor ? "present" : "missing");
-    
-    if (!editor) {
-      console.error("[DRAG] Drop: Editor not available!");
-      return;
-    }
+    if (!editor) return;
 
     let pt: any = { x: 0, y: 0 };
     try {
       if (typeof editor.screenToPage === "function") {
         pt = editor.screenToPage({ x: e.clientX, y: e.clientY });
-        console.log("[DRAG] Drop: screenToPage result:", pt);
       } else if (editor.inputs?.currentPagePoint) {
         pt = editor.inputs.currentPagePoint;
-        console.log("[DRAG] Drop: using currentPagePoint:", pt);
-      } else {
-        console.warn("[DRAG] Drop: No coordinate conversion method found, using 0,0");
       }
-    } catch (err) {
-      console.error("[DRAG] Drop: Error converting coordinates:", err);
-    }
+    } catch {}
+
+    const shapeProps = {
+      w: 280,
+      h: 96,
+      playerId: data.id ?? "",
+      name: data.name ?? "Player",
+      grade: data.grade ?? "",
+      returning: data.returning ?? "",
+      primary: data.primary ?? "",
+      likelihood: data.likelihood ?? "",
+      pos1: data.pos1 ?? "",
+      pos2: data.pos2 ?? "",
+      pictureUrl: data.pictureUrl ?? "",
+    };
 
     const create = () => {
-      const shapeProps = {
-        w: 280,
-        h: 96,
-        playerId: data.id ?? "",
-        name: data.name ?? "Player",
-        grade: data.grade ?? "",
-        returning: data.returning ?? "",
-        primary: data.primary ?? "",
-        likelihood: data.likelihood ?? "",
-        pos1: data.pos1 ?? "",
-        pos2: data.pos2 ?? "",
-        pictureUrl: data.pictureUrl ?? "",
-      };
-      
-      console.log("[DRAG] Drop: Creating shape with:", {
+      editor.createShape({
         type: "player-card",
         x: pt.x,
         y: pt.y,
         props: shapeProps,
       });
-
-      try {
-        const result = editor.createShape({
-          type: "player-card",
-          x: pt.x,
-          y: pt.y,
-          props: shapeProps,
-        });
-        console.log("[DRAG] Drop: Shape created successfully:", result);
-      } catch (err) {
-        console.error("[DRAG] Drop: Error creating shape:", err);
-        throw err;
-      }
     };
 
-    // More robust across tldraw versions
     try {
-      if (typeof editor.batch === "function") {
-        console.log("[DRAG] Drop: Using editor.batch()");
-        editor.batch(create);
-      } else if (typeof editor.run === "function") {
-        console.log("[DRAG] Drop: Using editor.run()");
-        editor.run(create);
-      } else {
-        console.log("[DRAG] Drop: Calling create() directly");
-        create();
-      }
+      if (typeof editor.batch === "function") editor.batch(create);
+      else if (typeof editor.run === "function") editor.run(create);
+      else create();
     } catch (err) {
-      console.error("[DRAG] Drop: Error in shape creation wrapper:", err);
+      console.error("[DROP] createShape failed:", err);
+      // show the error in UI for quick visibility
+      setError((err as any)?.message ?? "Failed to create player card shape.");
     }
 
     scheduleAutosave();
-    console.log("[DRAG] Drop: Complete");
   }
 
   return (
@@ -582,22 +495,13 @@ export default function BoardPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-3 border-b flex items-center justify-between">
-              <div className="font-semibold">
-                {preview.name || "Player Photo"}
-              </div>
-              <button
-                className="text-sm underline"
-                onClick={() => setPreview(null)}
-              >
+              <div className="font-semibold">{preview.name || "Player Photo"}</div>
+              <button className="text-sm underline" onClick={() => setPreview(null)}>
                 Close
               </button>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={preview.url}
-              alt={preview.name || "Player photo"}
-              className="w-full h-auto"
-            />
+            <img src={preview.url} alt={preview.name || "Player photo"} className="w-full h-auto" />
           </div>
         </div>
       ) : null}
@@ -606,19 +510,8 @@ export default function BoardPage() {
         <div className="text-2xl font-bold">{board ? board.name : "Board"}</div>
 
         <div className="flex items-center gap-3">
-          <button
-            className="border px-3 py-1 rounded"
-            onClick={() => setEditMode((v) => !v)}
-          >
+          <button className="border px-3 py-1 rounded" onClick={() => setEditMode((v) => !v)}>
             {editMode ? "Switch to View" : "Switch to Edit"}
-          </button>
-
-          <button
-            className="border px-3 py-1 rounded"
-            onClick={() => setShowTools((v) => !v)}
-            title="Toggle the tldraw UI panels"
-          >
-            {showTools ? "Hide Tools" : "Show Tools"}
           </button>
 
           <Link className="underline" href="/app/teams">
@@ -670,68 +563,42 @@ export default function BoardPage() {
                   className="w-full border rounded px-2 py-1 text-sm mb-2"
                   placeholder="Search name / notes / position"
                   value={filters.search}
-                  onChange={(e) =>
-                    setFilters((f) => ({ ...f, search: e.target.value }))
-                  }
+                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
                 />
 
                 <DropdownMultiSelect
                   label="Grade"
-                  options={gradeOptions.map((g) => ({
-                    value: g,
-                    label: `Grade ${g}`,
-                  }))}
+                  options={gradeOptions.map((g) => ({ value: g, label: `Grade ${g}` }))}
                   selected={filters.grade}
                   open={openDropdown === "grade"}
-                  onOpen={() =>
-                    setOpenDropdown((v) => (v === "grade" ? null : "grade"))
-                  }
+                  onOpen={() => setOpenDropdown((v) => (v === "grade" ? null : "grade"))}
                   onToggle={(v) => toggleMulti("grade", v)}
                 />
 
                 <DropdownMultiSelect
                   label="Returning"
-                  options={returningOptions.map((r) => ({
-                    value: r,
-                    label: r,
-                  }))}
+                  options={returningOptions.map((r) => ({ value: r, label: r }))}
                   selected={filters.returning}
                   open={openDropdown === "returning"}
-                  onOpen={() =>
-                    setOpenDropdown((v) =>
-                      v === "returning" ? null : "returning"
-                    )
-                  }
+                  onOpen={() => setOpenDropdown((v) => (v === "returning" ? null : "returning"))}
                   onToggle={(v) => toggleMulti("returning", v)}
                 />
 
                 <DropdownMultiSelect
                   label="Primary"
-                  options={primaryOptions.map((p) => ({
-                    value: p,
-                    label: p,
-                  }))}
+                  options={primaryOptions.map((p) => ({ value: p, label: p }))}
                   selected={filters.primary}
                   open={openDropdown === "primary"}
-                  onOpen={() =>
-                    setOpenDropdown((v) => (v === "primary" ? null : "primary"))
-                  }
+                  onOpen={() => setOpenDropdown((v) => (v === "primary" ? null : "primary"))}
                   onToggle={(v) => toggleMulti("primary", v)}
                 />
 
                 <DropdownMultiSelect
                   label="Likelihood"
-                  options={likelihoodOptions.map((l) => ({
-                    value: l,
-                    label: l,
-                  }))}
+                  options={likelihoodOptions.map((l) => ({ value: l, label: l }))}
                   selected={filters.likelihood}
                   open={openDropdown === "likelihood"}
-                  onOpen={() =>
-                    setOpenDropdown((v) =>
-                      v === "likelihood" ? null : "likelihood"
-                    )
-                  }
+                  onOpen={() => setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"))}
                   onToggle={(v) => toggleMulti("likelihood", v)}
                 />
 
@@ -752,9 +619,7 @@ export default function BoardPage() {
               </div>
 
               {playersLoading && <div className="text-sm">Loading players…</div>}
-              {playersError && (
-                <div className="text-sm text-red-600">{playersError}</div>
-              )}
+              {playersError && <div className="text-sm text-red-600">{playersError}</div>}
 
               {!playersLoading && !playersError && players.length > 0 && (
                 <div className="text-xs text-gray-600 mb-2">
@@ -764,31 +629,14 @@ export default function BoardPage() {
 
               {!playersLoading && !playersError && filteredPlayers.length > 0 && (
                 <div className="space-y-2">
-                  {filteredPlayers.map((p, idx) => {
-                    console.log("[APP] Rendering player card:", p.name, "editMode:", editMode, "draggable:", editMode);
-                    return (
+                  {filteredPlayers.map((p, idx) => (
                     <div
                       key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
                       className="border rounded p-2 bg-white cursor-grab active:cursor-grabbing"
                       draggable={editMode}
-                      onDragStart={(e) => {
-                        console.log("[DRAG] ===== DRAG START EVENT FIRED =====");
-                        console.log("[DRAG] Card dragStart triggered, editMode:", editMode);
-                        console.log("[DRAG] Player:", p.name);
-                        onPlayerDragStart(e, p);
-                      }}
-                      onMouseDown={(e) => {
-                        console.log("[DRAG] Card mousedown event");
-                        console.log("[DRAG] editMode:", editMode, "draggable attribute:", editMode);
-                      }}
-                      onClick={(e) => {
-                        console.log("[DRAG] Card clicked - editMode:", editMode);
-                      }}
-                      title={
-                        editMode
-                          ? "Drag onto the board"
-                          : "Switch to Edit to place players"
-                      }
+                      onDragStart={(e) => onPlayerDragStart(e, p)}
+                      onDragEnd={() => setIsDraggingPlayer(false)}
+                      title={editMode ? "Drag onto the board" : "Switch to Edit to place players"}
                     >
                       <div className="flex gap-2">
                         <button
@@ -798,18 +646,10 @@ export default function BoardPage() {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            if (p.pictureProxyUrl)
-                              setPreview({ url: p.pictureProxyUrl, name: p.name });
-                          }}
-                          onMouseDown={(e) => {
-                            // Allow drag to start even when clicking button
-                            e.stopPropagation();
+                            if (p.pictureProxyUrl) setPreview({ url: p.pictureProxyUrl, name: p.name });
                           }}
                           title={p.pictureProxyUrl ? "Click to enlarge" : "No photo"}
-                          style={{
-                            cursor: p.pictureProxyUrl ? "zoom-in" : "default",
-                            pointerEvents: "auto",
-                          }}
+                          style={{ cursor: p.pictureProxyUrl ? "zoom-in" : "default" }}
                         >
                           {p.pictureProxyUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
@@ -819,8 +659,7 @@ export default function BoardPage() {
                               className="w-full h-full object-cover"
                               draggable={false}
                               onError={(e) =>
-                                ((e.currentTarget as HTMLImageElement).style.display =
-                                  "none")
+                                ((e.currentTarget as HTMLImageElement).style.display = "none")
                               }
                             />
                           ) : null}
@@ -830,24 +669,18 @@ export default function BoardPage() {
                           <div className="font-medium truncate">{p.name}</div>
                           <div className="text-xs text-gray-700">
                             Grade: {p.grade || "?"} • Pos: {p.position || "?"}
-                            {p.secondaryPosition
-                              ? ` / ${p.secondaryPosition}`
-                              : ""}{" "}
-                            • Returning: {p.returning || "?"}
+                            {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
+                            {p.returning || "?"}
                           </div>
                           <div className="text-xs text-gray-700">
-                            Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
-                            {p.likelihoodPrimary || "?"}
+                            Primary: {p.potentialPrimary || "?"} • Likelihood: {p.likelihoodPrimary || "?"}
                           </div>
                         </div>
                       </div>
 
-                      {p.notes ? (
-                        <div className="text-xs text-gray-600 mt-1">{p.notes}</div>
-                      ) : null}
+                      {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
                     </div>
-                    );
-                  })}
+                  ))}
                 </div>
               )}
             </aside>
@@ -863,36 +696,28 @@ export default function BoardPage() {
             </aside>
           )}
 
-          {/* Canvas wrapper MUST handle drop */}
-          <section
-            className="flex-1 relative"
-            onDragOver={(e) => {
-              console.log("[DRAG] onDragOver (bubble) fired");
-              onCanvasDragOverCapture(e);
-            }}
-            onDragOverCapture={(e) => {
-              console.log("[DRAG] onDragOverCapture fired");
-              onCanvasDragOverCapture(e);
-            }}
-            onDrop={(e) => {
-              console.log("[DRAG] onDrop (bubble) fired");
-              onCanvasDropCapture(e);
-            }}
-            onDropCapture={(e) => {
-              console.log("[DRAG] onDropCapture fired");
-              onCanvasDropCapture(e);
-            }}
-            style={{ pointerEvents: 'auto' }}
-          >
+          {/* Canvas */}
+          <section className="flex-1 relative">
+            {/* Overlay only while dragging: guarantees dragover/drop reach us, not TLDraw */}
+            <div
+              className="absolute inset-0 z-50"
+              style={{
+                pointerEvents: isDraggingPlayer ? "auto" : "none",
+                background: "transparent",
+              }}
+              onDragOver={onCanvasDragOver}
+              onDrop={onCanvasDrop}
+            />
+
             <Tldraw
               store={store}
+              // IMPORTANT: register shape util with the editor instance
               shapeUtils={[...defaultShapeUtils, PlayerCardShapeUtil]}
-              hideUi={!showTools}
+              // IMPORTANT: keep UI stable until drag/drop is fixed
+              hideUi={false}
               onMount={(editor) => {
-                console.log("[TLDRAW] Editor mounted:", editor);
                 editorRef.current = editor;
                 editor.updateInstanceState({ isReadonly: !editMode });
-                console.log("[TLDRAW] Editor initialized, readonly:", !editMode);
               }}
               onUiEvent={() => scheduleAutosave()}
             />
@@ -942,10 +767,7 @@ function DropdownMultiSelect({
           ) : (
             <div className="space-y-1">
               {options.map((o) => (
-                <label
-                  key={o.value}
-                  className="flex items-center gap-2 text-sm cursor-pointer"
-                >
+                <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
                   <input
                     type="checkbox"
                     checked={selected.includes(o.value)}
@@ -984,8 +806,7 @@ function normalizePictureUrl(raw: string) {
 
     // drive file link: /file/d/<id>/
     const m = u.pathname.match(/\/file\/d\/([^/]+)/);
-    if (m && m[1])
-      return `https://drive.google.com/uc?export=view&id=${m[1]}`;
+    if (m && m[1]) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
 
     // open?id=<id>
     const idParam = u.searchParams.get("id");
@@ -993,6 +814,6 @@ function normalizePictureUrl(raw: string) {
 
     return u.toString();
   } catch {
-    return "";
+    return s;
   }
 }
