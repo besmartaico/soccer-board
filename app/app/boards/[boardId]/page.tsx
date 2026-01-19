@@ -63,6 +63,19 @@ export default function BoardPage() {
 
   // IMPORTANT: default to Edit mode
   const [editMode, setEditMode] = useState(true);
+  
+  // Debug: Log editMode on mount and changes
+  useEffect(() => {
+    console.log("[APP] ===== INITIAL STATE =====");
+    console.log("[APP] editMode:", editMode);
+    console.log("[APP] showTools:", showTools);
+    console.log("[APP] players count:", players.length);
+    console.log("[APP] filteredPlayers count:", filteredPlayers.length);
+  }, [editMode, showTools, players.length, filteredPlayers.length]);
+  
+  useEffect(() => {
+    console.log("[APP] editMode changed to:", editMode);
+  }, [editMode]);
 
   // Tools visibility (this fixes "button toggles but tools never show")
   const [showTools, setShowTools] = useState(true);
@@ -738,17 +751,25 @@ export default function BoardPage() {
 
               {!playersLoading && !playersError && filteredPlayers.length > 0 && (
                 <div className="space-y-2">
-                  {filteredPlayers.map((p, idx) => (
+                  {filteredPlayers.map((p, idx) => {
+                    console.log("[APP] Rendering player card:", p.name, "editMode:", editMode, "draggable:", editMode);
+                    return (
                     <div
                       key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
                       className="border rounded p-2 bg-white cursor-grab active:cursor-grabbing"
                       draggable={editMode}
                       onDragStart={(e) => {
+                        console.log("[DRAG] ===== DRAG START EVENT FIRED =====");
                         console.log("[DRAG] Card dragStart triggered, editMode:", editMode);
+                        console.log("[DRAG] Player:", p.name);
                         onPlayerDragStart(e, p);
                       }}
                       onMouseDown={(e) => {
-                        console.log("[DRAG] Card mousedown, editMode:", editMode, "draggable:", editMode);
+                        console.log("[DRAG] Card mousedown event");
+                        console.log("[DRAG] editMode:", editMode, "draggable attribute:", editMode);
+                      }}
+                      onClick={(e) => {
+                        console.log("[DRAG] Card clicked - editMode:", editMode);
                       }}
                       title={
                         editMode
@@ -812,7 +833,8 @@ export default function BoardPage() {
                         <div className="text-xs text-gray-600 mt-1">{p.notes}</div>
                       ) : null}
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </aside>
