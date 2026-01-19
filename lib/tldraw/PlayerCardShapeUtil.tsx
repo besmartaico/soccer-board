@@ -11,21 +11,19 @@ function getInitials(name?: string) {
   if (!name) return "?";
   const parts = name.trim().split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
   const out = `${first}${last}`.toUpperCase();
   return out || "?";
 }
 
-function buildTooltip(p: any) {
-  const lines: string[] = [];
-  if (p?.name) lines.push(p.name);
-  lines.push(`Grade: ${p?.grade || "?"} | Returning: ${p?.returning || "?"}`);
-  lines.push(`Pos: ${p?.pos1 || "?"}${p?.pos2 ? ` / ${p.pos2}` : ""}`);
-  lines.push(
-    `Primary: ${p?.primary || "?"} | Likelihood: ${p?.likelihood || "?"}`
-  );
-  if (p?.notes) lines.push(`Notes: ${String(p.notes).trim()}`);
-  return lines.join("\n");
+function tooltipText(p: any) {
+  const grade = p.grade ? `Grade: ${p.grade}` : "Grade: ?";
+  const pos =
+    p.pos1 ? `Pos: ${p.pos1}${p.pos2 ? ` / ${p.pos2}` : ""}` : "Pos: ?";
+  const ret = p.returning ? `Returning: ${p.returning}` : "Returning: ?";
+  const prim = p.primary ? `Primary: ${p.primary}` : "Primary: ?";
+  const lik = p.likelihood ? `Likelihood: ${p.likelihood}` : "Likelihood: ?";
+  return `${p.name || "Player"}\n${grade} • ${pos}\n${ret}\n${prim} • ${lik}`;
 }
 
 export class PlayerCardShapeUtil extends BaseBoxShapeUtil<any> {
@@ -44,7 +42,6 @@ export class PlayerCardShapeUtil extends BaseBoxShapeUtil<any> {
       pos1: "",
       pos2: "",
       pictureUrl: "",
-      notes: "",
     };
   }
 
@@ -59,11 +56,11 @@ export class PlayerCardShapeUtil extends BaseBoxShapeUtil<any> {
   override component(shape: any) {
     const p = shape.props ?? {};
     const canPreview = !!p.pictureUrl;
-    const tooltip = buildTooltip(p);
 
     return (
       <HTMLContainer
-        title={tooltip}
+        // Hover tooltip with player details
+        title={tooltipText(p)}
         style={{
           width: p.w,
           height: p.h,
@@ -103,50 +100,41 @@ export class PlayerCardShapeUtil extends BaseBoxShapeUtil<any> {
               flexShrink: 0,
               padding: 0,
               cursor: canPreview ? "zoom-in" : "default",
-              position: "relative",
-              overflow: "hidden",
             }}
           >
-            {/* Fallback initials always behind */}
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "#111827",
-                color: "white",
-                fontWeight: 800,
-                fontSize: 18,
-              }}
-            >
-              {getInitials(p.name)}
-            </div>
-
             {p.pictureUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={p.pictureUrl}
                 alt={p.name ? `${p.name} photo` : "Player photo"}
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "cover",
-                }}
+                style={{ width: "100%", height: "100%", objectFit: "cover" }}
                 onError={(e) => {
-                  // hide image, show fallback initials
                   (e.currentTarget as HTMLImageElement).style.display = "none";
                 }}
               />
-            ) : null}
+            ) : (
+              <div
+                style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 999,
+                  background: "#111827",
+                  color: "white",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 700,
+                  fontSize: 18,
+                }}
+              >
+                {getInitials(p.name)}
+              </div>
+            )}
           </button>
 
           {/* Text */}
           <div style={{ padding: 10, flex: 1, minWidth: 0 }}>
-            {/* Wrap name instead of forcing single-line ellipsis */}
+            {/* Wrap name (no ellipsis), clamp to 2 lines */}
             <div
               style={{
                 fontWeight: 700,
@@ -156,8 +144,9 @@ export class PlayerCardShapeUtil extends BaseBoxShapeUtil<any> {
                 whiteSpace: "normal",
                 overflow: "hidden",
                 display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
+                WebkitBoxOrient: "vertical" as any,
+                WebkitLineClamp: 2 as any,
+                wordBreak: "break-word",
               }}
             >
               {p.name}
@@ -184,8 +173,8 @@ export class PlayerCardShapeUtil extends BaseBoxShapeUtil<any> {
     return <rect width={shape.props.w} height={shape.props.h} rx={12} ry={12} />;
   }
 
-  // ✅ No TLOnResizeHandler typing — compatible across tldraw versions
-  override onResize(shape: any, info: any) {
+  // Avoid TLOnResizeHandler type (version differences)
+  override onResize = (shape: any, info: any) => {
     return resizeBox(shape, info);
-  }
+  };
 }

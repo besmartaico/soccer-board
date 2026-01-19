@@ -37,6 +37,7 @@ type PlayerRow = {
   potentialPrimary: string;
   notes: string;
   picture: string;
+
   pictureProxyUrl?: string;
 };
 
@@ -49,7 +50,6 @@ type Filters = {
 };
 
 const PLAYER_DRAG_MIME = "application/x-soccerboard-player";
-const FALLBACK_TEXT_MIME = "text/plain";
 
 export default function BoardPage() {
   const router = useRouter();
@@ -60,9 +60,14 @@ export default function BoardPage() {
     typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
 
   const [board, setBoard] = useState<BoardRow | null>(null);
-  const [editMode, setEditMode] = useState(true);
-  const [hideUi, setHideUi] = useState(false);
 
+  // IMPORTANT: default to Edit mode
+  const [editMode, setEditMode] = useState(true);
+
+  // Tools visibility (this fixes "button toggles but tools never show")
+  const [showTools, setShowTools] = useState(true);
+
+  // Left sidebar collapse
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +79,7 @@ export default function BoardPage() {
   const [playersError, setPlayersError] = useState<string | null>(null);
   const [players, setPlayers] = useState<PlayerRow[]>([]);
 
-  // Filters
+  // Filters (dropdown multi-select)
   const [filters, setFilters] = useState<Filters>({
     search: "",
     grade: [],
@@ -85,7 +90,7 @@ export default function BoardPage() {
 
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
-  // Image preview modal
+  // Image preview modal (sidebar + canvas)
   const [preview, setPreview] = useState<{ url: string; name?: string } | null>(
     null
   );
@@ -101,18 +106,17 @@ export default function BoardPage() {
 
   const saveTimer = useRef<number | null>(null);
 
-  // listen for image preview events from the canvas shape
+  // Listen for image preview events from the canvas shape
   useEffect(() => {
     const handler = (e: any) => {
       if (!e?.detail?.url) return;
       setPreview({ url: e.detail.url, name: e.detail.name });
     };
     window.addEventListener("playerImagePreview", handler as any);
-    return () =>
-      window.removeEventListener("playerImagePreview", handler as any);
+    return () => window.removeEventListener("playerImagePreview", handler as any);
   }, []);
 
-  // Keep TLDraw in sync with editMode
+  // Keep TLDraw in sync with editMode (readonly)
   useEffect(() => {
     const editor = editorRef.current;
     if (editor && typeof editor.updateInstanceState === "function") {
@@ -134,9 +138,12 @@ export default function BoardPage() {
       s.loadSnapshot(snap);
       return;
     }
-    console.warn("Store does not support loadSnapshot().");
+    console.warn(
+      "This version of tldraw store does not support loadSnapshot()."
+    );
   };
 
+  // --------- DB helpers ---------
   async function persistBoardSnapshot(snapshot: TLStoreSnapshot) {
     if (!boardId) return;
 
@@ -202,9 +209,11 @@ export default function BoardPage() {
     setBoard(row);
 
     const gc = row?.data?.google;
-    if (gc?.sheetId && gc?.range)
+    if (gc?.sheetId && gc?.range) {
       setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
-    else setGoogleConfig(null);
+    } else {
+      setGoogleConfig(null);
+    }
 
     const nextStore = makeStore();
     const snap = row?.data?.snapshot;
@@ -233,13 +242,13 @@ export default function BoardPage() {
     setPlayers([]);
 
     try {
-      const url =
-        `/api/google/sheet?sheetId=${encodeURIComponent(cfg.sheetId)}` +
-        `&range=${encodeURIComponent(cfg.range)}` +
-        `&ts=${Date.now()}`;
+      const url = `/api/google/sheet?sheetId=${encodeURIComponent(
+        cfg.sheetId
+      )}&range=${encodeURIComponent(cfg.range)}`;
 
       const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
+
       if (!res.ok || !json?.success) {
         throw new Error(json?.error ?? "Failed to load player sheet");
       }
@@ -247,6 +256,7 @@ export default function BoardPage() {
       const values: string[][] = json.values ?? [];
       if (values.length === 0) {
         setPlayers([]);
+        setPlayersLoading(false);
         return;
       }
 
@@ -273,6 +283,7 @@ export default function BoardPage() {
           const rawPic = (r[idxPicture] ?? "").toString();
           const normalized = normalizePictureUrl(rawPic);
 
+          // IMPORTANT: add a cache buster so new photos appear in prod
           const proxy = normalized
             ? `/api/image-proxy?url=${encodeURIComponent(normalized)}&ts=${Date.now()}`
             : "";
@@ -307,7 +318,6 @@ export default function BoardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [googleConfig?.sheetId, googleConfig?.range]);
 
-  // ----- options for dropdowns -----
   const gradeOptions = useMemo(
     () =>
       uniq(players.map((p) => (p.grade ?? "").trim())).sort((a, b) =>
@@ -368,9 +378,7 @@ export default function BoardPage() {
     });
   }
 
-  // =========================
-  // DRAG / DROP (FIXED)
-  // =========================
+  // ----- drag/drop -----
   function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
     const payload = {
       id: p.id,
@@ -382,39 +390,29 @@ export default function BoardPage() {
       pos1: p.position,
       pos2: p.secondaryPosition,
       pictureUrl: p.pictureProxyUrl || "",
-      notes: p.notes || "",
     };
 
     const json = JSON.stringify(payload);
 
-    // ✅ set both custom + text/plain for cross-browser reliability
+    // IMPORTANT: Safari / some prod browsers need text/plain
     e.dataTransfer.setData(PLAYER_DRAG_MIME, json);
-    e.dataTransfer.setData(FALLBACK_TEXT_MIME, json);
+    e.dataTransfer.setData("text/plain", json);
 
     e.dataTransfer.effectAllowed = "copy";
   }
 
-  function extractPlayerPayload(dt: DataTransfer): any | null {
-    const rawCustom = dt.getData(PLAYER_DRAG_MIME);
-    const rawPlain = dt.getData(FALLBACK_TEXT_MIME);
-    const raw = rawCustom || rawPlain;
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw);
-      if (!parsed?.name) return null;
-      return parsed;
-    } catch {
-      return null;
-    }
-  }
-
+  // IMPORTANT: use capture so tldraw doesn't swallow the event
   function onCanvasDragOverCapture(e: React.DragEvent) {
     if (!editMode) return;
 
-    // ✅ Always preventDefault if payload is present (don’t trust types[])
-    const payload = extractPlayerPayload(e.dataTransfer);
-    if (payload) {
+    // Some browsers only advertise text/plain
+    const types = Array.from(e.dataTransfer.types || []);
+    const hasOurType =
+      types.includes(PLAYER_DRAG_MIME) || types.includes("text/plain");
+
+    if (hasOurType) {
       e.preventDefault();
+      e.stopPropagation();
       e.dataTransfer.dropEffect = "copy";
     }
   }
@@ -422,10 +420,21 @@ export default function BoardPage() {
   function onCanvasDropCapture(e: React.DragEvent) {
     if (!editMode) return;
 
-    const data = extractPlayerPayload(e.dataTransfer);
-    if (!data) return;
+    const raw =
+      e.dataTransfer.getData(PLAYER_DRAG_MIME) ||
+      e.dataTransfer.getData("text/plain");
+
+    if (!raw) return;
 
     e.preventDefault();
+    e.stopPropagation();
+
+    let data: any;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return;
+    }
 
     const editor = editorRef.current;
     if (!editor) return;
@@ -439,25 +448,31 @@ export default function BoardPage() {
       }
     } catch {}
 
-    editor.createShape({
-      type: "player-card",
-      x: pt.x,
-      y: pt.y,
-      props: {
-        w: 280,
-        h: 96,
-        playerId: data.id ?? "",
-        name: data.name ?? "Player",
-        grade: data.grade ?? "",
-        returning: data.returning ?? "",
-        primary: data.primary ?? "",
-        likelihood: data.likelihood ?? "",
-        pos1: data.pos1 ?? "",
-        pos2: data.pos2 ?? "",
-        pictureUrl: data.pictureUrl ?? "",
-        notes: data.notes ?? "",
-      },
-    });
+    const create = () => {
+      editor.createShape({
+        type: "player-card",
+        x: pt.x,
+        y: pt.y,
+        props: {
+          w: 280,
+          h: 96,
+          playerId: data.id ?? "",
+          name: data.name ?? "Player",
+          grade: data.grade ?? "",
+          returning: data.returning ?? "",
+          primary: data.primary ?? "",
+          likelihood: data.likelihood ?? "",
+          pos1: data.pos1 ?? "",
+          pos2: data.pos2 ?? "",
+          pictureUrl: data.pictureUrl ?? "",
+        },
+      });
+    };
+
+    // More robust across tldraw versions
+    if (typeof editor.batch === "function") editor.batch(create);
+    else if (typeof editor.run === "function") editor.run(create);
+    else create();
 
     scheduleAutosave();
   }
@@ -478,12 +493,19 @@ export default function BoardPage() {
               <div className="font-semibold">
                 {preview.name || "Player Photo"}
               </div>
-              <button className="text-sm underline" onClick={() => setPreview(null)}>
+              <button
+                className="text-sm underline"
+                onClick={() => setPreview(null)}
+              >
                 Close
               </button>
             </div>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={preview.url} alt={preview.name || "Player photo"} className="w-full h-auto" />
+            <img
+              src={preview.url}
+              alt={preview.name || "Player photo"}
+              className="w-full h-auto"
+            />
           </div>
         </div>
       ) : null}
@@ -491,13 +513,20 @@ export default function BoardPage() {
       <div className="flex items-center justify-between px-6 py-4 border-b">
         <div className="text-2xl font-bold">{board ? board.name : "Board"}</div>
 
-        <div className="flex items-center gap-4">
-          <button className="border px-3 py-1 rounded" onClick={() => setEditMode((v) => !v)}>
+        <div className="flex items-center gap-3">
+          <button
+            className="border px-3 py-1 rounded"
+            onClick={() => setEditMode((v) => !v)}
+          >
             {editMode ? "Switch to View" : "Switch to Edit"}
           </button>
 
-          <button className="border px-3 py-1 rounded" onClick={() => setHideUi((v) => !v)}>
-            {hideUi ? "Show Tools" : "Hide Tools"}
+          <button
+            className="border px-3 py-1 rounded"
+            onClick={() => setShowTools((v) => !v)}
+            title="Toggle the tldraw UI panels"
+          >
+            {showTools ? "Hide Tools" : "Show Tools"}
           </button>
 
           <Link className="underline" href="/app/teams">
@@ -515,25 +544,26 @@ export default function BoardPage() {
         <div className="p-6">Loading...</div>
       ) : (
         <div className="flex h-[calc(100vh-73px)]">
-          {/* Sidebar (collapsible) */}
+          {/* Sidebar */}
           {!sidebarCollapsed ? (
             <aside className="w-96 border-r p-4 overflow-auto">
               <div className="flex items-center justify-between mb-2">
                 <div className="font-semibold">Roster</div>
                 <div className="flex items-center gap-2">
                   <button
-                    className="text-xs border rounded px-2 py-1"
-                    disabled={!googleConfig || playersLoading}
+                    className="border px-3 py-1 rounded text-sm"
                     onClick={() => {
                       if (googleConfig) loadPlayersFromGoogle(googleConfig);
                     }}
+                    disabled={!googleConfig || playersLoading}
+                    title={!googleConfig ? "No Google config on this board" : "Refresh roster"}
                   >
                     Refresh
                   </button>
+
                   <button
-                    className="text-xs border rounded px-2 py-1"
+                    className="border px-3 py-1 rounded text-sm"
                     onClick={() => setSidebarCollapsed(true)}
-                    title="Collapse roster panel"
                   >
                     Collapse
                   </button>
@@ -555,44 +585,74 @@ export default function BoardPage() {
 
                 <DropdownMultiSelect
                   label="Grade"
-                  options={gradeOptions.map((g) => ({ value: g, label: `Grade ${g}` }))}
+                  options={gradeOptions.map((g) => ({
+                    value: g,
+                    label: `Grade ${g}`,
+                  }))}
                   selected={filters.grade}
                   open={openDropdown === "grade"}
-                  onOpen={() => setOpenDropdown((v) => (v === "grade" ? null : "grade"))}
+                  onOpen={() =>
+                    setOpenDropdown((v) => (v === "grade" ? null : "grade"))
+                  }
                   onToggle={(v) => toggleMulti("grade", v)}
                 />
 
                 <DropdownMultiSelect
                   label="Returning"
-                  options={returningOptions.map((r) => ({ value: r, label: r }))}
+                  options={returningOptions.map((r) => ({
+                    value: r,
+                    label: r,
+                  }))}
                   selected={filters.returning}
                   open={openDropdown === "returning"}
-                  onOpen={() => setOpenDropdown((v) => (v === "returning" ? null : "returning"))}
+                  onOpen={() =>
+                    setOpenDropdown((v) =>
+                      v === "returning" ? null : "returning"
+                    )
+                  }
                   onToggle={(v) => toggleMulti("returning", v)}
                 />
 
                 <DropdownMultiSelect
                   label="Primary"
-                  options={primaryOptions.map((p) => ({ value: p, label: p }))}
+                  options={primaryOptions.map((p) => ({
+                    value: p,
+                    label: p,
+                  }))}
                   selected={filters.primary}
                   open={openDropdown === "primary"}
-                  onOpen={() => setOpenDropdown((v) => (v === "primary" ? null : "primary"))}
+                  onOpen={() =>
+                    setOpenDropdown((v) => (v === "primary" ? null : "primary"))
+                  }
                   onToggle={(v) => toggleMulti("primary", v)}
                 />
 
                 <DropdownMultiSelect
                   label="Likelihood"
-                  options={likelihoodOptions.map((l) => ({ value: l, label: l }))}
+                  options={likelihoodOptions.map((l) => ({
+                    value: l,
+                    label: l,
+                  }))}
                   selected={filters.likelihood}
                   open={openDropdown === "likelihood"}
-                  onOpen={() => setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"))}
+                  onOpen={() =>
+                    setOpenDropdown((v) =>
+                      v === "likelihood" ? null : "likelihood"
+                    )
+                  }
                   onToggle={(v) => toggleMulti("likelihood", v)}
                 />
 
                 <button
                   className="text-xs underline text-gray-600 mt-2"
                   onClick={() =>
-                    setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
+                    setFilters({
+                      search: "",
+                      grade: [],
+                      returning: [],
+                      primary: [],
+                      likelihood: [],
+                    })
                   }
                 >
                   Clear filters
@@ -600,7 +660,15 @@ export default function BoardPage() {
               </div>
 
               {playersLoading && <div className="text-sm">Loading players…</div>}
-              {playersError && <div className="text-sm text-red-600">{playersError}</div>}
+              {playersError && (
+                <div className="text-sm text-red-600">{playersError}</div>
+              )}
+
+              {!playersLoading && !playersError && players.length > 0 && (
+                <div className="text-xs text-gray-600 mb-2">
+                  Showing {filteredPlayers.length} of {players.length}
+                </div>
+              )}
 
               {!playersLoading && !playersError && filteredPlayers.length > 0 && (
                 <div className="space-y-2">
@@ -608,9 +676,13 @@ export default function BoardPage() {
                     <div
                       key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
                       className="border rounded p-2 bg-white cursor-grab active:cursor-grabbing"
-                      draggable
+                      draggable={editMode}
                       onDragStart={(e) => onPlayerDragStart(e, p)}
-                      title={editMode ? "Drag onto the board" : "Switch to Edit to place players"}
+                      title={
+                        editMode
+                          ? "Drag onto the board"
+                          : "Switch to Edit to place players"
+                      }
                     >
                       <div className="flex gap-2">
                         <button
@@ -619,10 +691,13 @@ export default function BoardPage() {
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            if (p.pictureProxyUrl) setPreview({ url: p.pictureProxyUrl, name: p.name });
+                            if (p.pictureProxyUrl)
+                              setPreview({ url: p.pictureProxyUrl, name: p.name });
                           }}
                           title={p.pictureProxyUrl ? "Click to enlarge" : "No photo"}
-                          style={{ cursor: p.pictureProxyUrl ? "zoom-in" : "default" }}
+                          style={{
+                            cursor: p.pictureProxyUrl ? "zoom-in" : "default",
+                          }}
                         >
                           {p.pictureProxyUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
@@ -631,7 +706,8 @@ export default function BoardPage() {
                               alt={`${p.name} photo`}
                               className="w-full h-full object-cover"
                               onError={(e) =>
-                                ((e.currentTarget as HTMLImageElement).style.display = "none")
+                                ((e.currentTarget as HTMLImageElement).style.display =
+                                  "none")
                               }
                             />
                           ) : null}
@@ -641,8 +717,10 @@ export default function BoardPage() {
                           <div className="font-medium truncate">{p.name}</div>
                           <div className="text-xs text-gray-700">
                             Grade: {p.grade || "?"} • Pos: {p.position || "?"}
-                            {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
-                            {p.returning || "?"}
+                            {p.secondaryPosition
+                              ? ` / ${p.secondaryPosition}`
+                              : ""}{" "}
+                            • Returning: {p.returning || "?"}
                           </div>
                           <div className="text-xs text-gray-700">
                             Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
@@ -651,34 +729,36 @@ export default function BoardPage() {
                         </div>
                       </div>
 
-                      {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
+                      {p.notes ? (
+                        <div className="text-xs text-gray-600 mt-1">{p.notes}</div>
+                      ) : null}
                     </div>
                   ))}
                 </div>
               )}
             </aside>
           ) : (
-            <aside className="w-10 border-r flex flex-col items-center py-3 gap-2">
+            <aside className="w-10 border-r flex flex-col items-center py-2">
               <button
                 className="border rounded px-2 py-1 text-xs"
                 onClick={() => setSidebarCollapsed(false)}
-                title="Expand roster panel"
+                title="Expand sidebar"
               >
-                ≡
+                &gt;
               </button>
             </aside>
           )}
 
-          {/* Canvas */}
+          {/* Canvas wrapper MUST handle drop */}
           <section
-            className="flex-1"
+            className="flex-1 relative"
             onDragOverCapture={onCanvasDragOverCapture}
             onDropCapture={onCanvasDropCapture}
           >
             <Tldraw
+              key={showTools ? "tools-visible" : "tools-hidden"}
               store={store}
-              shapeUtils={[...defaultShapeUtils, PlayerCardShapeUtil]}
-              hideUi={hideUi}
+              hideUi={!showTools}
               onMount={(editor) => {
                 editorRef.current = editor;
                 editor.updateInstanceState({ isReadonly: !editMode });
@@ -692,7 +772,7 @@ export default function BoardPage() {
   );
 }
 
-/** Dropdown multi-select (inline, reliable inside scroll containers) */
+/** Dropdown multi-select (checkboxes inside a dropdown) */
 function DropdownMultiSelect({
   label,
   options,
@@ -711,7 +791,7 @@ function DropdownMultiSelect({
   const selectedCount = selected.length;
 
   return (
-    <div className="mb-2">
+    <div className="relative mb-2">
       <button
         type="button"
         className="w-full border rounded px-2 py-1 text-sm flex items-center justify-between"
@@ -725,13 +805,16 @@ function DropdownMultiSelect({
       </button>
 
       {open ? (
-        <div className="mt-1 w-full bg-white border rounded shadow p-2 max-h-56 overflow-auto">
+        <div className="absolute z-50 mt-1 w-full bg-white border rounded shadow p-2 max-h-56 overflow-auto">
           {options.length === 0 ? (
             <div className="text-xs text-gray-500">No options</div>
           ) : (
             <div className="space-y-1">
               {options.map((o) => (
-                <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
+                <label
+                  key={o.value}
+                  className="flex items-center gap-2 text-sm cursor-pointer"
+                >
                   <input
                     type="checkbox"
                     checked={selected.includes(o.value)}
@@ -761,40 +844,22 @@ function uniq(arr: string[]) {
   return out;
 }
 
-// ====== KEY FIX FOR PHOTOS ======
-// Extract Drive file id robustly and avoid polluted IDs like "...=w1000"
-function extractDriveId(raw: string): string | "" {
-  const s = (raw ?? "").trim();
-  if (!s) return "";
-
-  // direct regex fallback (handles weird strings / not valid URLs)
-  const m1 = s.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
-  if (m1?.[1]) return m1[1];
-
-  // handle /file/d/<id>/
-  const m2 = s.match(/\/file\/d\/([a-zA-Z0-9_-]{10,})/);
-  if (m2?.[1]) return m2[1];
-
-  // some sheets accidentally build "...id=<id>=w1000"
-  const m3 = s.match(/[?&]id=([a-zA-Z0-9_-]{10,})=/);
-  if (m3?.[1]) return m3[1];
-
-  return "";
-}
-
 function normalizePictureUrl(raw: string) {
   const s = (raw ?? "").trim();
   if (!s) return "";
 
-  const id = extractDriveId(s);
-  if (id) {
-    // Prefer thumbnail endpoint (works better than uc?export=view for images)
-    return `https://drive.google.com/thumbnail?id=${id}&sz=w1000`;
-  }
-
-  // If it's already a normal URL, keep it
   try {
     const u = new URL(s);
+
+    // drive file link: /file/d/<id>/
+    const m = u.pathname.match(/\/file\/d\/([^/]+)/);
+    if (m && m[1])
+      return `https://drive.google.com/uc?export=view&id=${m[1]}`;
+
+    // open?id=<id>
+    const idParam = u.searchParams.get("id");
+    if (idParam) return `https://drive.google.com/uc?export=view&id=${idParam}`;
+
     return u.toString();
   } catch {
     return "";
