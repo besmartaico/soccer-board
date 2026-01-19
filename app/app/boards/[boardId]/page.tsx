@@ -77,6 +77,19 @@ export default function BoardPage() {
     console.log("[APP] editMode changed to:", editMode);
   }, [editMode]);
 
+  // Debug: Log editMode on mount and changes
+  useEffect(() => {
+    console.log("[APP] ===== INITIAL STATE =====");
+    console.log("[APP] editMode:", editMode);
+    console.log("[APP] showTools:", showTools);
+    console.log("[APP] players count:", players.length);
+    console.log("[APP] filteredPlayers count:", filteredPlayers.length);
+  }, [editMode, showTools, players.length, filteredPlayers.length]);
+
+  useEffect(() => {
+    console.log("[APP] editMode changed to:", editMode);
+  }, [editMode]);
+
   // Tools visibility (this fixes "button toggles but tools never show")
   const [showTools, setShowTools] = useState(true);
 
@@ -873,6 +886,7 @@ export default function BoardPage() {
           >
             <Tldraw
               store={store}
+              shapeUtils={[...defaultShapeUtils, PlayerCardShapeUtil]}
               hideUi={!showTools}
               onMount={(editor) => {
                 console.log("[TLDRAW] Editor mounted:", editor);
