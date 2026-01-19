@@ -122,6 +122,7 @@ export default function BoardPage() {
     if (editor && typeof editor.updateInstanceState === "function") {
       editor.updateInstanceState({ isReadonly: !editMode });
     }
+    console.log("[APP] editMode changed to:", editMode);
   }, [editMode]);
 
 
@@ -381,7 +382,8 @@ export default function BoardPage() {
 
   // ----- drag/drop -----
   function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
-    console.log("[DRAG] Drag start for player:", p.name);
+    console.log("[DRAG] ===== DRAG START =====");
+    console.log("[DRAG] Player:", p.name, p.id);
     
     const payload = {
       id: p.id,
@@ -741,7 +743,13 @@ export default function BoardPage() {
                       key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
                       className="border rounded p-2 bg-white cursor-grab active:cursor-grabbing"
                       draggable={editMode}
-                      onDragStart={(e) => onPlayerDragStart(e, p)}
+                      onDragStart={(e) => {
+                        console.log("[DRAG] Card dragStart triggered, editMode:", editMode);
+                        onPlayerDragStart(e, p);
+                      }}
+                      onMouseDown={(e) => {
+                        console.log("[DRAG] Card mousedown, editMode:", editMode, "draggable:", editMode);
+                      }}
                       title={
                         editMode
                           ? "Drag onto the board"
@@ -752,15 +760,21 @@ export default function BoardPage() {
                         <button
                           type="button"
                           className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0"
+                          draggable={false}
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
                             if (p.pictureProxyUrl)
                               setPreview({ url: p.pictureProxyUrl, name: p.name });
                           }}
+                          onMouseDown={(e) => {
+                            // Allow drag to start even when clicking button
+                            e.stopPropagation();
+                          }}
                           title={p.pictureProxyUrl ? "Click to enlarge" : "No photo"}
                           style={{
                             cursor: p.pictureProxyUrl ? "zoom-in" : "default",
+                            pointerEvents: "auto",
                           }}
                         >
                           {p.pictureProxyUrl ? (
@@ -769,6 +783,7 @@ export default function BoardPage() {
                               src={p.pictureProxyUrl}
                               alt={`${p.name} photo`}
                               className="w-full h-full object-cover"
+                              draggable={false}
                               onError={(e) =>
                                 ((e.currentTarget as HTMLImageElement).style.display =
                                   "none")
@@ -816,10 +831,22 @@ export default function BoardPage() {
           {/* Canvas wrapper MUST handle drop */}
           <section
             className="flex-1 relative"
-            onDragOver={onCanvasDragOverCapture}
-            onDragOverCapture={onCanvasDragOverCapture}
-            onDrop={onCanvasDropCapture}
-            onDropCapture={onCanvasDropCapture}
+            onDragOver={(e) => {
+              console.log("[DRAG] onDragOver (bubble) fired");
+              onCanvasDragOverCapture(e);
+            }}
+            onDragOverCapture={(e) => {
+              console.log("[DRAG] onDragOverCapture fired");
+              onCanvasDragOverCapture(e);
+            }}
+            onDrop={(e) => {
+              console.log("[DRAG] onDrop (bubble) fired");
+              onCanvasDropCapture(e);
+            }}
+            onDropCapture={(e) => {
+              console.log("[DRAG] onDropCapture fired");
+              onCanvasDropCapture(e);
+            }}
             style={{ pointerEvents: 'auto' }}
           >
             <Tldraw
