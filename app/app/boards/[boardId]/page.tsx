@@ -124,6 +124,7 @@ export default function BoardPage() {
     }
   }, [editMode]);
 
+
   // --------- tldraw snapshot helpers ---------
   const getStoreSnapshotSafe = (s: any): TLStoreSnapshot => {
     if (typeof s?.getSnapshot === "function") return s.getSnapshot();
@@ -380,6 +381,8 @@ export default function BoardPage() {
 
   // ----- drag/drop -----
   function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
+    console.log("[DRAG] Drag start for player:", p.name);
+    
     const payload = {
       id: p.id,
       name: p.name,
@@ -393,88 +396,149 @@ export default function BoardPage() {
     };
 
     const json = JSON.stringify(payload);
+    console.log("[DRAG] Payload:", payload);
 
     // IMPORTANT: Safari / some prod browsers need text/plain
     e.dataTransfer.setData(PLAYER_DRAG_MIME, json);
     e.dataTransfer.setData("text/plain", json);
+    
+    const typesSet = Array.from(e.dataTransfer.types || []);
+    console.log("[DRAG] DataTransfer types:", typesSet);
 
     e.dataTransfer.effectAllowed = "copy";
   }
 
-  // IMPORTANT: use capture so tldraw doesn't swallow the event
+  // IMPORTANT: use capture so we can intercept before tldraw
   function onCanvasDragOverCapture(e: React.DragEvent) {
-    if (!editMode) return;
+    if (!editMode) {
+      console.log("[DRAG] DragOver: editMode is false, ignoring");
+      return;
+    }
 
     // Some browsers only advertise text/plain
     const types = Array.from(e.dataTransfer.types || []);
     const hasOurType =
       types.includes(PLAYER_DRAG_MIME) || types.includes("text/plain");
 
+    console.log("[DRAG] DragOver capture - types:", types, "hasOurType:", hasOurType);
+
     if (hasOurType) {
       e.preventDefault();
-      e.stopPropagation();
+      e.stopPropagation(); // Stop propagation to prevent tldraw from interfering
       e.dataTransfer.dropEffect = "copy";
+      console.log("[DRAG] DragOver: prevented default, set dropEffect to copy");
     }
   }
 
   function onCanvasDropCapture(e: React.DragEvent) {
-    if (!editMode) return;
+    console.log("[DRAG] Drop capture event fired");
+    
+    if (!editMode) {
+      console.log("[DRAG] Drop: editMode is false, ignoring");
+      return;
+    }
 
     const raw =
       e.dataTransfer.getData(PLAYER_DRAG_MIME) ||
       e.dataTransfer.getData("text/plain");
 
-    if (!raw) return;
+    console.log("[DRAG] Drop: raw data:", raw ? "present" : "missing", raw?.substring(0, 100));
+
+    if (!raw) {
+      console.log("[DRAG] Drop: No data found, aborting");
+      return;
+    }
 
     e.preventDefault();
-    e.stopPropagation();
+    e.stopPropagation(); // Stop here to prevent tldraw from handling our custom drop
+    console.log("[DRAG] Drop: prevented default and stopped propagation");
 
     let data: any;
     try {
       data = JSON.parse(raw);
-    } catch {
+      console.log("[DRAG] Drop: parsed data:", data);
+    } catch (err) {
+      console.error("[DRAG] Drop: Failed to parse JSON:", err, "raw:", raw);
       return;
     }
 
     const editor = editorRef.current;
-    if (!editor) return;
+    console.log("[DRAG] Drop: editor ref:", editor ? "present" : "missing");
+    
+    if (!editor) {
+      console.error("[DRAG] Drop: Editor not available!");
+      return;
+    }
 
     let pt: any = { x: 0, y: 0 };
     try {
       if (typeof editor.screenToPage === "function") {
         pt = editor.screenToPage({ x: e.clientX, y: e.clientY });
+        console.log("[DRAG] Drop: screenToPage result:", pt);
       } else if (editor.inputs?.currentPagePoint) {
         pt = editor.inputs.currentPagePoint;
+        console.log("[DRAG] Drop: using currentPagePoint:", pt);
+      } else {
+        console.warn("[DRAG] Drop: No coordinate conversion method found, using 0,0");
       }
-    } catch {}
+    } catch (err) {
+      console.error("[DRAG] Drop: Error converting coordinates:", err);
+    }
 
     const create = () => {
-      editor.createShape({
+      const shapeProps = {
+        w: 280,
+        h: 96,
+        playerId: data.id ?? "",
+        name: data.name ?? "Player",
+        grade: data.grade ?? "",
+        returning: data.returning ?? "",
+        primary: data.primary ?? "",
+        likelihood: data.likelihood ?? "",
+        pos1: data.pos1 ?? "",
+        pos2: data.pos2 ?? "",
+        pictureUrl: data.pictureUrl ?? "",
+      };
+      
+      console.log("[DRAG] Drop: Creating shape with:", {
         type: "player-card",
         x: pt.x,
         y: pt.y,
-        props: {
-          w: 280,
-          h: 96,
-          playerId: data.id ?? "",
-          name: data.name ?? "Player",
-          grade: data.grade ?? "",
-          returning: data.returning ?? "",
-          primary: data.primary ?? "",
-          likelihood: data.likelihood ?? "",
-          pos1: data.pos1 ?? "",
-          pos2: data.pos2 ?? "",
-          pictureUrl: data.pictureUrl ?? "",
-        },
+        props: shapeProps,
       });
+
+      try {
+        const result = editor.createShape({
+          type: "player-card",
+          x: pt.x,
+          y: pt.y,
+          props: shapeProps,
+        });
+        console.log("[DRAG] Drop: Shape created successfully:", result);
+      } catch (err) {
+        console.error("[DRAG] Drop: Error creating shape:", err);
+        throw err;
+      }
     };
 
     // More robust across tldraw versions
-    if (typeof editor.batch === "function") editor.batch(create);
-    else if (typeof editor.run === "function") editor.run(create);
-    else create();
+    try {
+      if (typeof editor.batch === "function") {
+        console.log("[DRAG] Drop: Using editor.batch()");
+        editor.batch(create);
+      } else if (typeof editor.run === "function") {
+        console.log("[DRAG] Drop: Using editor.run()");
+        editor.run(create);
+      } else {
+        console.log("[DRAG] Drop: Calling create() directly");
+        create();
+      }
+    } catch (err) {
+      console.error("[DRAG] Drop: Error in shape creation wrapper:", err);
+    }
 
     scheduleAutosave();
+    console.log("[DRAG] Drop: Complete");
   }
 
   return (
@@ -752,16 +816,20 @@ export default function BoardPage() {
           {/* Canvas wrapper MUST handle drop */}
           <section
             className="flex-1 relative"
+            onDragOver={onCanvasDragOverCapture}
             onDragOverCapture={onCanvasDragOverCapture}
+            onDrop={onCanvasDropCapture}
             onDropCapture={onCanvasDropCapture}
+            style={{ pointerEvents: 'auto' }}
           >
             <Tldraw
-              key={showTools ? "tools-visible" : "tools-hidden"}
               store={store}
               hideUi={!showTools}
               onMount={(editor) => {
+                console.log("[TLDRAW] Editor mounted:", editor);
                 editorRef.current = editor;
                 editor.updateInstanceState({ isReadonly: !editMode });
+                console.log("[TLDRAW] Editor initialized, readonly:", !editMode);
               }}
               onUiEvent={() => scheduleAutosave()}
             />
