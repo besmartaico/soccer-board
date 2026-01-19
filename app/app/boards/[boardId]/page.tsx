@@ -4,13 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
-import {
-  Tldraw,
-  createTLStore,
-  defaultShapeUtils,
-  type TLStoreSnapshot,
-} from "tldraw";
-
+import { Tldraw, createTLStore, defaultShapeUtils } from "tldraw";
 import { PlayerCardShapeUtil } from "@/lib/tldraw/PlayerCardShapeUtil";
 
 type BoardRow = {
@@ -21,10 +15,7 @@ type BoardRow = {
   created_at: string;
 };
 
-type GoogleConfig = {
-  sheetId: string;
-  range: string;
-};
+type GoogleConfig = { sheetId: string; range: string };
 
 type PlayerRow = {
   id: string;
@@ -59,23 +50,17 @@ export default function BoardPage() {
     typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
 
   const [board, setBoard] = useState<BoardRow | null>(null);
-
-  // default to Edit mode
   const [editMode, setEditMode] = useState(true);
-
-  // Left sidebar collapse
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Google player data
   const [googleConfig, setGoogleConfig] = useState<GoogleConfig | null>(null);
   const [playersLoading, setPlayersLoading] = useState(false);
   const [playersError, setPlayersError] = useState<string | null>(null);
   const [players, setPlayers] = useState<PlayerRow[]>([]);
 
-  // Filters (dropdown multi-select)
   const [filters, setFilters] = useState<Filters>({
     search: "",
     grade: [],
@@ -83,27 +68,21 @@ export default function BoardPage() {
     primary: [],
     likelihood: [],
   });
-
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
-  // Image preview modal (sidebar + canvas)
   const [preview, setPreview] = useState<{ url: string; name?: string } | null>(
     null
   );
 
-  // Drag overlay state (this is the reliable way to drop onto TLDraw)
-  const [isDraggingPlayer, setIsDraggingPlayer] = useState(false);
+  const store = useMemo(
+    () =>
+      createTLStore({
+        shapeUtils: [...defaultShapeUtils, PlayerCardShapeUtil],
+      }),
+    []
+  );
 
-  // Store + editor ref
-  const makeStore = () =>
-    createTLStore({
-      shapeUtils: [...defaultShapeUtils, PlayerCardShapeUtil],
-    });
-
-  const [store, setStore] = useState(() => makeStore());
   const editorRef = useRef<any>(null);
-
-  const saveTimer = useRef<number | null>(null);
 
   // Listen for image preview events from the canvas shape
   useEffect(() => {
@@ -122,70 +101,6 @@ export default function BoardPage() {
       editor.updateInstanceState({ isReadonly: !editMode });
     }
   }, [editMode]);
-
-  // Safety: if a drag gets "stuck", clear it (prevents invisible overlays)
-  useEffect(() => {
-    const clear = () => setIsDraggingPlayer(false);
-    window.addEventListener("dragend", clear);
-    window.addEventListener("drop", clear);
-    window.addEventListener("blur", clear);
-    return () => {
-      window.removeEventListener("dragend", clear);
-      window.removeEventListener("drop", clear);
-      window.removeEventListener("blur", clear);
-    };
-  }, []);
-
-  // --------- tldraw snapshot helpers ---------
-  const getStoreSnapshotSafe = (s: any): TLStoreSnapshot => {
-    if (typeof s?.getSnapshot === "function") return s.getSnapshot();
-    if (typeof s?.getStoreSnapshot === "function") return s.getStoreSnapshot();
-    if (typeof s?.serialize === "function") return s.serialize();
-    throw new Error("This version of tldraw store does not support snapshots.");
-  };
-
-  const loadStoreSnapshotSafe = (s: any, snap: any) => {
-    if (!snap) return;
-    if (typeof s?.loadSnapshot === "function") {
-      s.loadSnapshot(snap);
-      return;
-    }
-    console.warn("This version of tldraw store does not support loadSnapshot().");
-  };
-
-  // --------- DB helpers ---------
-  async function persistBoardSnapshot(snapshot: TLStoreSnapshot) {
-    if (!boardId) return;
-
-    const nextData = {
-      ...(board?.data && typeof board.data === "object" ? board.data : {}),
-      snapshot,
-    };
-
-    const { error } = await supabase
-      .from("boards")
-      .update({ data: nextData })
-      .eq("id", boardId);
-
-    if (error) setError(error.message);
-    if (board) setBoard({ ...board, data: nextData });
-  }
-
-  function scheduleAutosave() {
-    if (!boardId) return;
-
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-
-    saveTimer.current = window.setTimeout(async () => {
-      try {
-        const snap = getStoreSnapshotSafe(store as any);
-        await persistBoardSnapshot(snap);
-      } catch (e: any) {
-        console.error(e);
-        setError(e?.message ?? "Failed to autosave.");
-      }
-    }, 800);
-  }
 
   async function loadBoard() {
     setLoading(true);
@@ -219,24 +134,11 @@ export default function BoardPage() {
     setBoard(row);
 
     const gc = row?.data?.google;
-    if (gc?.sheetId && gc?.range) {
-      setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
-    } else {
-      setGoogleConfig(null);
-    }
+    if (gc?.sheetId && gc?.range) setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
+    else setGoogleConfig(null);
 
-    const nextStore = makeStore();
-    const snap = row?.data?.snapshot;
-
-    try {
-      if (snap) loadStoreSnapshotSafe(nextStore as any, snap);
-      setStore(nextStore);
-    } catch (e: any) {
-      console.error(e);
-      setError("Failed to load board snapshot (starting blank).");
-      setStore(nextStore);
-    }
-
+    // IMPORTANT: We are intentionally NOT loading/saving TLDraw snapshots here
+    // because your current tldraw build does not support loadSnapshot().
     setLoading(false);
   }
 
@@ -245,7 +147,6 @@ export default function BoardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [boardId]);
 
-  // --------- load players when googleConfig is available ---------
   async function loadPlayersFromGoogle(cfg: GoogleConfig) {
     setPlayersError(null);
     setPlayersLoading(true);
@@ -273,8 +174,7 @@ export default function BoardPage() {
       const header = values[0];
       const rows = values.slice(1);
 
-      const col = (name: string) =>
-        header.findIndex((h) => (h ?? "").trim() === name);
+      const col = (name: string) => header.findIndex((h) => (h ?? "").trim() === name);
 
       const idxId = col("ID");
       const idxName = col("Student Name");
@@ -292,7 +192,6 @@ export default function BoardPage() {
         .map((r) => {
           const rawPic = (r[idxPicture] ?? "").toString();
           const normalized = normalizePictureUrl(rawPic);
-
           const proxy = normalized
             ? `/api/image-proxy?url=${encodeURIComponent(normalized)}&ts=${Date.now()}`
             : "";
@@ -328,10 +227,9 @@ export default function BoardPage() {
   }, [googleConfig?.sheetId, googleConfig?.range]);
 
   const gradeOptions = useMemo(
-    () =>
-      uniq(players.map((p) => (p.grade ?? "").trim())).sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      ),
+    () => uniq(players.map((p) => (p.grade ?? "").trim())).sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true })
+    ),
     [players]
   );
   const returningOptions = useMemo(
@@ -357,14 +255,10 @@ export default function BoardPage() {
         const hay = `${p.name} ${p.position} ${p.secondaryPosition} ${p.notes}`.toLowerCase();
         if (!hay.includes(s)) return false;
       }
-      if (filters.grade.length && !filters.grade.includes((p.grade ?? "").trim()))
-        return false;
-      if (filters.returning.length && !filters.returning.includes((p.returning ?? "").trim()))
-        return false;
-      if (filters.primary.length && !filters.primary.includes((p.potentialPrimary ?? "").trim()))
-        return false;
-      if (filters.likelihood.length && !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim()))
-        return false;
+      if (filters.grade.length && !filters.grade.includes((p.grade ?? "").trim())) return false;
+      if (filters.returning.length && !filters.returning.includes((p.returning ?? "").trim())) return false;
+      if (filters.primary.length && !filters.primary.includes((p.potentialPrimary ?? "").trim())) return false;
+      if (filters.likelihood.length && !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim())) return false;
       return true;
     });
   }, [players, filters]);
@@ -378,11 +272,8 @@ export default function BoardPage() {
     });
   }
 
-  // ----- drag/drop -----
   function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
     if (!editMode) return;
-
-    setIsDraggingPlayer(true);
 
     const payload = {
       id: p.id,
@@ -397,13 +288,13 @@ export default function BoardPage() {
     };
 
     const json = JSON.stringify(payload);
-
     e.dataTransfer.setData(PLAYER_DRAG_MIME, json);
     e.dataTransfer.setData("text/plain", json);
     e.dataTransfer.effectAllowed = "copy";
   }
 
-  function onCanvasDragOver(e: React.DragEvent) {
+  // Capture-phase handlers so TLDraw can't swallow them
+  function onCanvasDragOverCapture(e: React.DragEvent) {
     if (!editMode) return;
 
     const types = Array.from(e.dataTransfer.types || []);
@@ -414,15 +305,11 @@ export default function BoardPage() {
     e.dataTransfer.dropEffect = "copy";
   }
 
-  function onCanvasDrop(e: React.DragEvent) {
-    setIsDraggingPlayer(false);
-
+  function onCanvasDropCapture(e: React.DragEvent) {
     if (!editMode) return;
 
     const raw =
-      e.dataTransfer.getData(PLAYER_DRAG_MIME) ||
-      e.dataTransfer.getData("text/plain");
-
+      e.dataTransfer.getData(PLAYER_DRAG_MIME) || e.dataTransfer.getData("text/plain");
     if (!raw) return;
 
     e.preventDefault();
@@ -441,8 +328,6 @@ export default function BoardPage() {
     try {
       if (typeof editor.screenToPage === "function") {
         pt = editor.screenToPage({ x: e.clientX, y: e.clientY });
-      } else if (editor.inputs?.currentPagePoint) {
-        pt = editor.inputs.currentPagePoint;
       }
     } catch {}
 
@@ -460,31 +345,21 @@ export default function BoardPage() {
       pictureUrl: data.pictureUrl ?? "",
     };
 
-    const create = () => {
+    try {
       editor.createShape({
         type: "player-card",
         x: pt.x,
         y: pt.y,
         props: shapeProps,
       });
-    };
-
-    try {
-      if (typeof editor.batch === "function") editor.batch(create);
-      else if (typeof editor.run === "function") editor.run(create);
-      else create();
     } catch (err) {
       console.error("[DROP] createShape failed:", err);
-      // show the error in UI for quick visibility
       setError((err as any)?.message ?? "Failed to create player card shape.");
     }
-
-    scheduleAutosave();
   }
 
   return (
     <main className="h-[calc(100vh-0px)]">
-      {/* Image modal */}
       {preview ? (
         <div
           className="fixed inset-0 z-[9999] bg-black/70 flex items-center justify-center p-6"
@@ -529,7 +404,6 @@ export default function BoardPage() {
         <div className="p-6">Loading...</div>
       ) : (
         <div className="flex h-[calc(100vh-73px)]">
-          {/* Sidebar */}
           {!sidebarCollapsed ? (
             <aside className="w-96 border-r p-4 overflow-auto">
               <div className="flex items-center justify-between mb-2">
@@ -541,7 +415,6 @@ export default function BoardPage() {
                       if (googleConfig) loadPlayersFromGoogle(googleConfig);
                     }}
                     disabled={!googleConfig || playersLoading}
-                    title={!googleConfig ? "No Google config on this board" : "Refresh roster"}
                   >
                     Refresh
                   </button>
@@ -555,11 +428,12 @@ export default function BoardPage() {
                 </div>
               </div>
 
-              {/* Filters */}
               <div className="border rounded p-3 mb-3 bg-white">
                 <div className="text-xs font-semibold mb-2">Filters</div>
 
                 <input
+                  id="player-search"
+                  name="player-search"
                   className="w-full border rounded px-2 py-1 text-sm mb-2"
                   placeholder="Search name / notes / position"
                   value={filters.search}
@@ -635,7 +509,6 @@ export default function BoardPage() {
                       className="border rounded p-2 bg-white cursor-grab active:cursor-grabbing"
                       draggable={editMode}
                       onDragStart={(e) => onPlayerDragStart(e, p)}
-                      onDragEnd={() => setIsDraggingPlayer(false)}
                       title={editMode ? "Drag onto the board" : "Switch to Edit to place players"}
                     >
                       <div className="flex gap-2">
@@ -697,29 +570,19 @@ export default function BoardPage() {
           )}
 
           {/* Canvas */}
-          <section className="flex-1 relative">
-            {/* Overlay only while dragging: guarantees dragover/drop reach us, not TLDraw */}
-            <div
-              className="absolute inset-0 z-50"
-              style={{
-                pointerEvents: isDraggingPlayer ? "auto" : "none",
-                background: "transparent",
-              }}
-              onDragOver={onCanvasDragOver}
-              onDrop={onCanvasDrop}
-            />
-
+          <section
+            className="flex-1 relative"
+            onDragOverCapture={onCanvasDragOverCapture}
+            onDropCapture={onCanvasDropCapture}
+          >
             <Tldraw
               store={store}
-              // IMPORTANT: register shape util with the editor instance
               shapeUtils={[...defaultShapeUtils, PlayerCardShapeUtil]}
-              // IMPORTANT: keep UI stable until drag/drop is fixed
               hideUi={false}
               onMount={(editor) => {
                 editorRef.current = editor;
                 editor.updateInstanceState({ isReadonly: !editMode });
               }}
-              onUiEvent={() => scheduleAutosave()}
             />
           </section>
         </div>
@@ -728,7 +591,6 @@ export default function BoardPage() {
   );
 }
 
-/** Dropdown multi-select (checkboxes inside a dropdown) */
 function DropdownMultiSelect({
   label,
   options,
@@ -804,11 +666,9 @@ function normalizePictureUrl(raw: string) {
   try {
     const u = new URL(s);
 
-    // drive file link: /file/d/<id>/
     const m = u.pathname.match(/\/file\/d\/([^/]+)/);
     if (m && m[1]) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
 
-    // open?id=<id>
     const idParam = u.searchParams.get("id");
     if (idParam) return `https://drive.google.com/uc?export=view&id=${idParam}`;
 
