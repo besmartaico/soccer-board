@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { google } from "googleapis";
 
+export const runtime = "nodejs";
+
 export async function GET() {
   try {
     // 1. Read service account JSON from env
