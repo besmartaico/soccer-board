@@ -66,21 +66,17 @@ export function BoardCanvas({
 
   const [size, setSize] = useState({ w: 800, h: 600 });
 
-  // View transform
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
 
-  // Spacebar pan mode
   const [spaceDown, setSpaceDown] = useState(false);
 
-  // Hover tooltip
   const [hover, setHover] = useState<{
     x: number;
     y: number;
     lines: string[];
   } | null>(null);
 
-  // Background image
   const { image: bgImage } = useImage(backgroundUrl);
 
   useEffect(() => {
@@ -158,6 +154,7 @@ export function BoardCanvas({
     setOffset(newPos);
   }
 
+  // NOTE: capture-phase handlers so dragging over the Konva canvas still allows drop
   function onDragOver(e: React.DragEvent) {
     if (!editMode) return;
     const types = Array.from(e.dataTransfer.types || []);
@@ -238,13 +235,13 @@ export function BoardCanvas({
       <div
         ref={containerRef}
         className="w-full h-full overflow-hidden"
-        onDragOver={onDragOver}
-        onDrop={onDrop}
+        // Capture-phase to make drops work over the Konva canvas reliably
+        onDragEnterCapture={onDragOver}
+        onDragOverCapture={onDragOver}
+        onDropCapture={onDrop}
       >
         <Stage
-          ref={(n) => {
-            stageRef.current = n;
-          }}
+          ref={stageRef}
           width={size.w}
           height={size.h}
           onWheel={onWheel}
@@ -323,8 +320,8 @@ function PlayerCardNode({
 }) {
   const { image } = useImage(item.player.pictureUrl);
 
-  const w = Number.isFinite(item.w) ? item.w : DEFAULT_W;
-  const h = Number.isFinite(item.h) ? item.h : DEFAULT_H;
+  const w = Number.isFinite(item.w) ? item.w : 280;
+  const h = Number.isFinite(item.h) ? item.h : 96;
 
   const name = item.player.name || "Player";
   const line1 = `${item.player.grade ? `Grade: ${item.player.grade}` : "Grade: ?"} • ${
