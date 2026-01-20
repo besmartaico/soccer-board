@@ -399,4 +399,3 @@ function getInitials(name?: string) {
   const out = `${first}${last}`.toUpperCase();
   return out || "?";
 }
-s
