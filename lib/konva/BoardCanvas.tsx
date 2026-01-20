@@ -58,7 +58,7 @@ export function BoardCanvas({
   placed,
   onPlacedChange,
   backgroundUrl,
-  onBackgroundUrlChange,
+  onBackgroundUrlChange, // intentionally unused now (header controls background)
   dragMime = "application/x-soccerboard-player",
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -66,17 +66,21 @@ export function BoardCanvas({
 
   const [size, setSize] = useState({ w: 800, h: 600 });
 
+  // View transform
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
 
+  // Spacebar pan mode
   const [spaceDown, setSpaceDown] = useState(false);
 
+  // Hover tooltip
   const [hover, setHover] = useState<{
     x: number;
     y: number;
     lines: string[];
   } | null>(null);
 
+  // Background image
   const { image: bgImage } = useImage(backgroundUrl);
 
   useEffect(() => {
@@ -154,7 +158,7 @@ export function BoardCanvas({
     setOffset(newPos);
   }
 
-  // NOTE: capture-phase handlers so dragging over the Konva canvas still allows drop
+  // Capture-phase drag/drop so dropping over a <canvas> works reliably
   function onDragOver(e: React.DragEvent) {
     if (!editMode) return;
     const types = Array.from(e.dataTransfer.types || []);
@@ -209,39 +213,17 @@ export function BoardCanvas({
 
   return (
     <div className="w-full h-full relative">
-      {onBackgroundUrlChange ? (
-        <div className="absolute z-20 top-3 left-3 bg-white/90 border rounded-lg p-2 shadow">
-          <div className="text-xs font-semibold mb-1">Background image</div>
-          <div className="flex gap-2">
-            <input
-              className="border rounded px-2 py-1 text-xs w-72"
-              placeholder="Paste image URL (optional)"
-              value={backgroundUrl || ""}
-              onChange={(e) => onBackgroundUrlChange(e.target.value)}
-            />
-            <button
-              className="border rounded px-2 py-1 text-xs"
-              onClick={() => onBackgroundUrlChange("")}
-            >
-              Clear
-            </button>
-          </div>
-          <div className="text-[11px] text-gray-600 mt-1">
-            Tip: hold <b>Space</b> and drag to pan. Scroll to zoom.
-          </div>
-        </div>
-      ) : null}
-
       <div
         ref={containerRef}
         className="w-full h-full overflow-hidden"
-        // Capture-phase to make drops work over the Konva canvas reliably
         onDragEnterCapture={onDragOver}
         onDragOverCapture={onDragOver}
         onDropCapture={onDrop}
       >
         <Stage
-          ref={stageRef}
+          ref={(n) => {
+            stageRef.current = n;
+          }}
           width={size.w}
           height={size.h}
           onWheel={onWheel}
@@ -320,8 +302,8 @@ function PlayerCardNode({
 }) {
   const { image } = useImage(item.player.pictureUrl);
 
-  const w = Number.isFinite(item.w) ? item.w : 280;
-  const h = Number.isFinite(item.h) ? item.h : 96;
+  const w = Number.isFinite(item.w) ? item.w : DEFAULT_W;
+  const h = Number.isFinite(item.h) ? item.h : DEFAULT_H;
 
   const name = item.player.name || "Player";
   const line1 = `${item.player.grade ? `Grade: ${item.player.grade}` : "Grade: ?"} • ${
