@@ -242,7 +242,9 @@ export function BoardCanvas({
         onDrop={onDrop}
       >
         <Stage
-          ref={(n) => (stageRef.current = n)}
+          ref={(n) => {
+            stageRef.current = n;
+          }}
           width={size.w}
           height={size.h}
           onWheel={onWheel}
