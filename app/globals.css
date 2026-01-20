@@ -2,7 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* App defaults */
 html,
 body {
   height: 100%;
@@ -10,9 +9,4 @@ body {
 
 body {
   margin: 0;
-}
-
-/* Optional: sensible defaults so it looks like a website even before you style pages */
-a {
-  @apply text-blue-600 hover:text-blue-800;
 }
