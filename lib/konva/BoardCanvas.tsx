@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Text, Image as KonvaImage } from "react-konva";
-import type Konva from "konva";
 import { useImage } from "./useImage";
 
 export type CanvasPlayer = {
@@ -18,7 +17,7 @@ export type CanvasPlayer = {
 };
 
 export type PlacedPlayer = {
-  id: string;              // unique placement id
+  id: string;
   player: CanvasPlayer;
   x: number;
   y: number;
@@ -34,7 +33,6 @@ type Props = {
   backgroundUrl?: string;
   onBackgroundUrlChange?: (url: string) => void;
 
-  /** Drag-drop payload mime */
   dragMime?: string;
 };
 
@@ -64,7 +62,7 @@ export function BoardCanvas({
   dragMime = "application/x-soccerboard-player",
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const stageRef = useRef<Konva.Stage | null>(null);
+  const stageRef = useRef<any>(null);
 
   const [size, setSize] = useState({ w: 800, h: 600 });
 
@@ -85,31 +83,28 @@ export function BoardCanvas({
   // Background image
   const { image: bgImage } = useImage(backgroundUrl);
 
-  // Resize observer
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
 
     const ro = new ResizeObserver(() => {
       const r = el.getBoundingClientRect();
-      setSize({ w: Math.max(200, Math.floor(r.width)), h: Math.max(200, Math.floor(r.height)) });
+      setSize({
+        w: Math.max(200, Math.floor(r.width)),
+        h: Math.max(200, Math.floor(r.height)),
+      });
     });
 
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  // Spacebar handling
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        setSpaceDown(true);
-      }
+      if (e.code === "Space") setSpaceDown(true);
     };
     const up = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
-        setSpaceDown(false);
-      }
+      if (e.code === "Space") setSpaceDown(false);
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
@@ -119,25 +114,20 @@ export function BoardCanvas({
     };
   }, []);
 
-  const stageDraggable = useMemo(() => {
-    // Pan only when holding space (prevents fighting with dragging players)
-    return spaceDown;
-  }, [spaceDown]);
+  const stageDraggable = useMemo(() => spaceDown, [spaceDown]);
 
   function clientToWorld(clientX: number, clientY: number) {
-    const stage = stageRef.current;
     const container = containerRef.current;
-    if (!stage || !container) return { x: 0, y: 0 };
+    if (!container) return { x: 0, y: 0 };
 
     const rect = container.getBoundingClientRect();
     const px = clientX - rect.left;
     const py = clientY - rect.top;
 
-    // world = (screen - offset) / scale
-    const x = (px - offset.x) / scale;
-    const y = (py - offset.y) / scale;
-
-    return { x, y };
+    return {
+      x: (px - offset.x) / scale,
+      y: (py - offset.y) / scale,
+    };
   }
 
   function onWheel(e: any) {
@@ -147,7 +137,7 @@ export function BoardCanvas({
     if (!stage) return;
 
     const oldScale = scale;
-    const pointer = stage.getPointerPosition();
+    const pointer = stage.getPointerPosition?.();
     if (!pointer) return;
 
     const mousePointTo = {
@@ -217,14 +207,11 @@ export function BoardCanvas({
   }
 
   function updatePlaced(id: string, patch: Partial<PlacedPlayer>) {
-    onPlacedChange(
-      placed.map((p) => (p.id === id ? { ...p, ...patch } : p))
-    );
+    onPlacedChange(placed.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   }
 
   return (
     <div className="w-full h-full relative">
-      {/* Simple background URL control (optional) */}
       {onBackgroundUrlChange ? (
         <div className="absolute z-20 top-3 left-3 bg-white/90 border rounded-lg p-2 shadow">
           <div className="text-xs font-semibold mb-1">Background image</div>
@@ -265,24 +252,15 @@ export function BoardCanvas({
           scaleX={scale}
           scaleY={scale}
           onDragEnd={(e) => {
-            // When panning (space down), Konva changes stage position directly
             if (!spaceDown) return;
             setOffset({ x: e.target.x(), y: e.target.y() });
           }}
         >
           <Layer>
-            {/* Background */}
             {bgImage ? (
-              <KonvaImage
-                image={bgImage}
-                x={0}
-                y={0}
-                opacity={0.25}
-                listening={false}
-              />
+              <KonvaImage image={bgImage} x={0} y={0} opacity={0.25} listening={false} />
             ) : null}
 
-            {/* Placed player cards */}
             {placed.map((p) => (
               <PlayerCardNode
                 key={p.id}
@@ -290,17 +268,13 @@ export function BoardCanvas({
                 editable={editMode}
                 onMove={(x, y) => updatePlaced(p.id, { x, y })}
                 onHover={(clientX, clientY) => {
-                  const lines = tooltipLines(p.player);
-                  setHover({ x: clientX, y: clientY, lines });
+                  setHover({ x: clientX, y: clientY, lines: tooltipLines(p.player) });
                 }}
                 onHoverEnd={() => setHover(null)}
               />
             ))}
 
-            {/* Tooltip */}
-            {hover ? (
-              <Tooltip x={hover.x} y={hover.y} lines={hover.lines} />
-            ) : null}
+            {hover ? <Tooltip x={hover.x} y={hover.y} lines={hover.lines} /> : null}
           </Layer>
         </Stage>
       </div>
@@ -309,8 +283,6 @@ export function BoardCanvas({
 }
 
 function Tooltip({ x, y, lines }: { x: number; y: number; lines: string[] }) {
-  // This tooltip is in "stage space", not DOM space.
-  // We position it near the pointer in stage coords. Good enough for v1.
   const pad = 8;
   const lineH = 16;
   const width = 280;
@@ -328,14 +300,7 @@ function Tooltip({ x, y, lines }: { x: number; y: number; lines: string[] }) {
         shadowOpacity={0.15}
       />
       {lines.map((t, i) => (
-        <Text
-          key={i}
-          x={pad}
-          y={pad + i * lineH}
-          text={t}
-          fontSize={12}
-          fill="#111827"
-        />
+        <Text key={i} x={pad} y={pad + i * lineH} text={t} fontSize={12} fill="#111827" />
       ))}
     </Group>
   );
@@ -373,12 +338,10 @@ function PlayerCardNode({
       x={item.x}
       y={item.y}
       draggable={editable}
-      onDragMove={(e) => {
-        onMove(e.target.x(), e.target.y());
-      }}
+      onDragMove={(e) => onMove(e.target.x(), e.target.y())}
       onMouseMove={(e) => {
-        const stage = e.target.getStage();
-        const p = stage?.getPointerPosition();
+        const stage = e.target.getStage?.();
+        const p = stage?.getPointerPosition?.();
         if (!p) return;
         onHover(p.x, p.y);
       }}
@@ -391,19 +354,11 @@ function PlayerCardNode({
         stroke="rgba(0,0,0,0.18)"
         cornerRadius={12}
         shadowBlur={4}
-        shadowOpacity={0.10}
+        shadowOpacity={0.1}
       />
 
-      {/* Photo block */}
       <Group>
-        <Rect
-          x={0}
-          y={0}
-          width={88}
-          height={h}
-          fill="#f3f4f6"
-          stroke="rgba(0,0,0,0.06)"
-        />
+        <Rect x={0} y={0} width={88} height={h} fill="#f3f4f6" stroke="rgba(0,0,0,0.06)" />
         {image ? (
           <KonvaImage image={image} x={0} y={0} width={88} height={h} />
         ) : (
@@ -420,7 +375,6 @@ function PlayerCardNode({
         )}
       </Group>
 
-      {/* Text block */}
       <Group x={98} y={10}>
         <Text
           text={name}
@@ -428,25 +382,10 @@ function PlayerCardNode({
           fontSize={14}
           fill="#111827"
           fontStyle="bold"
-          // Wrap name
           wrap="word"
         />
-        <Text
-          y={22}
-          text={line1}
-          width={Math.max(60, w - 108)}
-          fontSize={12}
-          fill="#374151"
-          wrap="word"
-        />
-        <Text
-          y={44}
-          text={line2}
-          width={Math.max(60, w - 108)}
-          fontSize={12}
-          fill="#374151"
-          wrap="word"
-        />
+        <Text y={22} text={line1} width={Math.max(60, w - 108)} fontSize={12} fill="#374151" wrap="word" />
+        <Text y={44} text={line2} width={Math.max(60, w - 108)} fontSize={12} fill="#374151" wrap="word" />
       </Group>
     </Group>
   );
@@ -456,7 +395,8 @@ function getInitials(name?: string) {
   if (!name) return "?";
   const parts = name.trim().split(/\s+/).filter(Boolean);
   const first = parts[0]?.[0] ?? "";
-  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
   const out = `${first}${last}`.toUpperCase();
   return out || "?";
 }
+s

@@ -4,7 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
-import { BoardCanvas, type PlacedPlayer } from "@/lib/konva/BoardCanvas";
+import dynamic from "next/dynamic";
+import type { PlacedPlayer } from "@/lib/konva/BoardCanvas";
+
+const BoardCanvas = dynamic(
+  () => import("@/lib/konva/BoardCanvas").then((m) => m.BoardCanvas),
+  { ssr: false }
+);
 
 type BoardRow = {
   id: string;
