@@ -33,7 +33,7 @@ type Props = {
   backgroundUrl?: string;
   onBackgroundUrlChange?: (url: string) => void;
 
-  dragMime?: string; // preferred mime from roster
+  dragMime?: string;
 };
 
 const DEFAULT_W = 280;
@@ -45,8 +45,7 @@ function clamp(n: number, min: number, max: number) {
 
 function tooltipLines(p: CanvasPlayer) {
   const grade = p.grade ? `Grade: ${p.grade}` : `Grade: ?`;
-  const pos =
-    p.pos1 ? `Pos: ${p.pos1}${p.pos2 ? ` / ${p.pos2}` : ""}` : `Pos: ?`;
+  const pos = p.pos1 ? `Pos: ${p.pos1}${p.pos2 ? ` / ${p.pos2}` : ""}` : `Pos: ?`;
   const ret = p.returning ? `Returning: ${p.returning}` : `Returning: ?`;
   const prim = p.primary ? `Primary: ${p.primary}` : `Primary: ?`;
   const lik = p.likelihood ? `Likelihood: ${p.likelihood}` : `Likelihood: ?`;
@@ -58,7 +57,7 @@ export function BoardCanvas({
   placed,
   onPlacedChange,
   backgroundUrl,
-  onBackgroundUrlChange, // intentionally unused here
+  onBackgroundUrlChange, // unused here by design
   dragMime = "application/x-soccerboard-player",
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -74,14 +73,11 @@ export function BoardCanvas({
   const [spaceDown, setSpaceDown] = useState(false);
 
   // Hover tooltip
-  const [hover, setHover] = useState<{
-    x: number;
-    y: number;
-    lines: string[];
-  } | null>(null);
+  const [hover, setHover] = useState<{ x: number; y: number; lines: string[] } | null>(null);
 
-  // Drop UI
+  // Drag/drop UI state (guarded against event storms)
   const [isDragOver, setIsDragOver] = useState(false);
+  const isDragOverRef = useRef(false);
 
   // Background image
   const { image: bgImage } = useImage(backgroundUrl);
@@ -163,29 +159,29 @@ export function BoardCanvas({
 
   function canAcceptDrag(e: React.DragEvent) {
     const types = Array.from(e.dataTransfer.types || []);
-    // accept custom mime OR common fallbacks
-    return (
-      types.includes(dragMime) ||
-      types.includes("application/json") ||
-      types.includes("text/plain")
-    );
+    return types.includes(dragMime) || types.includes("application/json") || types.includes("text/plain");
   }
 
-  function onDragOver(e: React.DragEvent) {
+  function setDragOver(next: boolean) {
+    if (isDragOverRef.current === next) return; // ✅ guard
+    isDragOverRef.current = next;
+    setIsDragOver(next);
+  }
+
+  function onDragOverCapture(e: React.DragEvent) {
     if (!editMode) return;
     if (!canAcceptDrag(e)) return;
 
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-    setIsDragOver(true);
+    setDragOver(true);
   }
 
-  function onDragLeave() {
-    setIsDragOver(false);
+  function onDragLeaveCapture() {
+    setDragOver(false);
   }
 
   function readPayload(dt: DataTransfer): any | null {
-    // Try preferred custom mime first
     const rawCustom = dt.getData(dragMime);
     if (rawCustom) {
       try {
@@ -193,7 +189,6 @@ export function BoardCanvas({
       } catch {}
     }
 
-    // Then application/json
     const rawJson = dt.getData("application/json");
     if (rawJson) {
       try {
@@ -201,7 +196,6 @@ export function BoardCanvas({
       } catch {}
     }
 
-    // Finally text/plain
     const rawText = dt.getData("text/plain");
     if (rawText) {
       try {
@@ -212,22 +206,15 @@ export function BoardCanvas({
     return null;
   }
 
-  function onDrop(e: React.DragEvent) {
-    setIsDragOver(false);
+  function onDropCapture(e: React.DragEvent) {
+    setDragOver(false);
     if (!editMode) return;
 
-    if (!canAcceptDrag(e)) {
-      // Helpful debug
-      console.warn("[BoardCanvas] drop rejected; types:", Array.from(e.dataTransfer.types || []));
-      return;
-    }
+    if (!canAcceptDrag(e)) return;
 
     e.preventDefault();
 
     const payload = readPayload(e.dataTransfer);
-    console.log("[BoardCanvas] drop types:", Array.from(e.dataTransfer.types || []));
-    console.log("[BoardCanvas] payload:", payload);
-
     if (!payload) return;
 
     const world = clientToWorld(e.clientX, e.clientY);
@@ -260,7 +247,6 @@ export function BoardCanvas({
 
   return (
     <div className="w-full h-full relative">
-      {/* drop highlight */}
       {editMode && isDragOver ? (
         <div className="pointer-events-none absolute inset-0 z-10 ring-4 ring-blue-500/40" />
       ) : null}
@@ -268,10 +254,9 @@ export function BoardCanvas({
       <div
         ref={containerRef}
         className="w-full h-full overflow-hidden"
-        onDragEnterCapture={onDragOver}
-        onDragOverCapture={onDragOver}
-        onDragLeaveCapture={onDragLeave}
-        onDropCapture={onDrop}
+        onDragOverCapture={onDragOverCapture}
+        onDragLeaveCapture={onDragLeaveCapture}
+        onDropCapture={onDropCapture}
       >
         <Stage
           ref={(n) => {
@@ -355,8 +340,8 @@ function PlayerCardNode({
 }) {
   const { image } = useImage(item.player.pictureUrl);
 
-  const w = Number.isFinite(item.w) ? item.w : 280;
-  const h = Number.isFinite(item.h) ? item.h : 96;
+  const w = Number.isFinite(item.w) ? item.w : DEFAULT_W;
+  const h = Number.isFinite(item.h) ? item.h : DEFAULT_H;
 
   const name = item.player.name || "Player";
   const line1 = `${item.player.grade ? `Grade: ${item.player.grade}` : "Grade: ?"} • ${
