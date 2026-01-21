@@ -80,7 +80,7 @@ export default function BoardPage() {
   // Background
   const [backgroundUrl, setBackgroundUrl] = useState<string>("");
 
-  // Photo modal
+  // Photo modal (for roster thumbnail click)
   const [photoModal, setPhotoModal] = useState<{ url: string; name: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -186,7 +186,6 @@ export default function BoardPage() {
         .map((r) => {
           const rawPic = (r[idxPicture] ?? "").toString();
           const normalized = normalizePictureUrl(rawPic);
-
           const proxy = normalized ? `/api/image-proxy?url=${encodeURIComponent(normalized)}` : "";
 
           return {
@@ -226,14 +225,17 @@ export default function BoardPage() {
       ),
     [players]
   );
+
   const returningOptions = useMemo(
     () => uniq(players.map((p) => (p.returning ?? "").trim())).sort(),
     [players]
   );
+
   const primaryOptions = useMemo(
     () => uniq(players.map((p) => (p.potentialPrimary ?? "").trim())).sort(),
     [players]
   );
+
   const likelihoodOptions = useMemo(
     () =>
       uniq(players.map((p) => (p.likelihoodPrimary ?? "").trim())).sort((a, b) =>
@@ -283,6 +285,8 @@ export default function BoardPage() {
       pos1: p.position,
       pos2: p.secondaryPosition,
       pictureUrl: p.pictureProxyUrl || "",
+      // ✅ include notes so the board modal can show them
+      notes: p.notes || "",
     };
 
     const json = JSON.stringify(payload);
@@ -330,7 +334,6 @@ export default function BoardPage() {
     setError(null);
 
     try {
-      // Upload to Supabase storage
       const ext = file.name.split(".").pop() || "png";
       const path = `boards/${boardId}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
 
@@ -458,7 +461,6 @@ export default function BoardPage() {
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) onSelectBackgroundFile(f);
-                  // reset input so selecting the same file again works
                   e.currentTarget.value = "";
                 }}
               />
@@ -634,7 +636,7 @@ export default function BoardPage() {
         </button>
       </div>
 
-      {/* Photo modal */}
+      {/* Photo modal (roster image click) */}
       {photoModal ? (
         <div
           className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4"

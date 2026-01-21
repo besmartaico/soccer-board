@@ -12,6 +12,7 @@ export type CanvasPlayer = {
   pos1?: string;
   pos2?: string;
   pictureUrl?: string;
+  notes?: string;
 };
 
 export type PlacedPlayer = {
@@ -27,15 +28,9 @@ type Props = {
   editMode: boolean;
   placed: PlacedPlayer[];
   onPlacedChange: (next: PlacedPlayer[]) => void;
+
   backgroundUrl?: string;
   dragMime?: string;
-
-  /**
-   * Optional: set a bigger/smaller canvas area to scroll around.
-   * Defaults are intentionally large so your background has room.
-   */
-  canvasWidth?: number;  // default 3200
-  canvasHeight?: number; // default 2000
 };
 
 const DEFAULT_W = 280;
@@ -69,11 +64,7 @@ function buildLine2(p: CanvasPlayer) {
 
 function canAcceptDrag(e: React.DragEvent, dragMime: string) {
   const types = Array.from(e.dataTransfer.types || []);
-  return (
-    types.includes(dragMime) ||
-    types.includes("application/json") ||
-    types.includes("text/plain")
-  );
+  return types.includes(dragMime) || types.includes("application/json") || types.includes("text/plain");
 }
 
 function readPayload(dt: DataTransfer, dragMime: string): any | null {
@@ -107,17 +98,12 @@ export function HtmlBoard({
   onPlacedChange,
   backgroundUrl,
   dragMime = "application/x-soccerboard-player",
-  canvasWidth = 3200,
-  canvasHeight = 2000,
 }: Props) {
-  // This is the *scroll container*
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  // This is the *inner canvas* (positioning happens relative to this)
-  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
 
-  // keep latest placed + callback for global listeners
+  // Keep latest values for global listeners
   const placedRef = useRef<PlacedPlayer[]>(placed);
-  const onPlacedChangeRef = useRef(onPlacedChange);
+  const onPlacedChangeRef = useRef<(next: PlacedPlayer[]) => void>(onPlacedChange);
 
   useEffect(() => {
     placedRef.current = placed;
@@ -133,10 +119,20 @@ export function HtmlBoard({
     return m;
   }, [placed]);
 
+  // Drag-over highlight
   const [isDragOver, setIsDragOver] = useState(false);
+  const dragOverRef = useRef(false);
+  function setDragOver(next: boolean) {
+    if (dragOverRef.current === next) return;
+    dragOverRef.current = next;
+    setIsDragOver(next);
+  }
 
-  // lightweight “preview” while dragging a placed card
-  const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(
+  // During a drag of a placed card: do not spam parent state
+  const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(null);
+
+  // Fullscreen player modal
+  const [playerModal, setPlayerModal] = useState<{ placedId: string; player: CanvasPlayer } | null>(
     null
   );
 
@@ -145,40 +141,36 @@ export function HtmlBoard({
     pointerId: number;
     dx: number;
     dy: number;
+    rafPending: boolean;
     nextX: number;
     nextY: number;
-    rafPending: boolean;
+    moved: boolean;
+    startClientX: number;
+    startClientY: number;
   } | null>(null);
 
-  /**
-   * Convert client coords to canvas coords.
-   * IMPORTANT: because we have a scroll container, we add scrollLeft/scrollTop.
-   */
-  function clientToCanvas(clientX: number, clientY: number) {
-    const canvasEl = canvasRef.current;
-    const scrollEl = scrollRef.current;
-    if (!canvasEl || !scrollEl) return { x: 0, y: 0 };
-
-    const r = canvasEl.getBoundingClientRect();
-    const x = clientX - r.left + scrollEl.scrollLeft;
-    const y = clientY - r.top + scrollEl.scrollTop;
-    return { x, y };
+  function clientToBoard(clientX: number, clientY: number) {
+    const el = boardRef.current;
+    if (!el) return { x: 0, y: 0 };
+    const r = el.getBoundingClientRect();
+    return { x: clientX - r.left, y: clientY - r.top };
   }
 
+  // ----- Drop from roster onto board -----
   function onDragOver(e: React.DragEvent) {
     if (!editMode) return;
     if (!canAcceptDrag(e, dragMime)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-    setIsDragOver(true);
+    setDragOver(true);
   }
 
   function onDragLeave() {
-    setIsDragOver(false);
+    setDragOver(false);
   }
 
   function onDrop(e: React.DragEvent) {
-    setIsDragOver(false);
+    setDragOver(false);
     if (!editMode) return;
     if (!canAcceptDrag(e, dragMime)) return;
 
@@ -186,7 +178,7 @@ export function HtmlBoard({
     const payload = readPayload(e.dataTransfer, dragMime);
     if (!payload) return;
 
-    const pt = clientToCanvas(e.clientX, e.clientY);
+    const pt = clientToBoard(e.clientX, e.clientY);
 
     const next: PlacedPlayer = {
       id: `${payload.id || "p"}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -204,33 +196,39 @@ export function HtmlBoard({
         pos1: payload.pos1 ?? "",
         pos2: payload.pos2 ?? "",
         pictureUrl: payload.pictureUrl ?? "",
+        notes: payload.notes ?? "",
       },
     };
 
     onPlacedChangeRef.current([...placedRef.current, next]);
   }
 
+  // ----- Move placed cards / click to open modal -----
   function beginMove(e: React.PointerEvent, id: string) {
     if (!editMode) return;
-
-    // left click only
-    if ((e as any).buttons !== undefined && (e as any).buttons !== 1) return;
 
     const card = placedById.get(id);
     if (!card) return;
 
-    (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
+    // Avoid starting a drag on right-click / secondary button
+    if ((e as any).buttons !== undefined && (e as any).buttons !== 1) return;
 
-    const pt = clientToCanvas(e.clientX, e.clientY);
+    const el = e.currentTarget as HTMLDivElement;
+    el.setPointerCapture?.(e.pointerId);
+
+    const pt = clientToBoard(e.clientX, e.clientY);
 
     draggingRef.current = {
       id,
       pointerId: e.pointerId,
       dx: pt.x - card.x,
       dy: pt.y - card.y,
+      rafPending: false,
       nextX: card.x,
       nextY: card.y,
-      rafPending: false,
+      moved: false,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
     };
 
     setDragPreview({ id, x: card.x, y: card.y });
@@ -238,9 +236,10 @@ export function HtmlBoard({
 
   function schedulePreviewUpdate() {
     const d = draggingRef.current;
-    if (!d || d.rafPending) return;
-    d.rafPending = true;
+    if (!d) return;
+    if (d.rafPending) return;
 
+    d.rafPending = true;
     requestAnimationFrame(() => {
       const dd = draggingRef.current;
       if (!dd) return;
@@ -249,11 +248,19 @@ export function HtmlBoard({
     });
   }
 
+  // Attach global listeners ONCE
   useEffect(() => {
     function onMove(ev: PointerEvent) {
       const d = draggingRef.current;
       if (!d) return;
       if (ev.pointerId !== d.pointerId) return;
+
+      const movedPx = Math.abs(ev.clientX - d.startClientX) + Math.abs(ev.clientY - d.startClientY);
+      if (movedPx > 6) d.moved = true;
+
+      const board = boardRef.current;
+      const bw = board?.clientWidth ?? Infinity;
+      const bh = board?.clientHeight ?? Infinity;
 
       const currentPlaced = placedRef.current;
       const card = currentPlaced.find((p) => p.id === d.id);
@@ -261,15 +268,12 @@ export function HtmlBoard({
       const w = card?.w ?? DEFAULT_W;
       const h = card?.h ?? DEFAULT_H;
 
-      const pt = clientToCanvas(ev.clientX, ev.clientY);
-
-      // clamp to canvas bounds
-      const x = clamp(pt.x - d.dx, 0, canvasWidth - w);
-      const y = clamp(pt.y - d.dy, 0, canvasHeight - h);
+      const pt = clientToBoard(ev.clientX, ev.clientY);
+      const x = clamp(pt.x - d.dx, 0, bw - w);
+      const y = clamp(pt.y - d.dy, 0, bh - h);
 
       d.nextX = x;
       d.nextY = y;
-
       schedulePreviewUpdate();
     }
 
@@ -284,14 +288,21 @@ export function HtmlBoard({
       const finalX = d.nextX;
       const finalY = d.nextY;
 
+      const moved = d.moved;
+
       draggingRef.current = null;
       setDragPreview(null);
 
       if (!card) return;
 
-      const next = currentPlaced.map((p) =>
-        p.id === card.id ? { ...p, x: finalX, y: finalY } : p
-      );
+      // If it was a click (not a drag), open modal instead of committing movement
+      if (!moved) {
+        setPlayerModal({ placedId: card.id, player: card.player });
+        return;
+      }
+
+      // Commit move ONCE
+      const next = currentPlaced.map((p) => (p.id === card.id ? { ...p, x: finalX, y: finalY } : p));
       onPlacedChangeRef.current(next);
     }
 
@@ -302,53 +313,35 @@ export function HtmlBoard({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [canvasWidth, canvasHeight]);
+  }, []);
+
+  const bgStyle: React.CSSProperties = backgroundUrl
+    ? { backgroundImage: `url(${backgroundUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
+    : {};
 
   function removePlaced(id: string) {
     const next = placedRef.current.filter((p) => p.id !== id);
     onPlacedChangeRef.current(next);
+    setPlayerModal(null);
   }
 
-  const canvasStyle: React.CSSProperties = backgroundUrl
-    ? {
-        backgroundImage: `url(${backgroundUrl})`,
-        backgroundRepeat: "no-repeat",
-        backgroundPosition: "top left",
-        backgroundSize: "contain", // shows entire image within canvas bounds
-      }
-    : {};
-
   return (
-    <div
-      ref={scrollRef}
-      className="w-full h-full overflow-auto bg-white"
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-    >
+    <>
       <div
-        ref={canvasRef}
-        className="relative"
-        style={{
-          width: canvasWidth,
-          height: canvasHeight,
-          ...canvasStyle,
-        }}
+        ref={boardRef}
+        className="w-full h-full relative overflow-hidden bg-white"
+        style={bgStyle}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
       >
-        {/* subtle grid */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-[0.06]"
-          style={{
-            backgroundImage:
-              "linear-gradient(to right, #000 1px, transparent 1px), linear-gradient(to bottom, #000 1px, transparent 1px)",
-            backgroundSize: "40px 40px",
-          }}
-        />
+        {/* ✅ Removed default grid background — now plain white */}
 
         {editMode && isDragOver ? (
           <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" />
         ) : null}
 
+        {/* placed cards */}
         <div className="absolute inset-0 z-20" style={{ touchAction: "none" }}>
           {placed.map((p) => {
             const isDragging = dragPreview?.id === p.id;
@@ -364,25 +357,16 @@ export function HtmlBoard({
                 className={`absolute rounded-xl border shadow-sm bg-white select-none ${
                   editMode ? "cursor-grab active:cursor-grabbing" : "cursor-default"
                 }`}
-                style={{ left: x, top: y, width: w, height: h, userSelect: "none" }}
+                style={{
+                  left: x,
+                  top: y,
+                  width: w,
+                  height: h,
+                  userSelect: "none",
+                }}
                 onPointerDown={(e) => beginMove(e, p.id)}
+                title="Click to view • Drag to move"
               >
-                {/* remove button */}
-                {editMode ? (
-                  <button
-                    type="button"
-                    className="absolute top-1 right-1 z-10 w-6 h-6 rounded-full border bg-white text-xs leading-none"
-                    title="Remove from board"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      removePlaced(p.id);
-                    }}
-                  >
-                    ✕
-                  </button>
-                ) : null}
-
                 <div className="flex h-full">
                   <div className="w-[88px] h-full bg-gray-100 border-r rounded-l-xl overflow-hidden flex items-center justify-center">
                     {p.player.pictureUrl ? (
@@ -394,9 +378,7 @@ export function HtmlBoard({
                         draggable={false}
                       />
                     ) : (
-                      <div className="text-lg font-bold text-gray-800">
-                        {getInitials(p.player.name)}
-                      </div>
+                      <div className="text-lg font-bold text-gray-800">{getInitials(p.player.name)}</div>
                     )}
                   </div>
 
@@ -411,6 +393,79 @@ export function HtmlBoard({
           })}
         </div>
       </div>
-    </div>
+
+      {/* Fullscreen player modal */}
+      {playerModal ? (
+        <div
+          className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setPlayerModal(null)}
+        >
+          <div
+            className="w-full max-w-5xl bg-white rounded-2xl overflow-hidden shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div className="min-w-0">
+                <div className="text-lg font-semibold truncate">{playerModal.player.name}</div>
+                <div className="text-sm text-gray-600 truncate">{buildLine1(playerModal.player)}</div>
+                <div className="text-sm text-gray-600 truncate">{buildLine2(playerModal.player)}</div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="text-sm text-red-600 underline"
+                  onClick={() => removePlaced(playerModal.placedId)}
+                >
+                  Remove from board
+                </button>
+                <button
+                  type="button"
+                  className="text-sm underline"
+                  onClick={() => setPlayerModal(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="grid gap-0 md:grid-cols-2">
+              <div className="bg-black">
+                {playerModal.player.pictureUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={playerModal.player.pictureUrl}
+                    alt={`${playerModal.player.name} large`}
+                    className="w-full h-[60vh] md:h-[70vh] object-contain bg-black"
+                  />
+                ) : (
+                  <div className="w-full h-[60vh] md:h-[70vh] flex items-center justify-center text-white text-6xl font-bold">
+                    {getInitials(playerModal.player.name)}
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6">
+                <div className="text-sm font-semibold text-gray-900 mb-2">Details</div>
+                <div className="space-y-2 text-sm text-gray-800">
+                  <div><span className="font-semibold">Grade:</span> {playerModal.player.grade || "—"}</div>
+                  <div><span className="font-semibold">Position:</span> {playerModal.player.pos1 || "—"}{playerModal.player.pos2 ? ` / ${playerModal.player.pos2}` : ""}</div>
+                  <div><span className="font-semibold">Returning:</span> {playerModal.player.returning || "—"}</div>
+                  <div><span className="font-semibold">Primary:</span> {playerModal.player.primary || "—"}</div>
+                  <div><span className="font-semibold">Likelihood:</span> {playerModal.player.likelihood || "—"}</div>
+                </div>
+
+                <div className="mt-6">
+                  <div className="text-sm font-semibold text-gray-900 mb-2">Notes</div>
+                  <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                    {playerModal.player.notes?.trim() ? playerModal.player.notes : "—"}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
