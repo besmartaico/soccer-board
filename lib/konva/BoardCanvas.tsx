@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Stage, Layer, Group, Rect, Text, Image as KonvaImage } from "react-konva";
+import type { Stage as KonvaStage } from "konva/lib/Stage";
 import { useImage } from "./useImage";
 
 export type CanvasPlayer = {
@@ -43,25 +44,16 @@ function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-function tooltipLines(p: CanvasPlayer) {
-  const grade = p.grade ? `Grade: ${p.grade}` : `Grade: ?`;
-  const pos = p.pos1 ? `Pos: ${p.pos1}${p.pos2 ? ` / ${p.pos2}` : ""}` : `Pos: ?`;
-  const ret = p.returning ? `Returning: ${p.returning}` : `Returning: ?`;
-  const prim = p.primary ? `Primary: ${p.primary}` : `Primary: ?`;
-  const lik = p.likelihood ? `Likelihood: ${p.likelihood}` : `Likelihood: ?`;
-  return [p.name || "Player", `${grade} • ${pos}`, `${ret}`, `${prim} • ${lik}`];
-}
-
 export function BoardCanvas({
   editMode,
   placed,
   onPlacedChange,
   backgroundUrl,
-  onBackgroundUrlChange, // unused here by design
+  onBackgroundUrlChange, // intentionally unused here
   dragMime = "application/x-soccerboard-player",
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const stageRef = useRef<any>(null);
+  const stageRef = useRef<KonvaStage | null>(null);
 
   const [size, setSize] = useState({ w: 800, h: 600 });
 
@@ -72,10 +64,7 @@ export function BoardCanvas({
   // Spacebar pan mode
   const [spaceDown, setSpaceDown] = useState(false);
 
-  // Hover tooltip
-  const [hover, setHover] = useState<{ x: number; y: number; lines: string[] } | null>(null);
-
-  // Drag/drop UI state (guarded against event storms)
+  // Drag/drop UI state (guarded)
   const [isDragOver, setIsDragOver] = useState(false);
   const isDragOverRef = useRef(false);
 
@@ -159,11 +148,15 @@ export function BoardCanvas({
 
   function canAcceptDrag(e: React.DragEvent) {
     const types = Array.from(e.dataTransfer.types || []);
-    return types.includes(dragMime) || types.includes("application/json") || types.includes("text/plain");
+    return (
+      types.includes(dragMime) ||
+      types.includes("application/json") ||
+      types.includes("text/plain")
+    );
   }
 
   function setDragOver(next: boolean) {
-    if (isDragOverRef.current === next) return; // ✅ guard
+    if (isDragOverRef.current === next) return;
     isDragOverRef.current = next;
     setIsDragOver(next);
   }
@@ -209,7 +202,6 @@ export function BoardCanvas({
   function onDropCapture(e: React.DragEvent) {
     setDragOver(false);
     if (!editMode) return;
-
     if (!canAcceptDrag(e)) return;
 
     e.preventDefault();
@@ -241,8 +233,8 @@ export function BoardCanvas({
     onPlacedChange([...placed, newItem]);
   }
 
-  function updatePlaced(id: string, patch: Partial<PlacedPlayer>) {
-    onPlacedChange(placed.map((p) => (p.id === id ? { ...p, ...patch } : p)));
+  function updatePlacedOnEnd(id: string, x: number, y: number) {
+    onPlacedChange(placed.map((p) => (p.id === id ? { ...p, x, y } : p)));
   }
 
   return (
@@ -271,6 +263,7 @@ export function BoardCanvas({
           scaleX={scale}
           scaleY={scale}
           onDragEnd={(e) => {
+            // only relevant when space-panning the whole stage
             if (!spaceDown) return;
             setOffset({ x: e.target.x(), y: e.target.y() });
           }}
@@ -285,15 +278,10 @@ export function BoardCanvas({
                 key={p.id}
                 item={p}
                 editable={editMode}
-                onMove={(x, y) => updatePlaced(p.id, { x, y })}
-                onHover={(clientX, clientY) => {
-                  setHover({ x: clientX, y: clientY, lines: tooltipLines(p.player) });
-                }}
-                onHoverEnd={() => setHover(null)}
+                // ✅ only commit at end (prevents render storm/freezes)
+                onDragEnd={(x, y) => updatePlacedOnEnd(p.id, x, y)}
               />
             ))}
-
-            {hover ? <Tooltip x={hover.x} y={hover.y} lines={hover.lines} /> : null}
           </Layer>
         </Stage>
       </div>
@@ -301,42 +289,14 @@ export function BoardCanvas({
   );
 }
 
-function Tooltip({ x, y, lines }: { x: number; y: number; lines: string[] }) {
-  const pad = 8;
-  const lineH = 16;
-  const width = 280;
-  const height = pad * 2 + lines.length * lineH;
-
-  return (
-    <Group x={x + 12} y={y + 12} listening={false}>
-      <Rect
-        width={width}
-        height={height}
-        fill="white"
-        stroke="rgba(0,0,0,0.2)"
-        cornerRadius={10}
-        shadowBlur={6}
-        shadowOpacity={0.15}
-      />
-      {lines.map((t, i) => (
-        <Text key={i} x={pad} y={pad + i * lineH} text={t} fontSize={12} fill="#111827" />
-      ))}
-    </Group>
-  );
-}
-
 function PlayerCardNode({
   item,
   editable,
-  onMove,
-  onHover,
-  onHoverEnd,
+  onDragEnd,
 }: {
   item: PlacedPlayer;
   editable: boolean;
-  onMove: (x: number, y: number) => void;
-  onHover: (x: number, y: number) => void;
-  onHoverEnd: () => void;
+  onDragEnd: (x: number, y: number) => void;
 }) {
   const { image } = useImage(item.player.pictureUrl);
 
@@ -357,14 +317,10 @@ function PlayerCardNode({
       x={item.x}
       y={item.y}
       draggable={editable}
-      onDragMove={(e) => onMove(e.target.x(), e.target.y())}
-      onMouseMove={(e) => {
-        const stage = e.target.getStage?.();
-        const p = stage?.getPointerPosition?.();
-        if (!p) return;
-        onHover(p.x, p.y);
+      // ✅ do NOT update React state on every drag move
+      onDragEnd={(e) => {
+        onDragEnd(e.target.x(), e.target.y());
       }}
-      onMouseLeave={() => onHoverEnd()}
     >
       <Rect
         width={w}
