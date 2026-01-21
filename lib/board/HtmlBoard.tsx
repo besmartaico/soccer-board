@@ -29,6 +29,13 @@ type Props = {
   onPlacedChange: (next: PlacedPlayer[]) => void;
   backgroundUrl?: string;
   dragMime?: string;
+
+  /**
+   * Optional: set a bigger/smaller canvas area to scroll around.
+   * Defaults are intentionally large so your background has room.
+   */
+  canvasWidth?: number;  // default 3200
+  canvasHeight?: number; // default 2000
 };
 
 const DEFAULT_W = 280;
@@ -100,8 +107,13 @@ export function HtmlBoard({
   onPlacedChange,
   backgroundUrl,
   dragMime = "application/x-soccerboard-player",
+  canvasWidth = 3200,
+  canvasHeight = 2000,
 }: Props) {
-  const boardRef = useRef<HTMLDivElement | null>(null);
+  // This is the *scroll container*
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  // This is the *inner canvas* (positioning happens relative to this)
+  const canvasRef = useRef<HTMLDivElement | null>(null);
 
   // keep latest placed + callback for global listeners
   const placedRef = useRef<PlacedPlayer[]>(placed);
@@ -138,11 +150,19 @@ export function HtmlBoard({
     rafPending: boolean;
   } | null>(null);
 
-  function clientToBoard(clientX: number, clientY: number) {
-    const el = boardRef.current;
-    if (!el) return { x: 0, y: 0 };
-    const r = el.getBoundingClientRect();
-    return { x: clientX - r.left, y: clientY - r.top };
+  /**
+   * Convert client coords to canvas coords.
+   * IMPORTANT: because we have a scroll container, we add scrollLeft/scrollTop.
+   */
+  function clientToCanvas(clientX: number, clientY: number) {
+    const canvasEl = canvasRef.current;
+    const scrollEl = scrollRef.current;
+    if (!canvasEl || !scrollEl) return { x: 0, y: 0 };
+
+    const r = canvasEl.getBoundingClientRect();
+    const x = clientX - r.left + scrollEl.scrollLeft;
+    const y = clientY - r.top + scrollEl.scrollTop;
+    return { x, y };
   }
 
   function onDragOver(e: React.DragEvent) {
@@ -166,7 +186,7 @@ export function HtmlBoard({
     const payload = readPayload(e.dataTransfer, dragMime);
     if (!payload) return;
 
-    const pt = clientToBoard(e.clientX, e.clientY);
+    const pt = clientToCanvas(e.clientX, e.clientY);
 
     const next: PlacedPlayer = {
       id: `${payload.id || "p"}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -201,7 +221,7 @@ export function HtmlBoard({
 
     (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
 
-    const pt = clientToBoard(e.clientX, e.clientY);
+    const pt = clientToCanvas(e.clientX, e.clientY);
 
     draggingRef.current = {
       id,
@@ -235,19 +255,17 @@ export function HtmlBoard({
       if (!d) return;
       if (ev.pointerId !== d.pointerId) return;
 
-      const board = boardRef.current;
-      const bw = board?.clientWidth ?? Infinity;
-      const bh = board?.clientHeight ?? Infinity;
-
       const currentPlaced = placedRef.current;
       const card = currentPlaced.find((p) => p.id === d.id);
 
       const w = card?.w ?? DEFAULT_W;
       const h = card?.h ?? DEFAULT_H;
 
-      const pt = clientToBoard(ev.clientX, ev.clientY);
-      const x = clamp(pt.x - d.dx, 0, bw - w);
-      const y = clamp(pt.y - d.dy, 0, bh - h);
+      const pt = clientToCanvas(ev.clientX, ev.clientY);
+
+      // clamp to canvas bounds
+      const x = clamp(pt.x - d.dx, 0, canvasWidth - w);
+      const y = clamp(pt.y - d.dy, 0, canvasHeight - h);
 
       d.nextX = x;
       d.nextY = y;
@@ -284,81 +302,114 @@ export function HtmlBoard({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, []);
+  }, [canvasWidth, canvasHeight]);
 
-  const bgStyle: React.CSSProperties = backgroundUrl
-    ? { backgroundImage: `url(${backgroundUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
+  function removePlaced(id: string) {
+    const next = placedRef.current.filter((p) => p.id !== id);
+    onPlacedChangeRef.current(next);
+  }
+
+  const canvasStyle: React.CSSProperties = backgroundUrl
+    ? {
+        backgroundImage: `url(${backgroundUrl})`,
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "top left",
+        backgroundSize: "contain", // shows entire image within canvas bounds
+      }
     : {};
 
   return (
     <div
-      ref={boardRef}
-      className="w-full h-full relative overflow-hidden bg-white"
-      style={bgStyle}
+      ref={scrollRef}
+      className="w-full h-full overflow-auto bg-white"
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      {/* subtle grid */}
       <div
-        className="absolute inset-0 pointer-events-none opacity-[0.06]"
+        ref={canvasRef}
+        className="relative"
         style={{
-          backgroundImage:
-            "linear-gradient(to right, #000 1px, transparent 1px), linear-gradient(to bottom, #000 1px, transparent 1px)",
-          backgroundSize: "40px 40px",
+          width: canvasWidth,
+          height: canvasHeight,
+          ...canvasStyle,
         }}
-      />
+      >
+        {/* subtle grid */}
+        <div
+          className="absolute inset-0 pointer-events-none opacity-[0.06]"
+          style={{
+            backgroundImage:
+              "linear-gradient(to right, #000 1px, transparent 1px), linear-gradient(to bottom, #000 1px, transparent 1px)",
+            backgroundSize: "40px 40px",
+          }}
+        />
 
-      {editMode && isDragOver ? (
-        <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" />
-      ) : null}
+        {editMode && isDragOver ? (
+          <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" />
+        ) : null}
 
-      <div className="absolute inset-0 z-20" style={{ touchAction: "none" }}>
-        {placed.map((p) => {
-          const isDragging = dragPreview?.id === p.id;
-          const x = isDragging ? dragPreview!.x : p.x;
-          const y = isDragging ? dragPreview!.y : p.y;
+        <div className="absolute inset-0 z-20" style={{ touchAction: "none" }}>
+          {placed.map((p) => {
+            const isDragging = dragPreview?.id === p.id;
+            const x = isDragging ? dragPreview!.x : p.x;
+            const y = isDragging ? dragPreview!.y : p.y;
 
-          const w = Number.isFinite(p.w) ? p.w : DEFAULT_W;
-          const h = Number.isFinite(p.h) ? p.h : DEFAULT_H;
+            const w = Number.isFinite(p.w) ? p.w : DEFAULT_W;
+            const h = Number.isFinite(p.h) ? p.h : DEFAULT_H;
 
-          return (
-            <div
-              key={p.id}
-              className={`absolute rounded-xl border shadow-sm bg-white select-none ${
-                editMode ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-              }`}
-              style={{ left: x, top: y, width: w, height: h, userSelect: "none" }}
-              onPointerDown={(e) => beginMove(e, p.id)}
-            >
-              <div className="flex h-full">
-                <div className="w-[88px] h-full bg-gray-100 border-r rounded-l-xl overflow-hidden flex items-center justify-center">
-                  {p.player.pictureUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={p.player.pictureUrl}
-                      alt={`${p.player.name} photo`}
-                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                      draggable={false}
-                    />
-                  ) : (
-                    <div className="text-lg font-bold text-gray-800">
-                      {getInitials(p.player.name)}
-                    </div>
-                  )}
-                </div>
+            return (
+              <div
+                key={p.id}
+                className={`absolute rounded-xl border shadow-sm bg-white select-none ${
+                  editMode ? "cursor-grab active:cursor-grabbing" : "cursor-default"
+                }`}
+                style={{ left: x, top: y, width: w, height: h, userSelect: "none" }}
+                onPointerDown={(e) => beginMove(e, p.id)}
+              >
+                {/* remove button */}
+                {editMode ? (
+                  <button
+                    type="button"
+                    className="absolute top-1 right-1 z-10 w-6 h-6 rounded-full border bg-white text-xs leading-none"
+                    title="Remove from board"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      removePlaced(p.id);
+                    }}
+                  >
+                    ✕
+                  </button>
+                ) : null}
 
-                <div className="flex-1 p-2 overflow-hidden">
-                  <div className="font-semibold text-sm truncate">
-                    {p.player.name || "Player"}
+                <div className="flex h-full">
+                  <div className="w-[88px] h-full bg-gray-100 border-r rounded-l-xl overflow-hidden flex items-center justify-center">
+                    {p.player.pictureUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.player.pictureUrl}
+                        alt={`${p.player.name} photo`}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        draggable={false}
+                      />
+                    ) : (
+                      <div className="text-lg font-bold text-gray-800">
+                        {getInitials(p.player.name)}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[12px] text-gray-700 truncate">{buildLine1(p.player)}</div>
-                  <div className="text-[12px] text-gray-700 truncate">{buildLine2(p.player)}</div>
+
+                  <div className="flex-1 p-2 overflow-hidden">
+                    <div className="font-semibold text-sm truncate">{p.player.name || "Player"}</div>
+                    <div className="text-[12px] text-gray-700 truncate">{buildLine1(p.player)}</div>
+                    <div className="text-[12px] text-gray-700 truncate">{buildLine2(p.player)}</div>
+                  </div>
                 </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
