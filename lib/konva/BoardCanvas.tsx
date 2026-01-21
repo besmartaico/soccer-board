@@ -33,7 +33,7 @@ type Props = {
   backgroundUrl?: string;
   onBackgroundUrlChange?: (url: string) => void;
 
-  dragMime?: string;
+  dragMime?: string; // preferred mime from roster
 };
 
 const DEFAULT_W = 280;
@@ -58,7 +58,7 @@ export function BoardCanvas({
   placed,
   onPlacedChange,
   backgroundUrl,
-  onBackgroundUrlChange, // intentionally unused now (header controls background)
+  onBackgroundUrlChange, // intentionally unused here
   dragMime = "application/x-soccerboard-player",
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -79,6 +79,9 @@ export function BoardCanvas({
     y: number;
     lines: string[];
   } | null>(null);
+
+  // Drop UI
+  const [isDragOver, setIsDragOver] = useState(false);
 
   // Background image
   const { image: bgImage } = useImage(backgroundUrl);
@@ -158,30 +161,74 @@ export function BoardCanvas({
     setOffset(newPos);
   }
 
-  // Capture-phase drag/drop so dropping over a <canvas> works reliably
+  function canAcceptDrag(e: React.DragEvent) {
+    const types = Array.from(e.dataTransfer.types || []);
+    // accept custom mime OR common fallbacks
+    return (
+      types.includes(dragMime) ||
+      types.includes("application/json") ||
+      types.includes("text/plain")
+    );
+  }
+
   function onDragOver(e: React.DragEvent) {
     if (!editMode) return;
-    const types = Array.from(e.dataTransfer.types || []);
-    if (types.includes(dragMime) || types.includes("text/plain")) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "copy";
+    if (!canAcceptDrag(e)) return;
+
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setIsDragOver(true);
+  }
+
+  function onDragLeave() {
+    setIsDragOver(false);
+  }
+
+  function readPayload(dt: DataTransfer): any | null {
+    // Try preferred custom mime first
+    const rawCustom = dt.getData(dragMime);
+    if (rawCustom) {
+      try {
+        return JSON.parse(rawCustom);
+      } catch {}
     }
+
+    // Then application/json
+    const rawJson = dt.getData("application/json");
+    if (rawJson) {
+      try {
+        return JSON.parse(rawJson);
+      } catch {}
+    }
+
+    // Finally text/plain
+    const rawText = dt.getData("text/plain");
+    if (rawText) {
+      try {
+        return JSON.parse(rawText);
+      } catch {}
+    }
+
+    return null;
   }
 
   function onDrop(e: React.DragEvent) {
+    setIsDragOver(false);
     if (!editMode) return;
 
-    const raw = e.dataTransfer.getData(dragMime) || e.dataTransfer.getData("text/plain");
-    if (!raw) return;
+    if (!canAcceptDrag(e)) {
+      // Helpful debug
+      console.warn("[BoardCanvas] drop rejected; types:", Array.from(e.dataTransfer.types || []));
+      return;
+    }
 
     e.preventDefault();
 
-    let payload: any;
-    try {
-      payload = JSON.parse(raw);
-    } catch {
-      return;
-    }
+    const payload = readPayload(e.dataTransfer);
+    console.log("[BoardCanvas] drop types:", Array.from(e.dataTransfer.types || []));
+    console.log("[BoardCanvas] payload:", payload);
+
+    if (!payload) return;
 
     const world = clientToWorld(e.clientX, e.clientY);
 
@@ -213,11 +260,17 @@ export function BoardCanvas({
 
   return (
     <div className="w-full h-full relative">
+      {/* drop highlight */}
+      {editMode && isDragOver ? (
+        <div className="pointer-events-none absolute inset-0 z-10 ring-4 ring-blue-500/40" />
+      ) : null}
+
       <div
         ref={containerRef}
         className="w-full h-full overflow-hidden"
         onDragEnterCapture={onDragOver}
         onDragOverCapture={onDragOver}
+        onDragLeaveCapture={onDragLeave}
         onDropCapture={onDrop}
       >
         <Stage
@@ -302,8 +355,8 @@ function PlayerCardNode({
 }) {
   const { image } = useImage(item.player.pictureUrl);
 
-  const w = Number.isFinite(item.w) ? item.w : DEFAULT_W;
-  const h = Number.isFinite(item.h) ? item.h : DEFAULT_H;
+  const w = Number.isFinite(item.w) ? item.w : 280;
+  const h = Number.isFinite(item.h) ? item.h : 96;
 
   const name = item.player.name || "Player";
   const line1 = `${item.player.grade ? `Grade: ${item.player.grade}` : "Grade: ?"} • ${

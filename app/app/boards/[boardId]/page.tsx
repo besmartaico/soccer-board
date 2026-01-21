@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { supabase } from "@/lib/supabaseClient";
 import dynamic from "next/dynamic";
+import { supabase } from "@/lib/supabaseClient";
 import type { PlacedPlayer } from "@/lib/konva/BoardCanvas";
 
 const BoardCanvas = dynamic(
@@ -117,15 +117,13 @@ export default function BoardPage() {
   }) {
     if (!boardId) return;
 
-    const prevData =
-      board?.data && typeof board.data === "object" ? board.data : {};
+    const prevData = board?.data && typeof board.data === "object" ? board.data : {};
 
     const nextData = {
       ...prevData,
       konva: {
         ...(prevData.konva ?? {}),
-        placedPlayers:
-          patch.placedPlayers ?? prevData?.konva?.placedPlayers ?? [],
+        placedPlayers: patch.placedPlayers ?? prevData?.konva?.placedPlayers ?? [],
         backgroundUrl:
           typeof patch.backgroundUrl === "string"
             ? patch.backgroundUrl
@@ -133,11 +131,7 @@ export default function BoardPage() {
       },
     };
 
-    const { error } = await supabase
-      .from("boards")
-      .update({ data: nextData })
-      .eq("id", boardId);
-
+    const { error } = await supabase.from("boards").update({ data: nextData }).eq("id", boardId);
     if (error) throw new Error(error.message);
 
     if (board) setBoard({ ...board, data: nextData });
@@ -175,13 +169,9 @@ export default function BoardPage() {
     setBoard(row);
 
     const gc = row?.data?.google;
-    if (gc?.sheetId && gc?.range) {
-      setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
-    } else {
-      setGoogleConfig(null);
-    }
+    if (gc?.sheetId && gc?.range) setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
+    else setGoogleConfig(null);
 
-    // Load konva state
     const konva = row?.data?.konva ?? {};
     const bg = typeof konva.backgroundUrl === "string" ? konva.backgroundUrl : "";
     setPlacedPlayers(Array.isArray(konva.placedPlayers) ? konva.placedPlayers : []);
@@ -202,9 +192,9 @@ export default function BoardPage() {
     setPlayers([]);
 
     try {
-      const url = `/api/google/sheet?sheetId=${encodeURIComponent(
-        cfg.sheetId
-      )}&range=${encodeURIComponent(cfg.range)}`;
+      const url = `/api/google/sheet?sheetId=${encodeURIComponent(cfg.sheetId)}&range=${encodeURIComponent(
+        cfg.range
+      )}`;
 
       const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
@@ -223,8 +213,7 @@ export default function BoardPage() {
       const header = values[0];
       const rows = values.slice(1);
 
-      const col = (name: string) =>
-        header.findIndex((h) => (h ?? "").trim() === name);
+      const col = (name: string) => header.findIndex((h) => (h ?? "").trim() === name);
 
       const idxId = col("ID");
       const idxName = col("Student Name");
@@ -284,18 +273,15 @@ export default function BoardPage() {
       ),
     [players]
   );
-  const returningOptions = useMemo(
-    () => uniq(players.map((p) => (p.returning ?? "").trim())).sort(),
-    [players]
-  );
+  const returningOptions = useMemo(() => uniq(players.map((p) => (p.returning ?? "").trim())).sort(), [players]);
   const primaryOptions = useMemo(
     () => uniq(players.map((p) => (p.potentialPrimary ?? "").trim())).sort(),
     [players]
   );
   const likelihoodOptions = useMemo(
     () =>
-      uniq(players.map((p) => (p.likelihoodPrimary ?? "").trim())).sort(
-        (a, b) => a.localeCompare(b, undefined, { numeric: true })
+      uniq(players.map((p) => (p.likelihoodPrimary ?? "").trim())).sort((a, b) =>
+        a.localeCompare(b, undefined, { numeric: true })
       ),
     [players]
   );
@@ -338,8 +324,8 @@ export default function BoardPage() {
     };
 
     const json = JSON.stringify(payload);
-
     e.dataTransfer.setData(PLAYER_DRAG_MIME, json);
+    e.dataTransfer.setData("application/json", json);
     e.dataTransfer.setData("text/plain", json);
     e.dataTransfer.effectAllowed = "copy";
   }
@@ -349,7 +335,7 @@ export default function BoardPage() {
     setBgModalOpen(true);
   }
 
-  async function applyBackground(url: string) {
+  function applyBackground(url: string) {
     setBackgroundUrl(url);
     setBgModalOpen(false);
     scheduleAutosave(undefined, url);
@@ -371,10 +357,7 @@ export default function BoardPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <button
-            className="border px-3 py-1 rounded text-sm"
-            onClick={() => setEditMode((v) => !v)}
-          >
+          <button className="border px-3 py-1 rounded text-sm" onClick={() => setEditMode((v) => !v)}>
             {editMode ? "Switch to View" : "Switch to Edit"}
           </button>
 
@@ -409,10 +392,7 @@ export default function BoardPage() {
                     Refresh
                   </button>
 
-                  <button
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => setSidebarCollapsed(true)}
-                  >
+                  <button className="border px-3 py-1 rounded text-sm bg-white" onClick={() => setSidebarCollapsed(true)}>
                     Collapse
                   </button>
                 </div>
@@ -466,9 +446,7 @@ export default function BoardPage() {
 
                 <button
                   className="text-xs underline text-gray-600 mt-2"
-                  onClick={() =>
-                    setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
-                  }
+                  onClick={() => setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })}
                 >
                   Clear filters
                 </button>
@@ -488,50 +466,60 @@ export default function BoardPage() {
                   {filteredPlayers.map((p, idx) => (
                     <div
                       key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-                      className="border rounded p-2 bg-white cursor-grab active:cursor-grabbing"
-                      draggable={editMode}
-                      onDragStart={(e) => onPlayerDragStart(e, p)}
-                      title={editMode ? "Drag onto the board" : "Switch to Edit to place players"}
+                      className="border rounded bg-white"
+                      title={editMode ? "Drag from the handle onto the board" : "Switch to Edit to place players"}
                     >
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
-                          onClick={() => {
-                            if (p.pictureProxyUrl) setPhotoModal({ url: p.pictureProxyUrl, name: p.name });
-                          }}
-                          onMouseDown={(e) => e.stopPropagation()}
-                          draggable={false}
-                          title="Click to enlarge"
-                        >
-                          {p.pictureProxyUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={p.pictureProxyUrl}
-                              alt={`${p.name} photo`}
-                              width={48}
-                              height={48}
-                              style={{ width: 48, height: 48, objectFit: "cover" }}
-                              draggable={false}
-                            />
-                          ) : null}
-                        </button>
-
-                        <div className="min-w-0">
-                          <div className="font-medium truncate">{p.name}</div>
-                          <div className="text-xs text-gray-700">
-                            Grade: {p.grade || "?"} • Pos: {p.position || "?"}
-                            {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
-                            {p.returning || "?"}
-                          </div>
-                          <div className="text-xs text-gray-700">
-                            Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
-                            {p.likelihoodPrimary || "?"}
-                          </div>
-                        </div>
+                      {/* DRAG HANDLE (reliable) */}
+                      <div
+                        className={`px-2 py-1 text-xs border-b select-none ${
+                          editMode ? "cursor-grab active:cursor-grabbing bg-gray-50" : "cursor-not-allowed bg-gray-100"
+                        }`}
+                        draggable={editMode}
+                        onDragStart={(e) => onPlayerDragStart(e, p)}
+                        onDragEnd={() => {}}
+                      >
+                        {editMode ? "Drag to board" : "View mode"}
                       </div>
 
-                      {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
+                      {/* Content (NOT draggable) */}
+                      <div className="p-2">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
+                            onClick={() => {
+                              if (p.pictureProxyUrl) setPhotoModal({ url: p.pictureProxyUrl, name: p.name });
+                            }}
+                            draggable={false}
+                            title="Click to enlarge"
+                          >
+                            {p.pictureProxyUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={p.pictureProxyUrl}
+                                alt={`${p.name} photo`}
+                                width={48}
+                                height={48}
+                                style={{ width: 48, height: 48, objectFit: "cover" }}
+                                draggable={false}
+                              />
+                            ) : null}
+                          </button>
+
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{p.name}</div>
+                            <div className="text-xs text-gray-700">
+                              Grade: {p.grade || "?"} • Pos: {p.position || "?"}
+                              {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning: {p.returning || "?"}
+                            </div>
+                            <div className="text-xs text-gray-700">
+                              Primary: {p.potentialPrimary || "?"} • Likelihood: {p.likelihoodPrimary || "?"}
+                            </div>
+                          </div>
+                        </div>
+
+                        {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -558,7 +546,6 @@ export default function BoardPage() {
                 scheduleAutosave(next, undefined);
               }}
               backgroundUrl={backgroundUrl}
-              // background UI is now in header, so don't pass onBackgroundUrlChange
               onBackgroundUrlChange={undefined}
               dragMime={PLAYER_DRAG_MIME}
             />
@@ -589,10 +576,7 @@ export default function BoardPage() {
               />
 
               <div className="mt-4 flex items-center justify-end gap-2">
-                <button
-                  className="border rounded px-3 py-2 text-sm"
-                  onClick={() => applyBackground("")}
-                >
+                <button className="border rounded px-3 py-2 text-sm" onClick={() => applyBackground("")}>
                   Clear
                 </button>
                 <button
@@ -609,10 +593,7 @@ export default function BoardPage() {
 
       {/* Photo modal */}
       {photoModal ? (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setPhotoModal(null)}
-        >
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPhotoModal(null)}>
           <div className="w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <div className="text-white font-semibold truncate">{photoModal.name}</div>
@@ -673,11 +654,7 @@ function DropdownMultiSelect({
             <div className="space-y-1">
               {options.map((o) => (
                 <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(o.value)}
-                    onChange={() => onToggle(o.value)}
-                  />
+                  <input type="checkbox" checked={selected.includes(o.value)} onChange={() => onToggle(o.value)} />
                   <span>{o.label}</span>
                 </label>
               ))}
