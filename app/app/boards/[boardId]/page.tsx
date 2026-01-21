@@ -3,14 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabaseClient";
-import type { PlacedPlayer } from "@/lib/konva/BoardCanvas";
-
-const BoardCanvas = dynamic(
-  () => import("@/lib/konva/BoardCanvas").then((m) => m.BoardCanvas),
-  { ssr: false }
-);
+import { HtmlBoard, type PlacedPlayer } from "@/lib/board/HtmlBoard";
 
 type BoardRow = {
   id: string;
@@ -80,7 +74,7 @@ export default function BoardPage() {
   });
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
-  // Canvas state (persisted)
+  // Board state (persisted)
   const [placedPlayers, setPlacedPlayers] = useState<PlacedPlayer[]>([]);
   const [backgroundUrl, setBackgroundUrl] = useState<string>("");
 
@@ -93,7 +87,7 @@ export default function BoardPage() {
 
   const saveTimer = useRef<number | null>(null);
 
-  // Close dropdowns if user clicks anywhere else
+  // Close dropdowns if user clicks elsewhere
   useEffect(() => {
     const onDown = () => setOpenDropdown(null);
     window.addEventListener("mousedown", onDown);
@@ -128,13 +122,16 @@ export default function BoardPage() {
 
     const nextData = {
       ...prevData,
-      konva: {
-        ...(prevData.konva ?? {}),
-        placedPlayers: patch.placedPlayers ?? prevData?.konva?.placedPlayers ?? [],
+      google: prevData.google ?? undefined,
+      board: {
+        ...(prevData.board ?? {}),
+      },
+      htmlBoard: {
+        placedPlayers: patch.placedPlayers ?? prevData?.htmlBoard?.placedPlayers ?? [],
         backgroundUrl:
           typeof patch.backgroundUrl === "string"
             ? patch.backgroundUrl
-            : prevData?.konva?.backgroundUrl ?? "",
+            : prevData?.htmlBoard?.backgroundUrl ?? "",
       },
     };
 
@@ -179,9 +176,10 @@ export default function BoardPage() {
     if (gc?.sheetId && gc?.range) setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
     else setGoogleConfig(null);
 
-    const konva = row?.data?.konva ?? {};
-    const bg = typeof konva.backgroundUrl === "string" ? konva.backgroundUrl : "";
-    setPlacedPlayers(Array.isArray(konva.placedPlayers) ? konva.placedPlayers : []);
+    // Load HTML-board data
+    const hb = row?.data?.htmlBoard ?? {};
+    const bg = typeof hb.backgroundUrl === "string" ? hb.backgroundUrl : "";
+    setPlacedPlayers(Array.isArray(hb.placedPlayers) ? hb.placedPlayers : []);
     setBackgroundUrl(bg);
     setBgDraft(bg);
 
@@ -280,7 +278,10 @@ export default function BoardPage() {
       ),
     [players]
   );
-  const returningOptions = useMemo(() => uniq(players.map((p) => (p.returning ?? "").trim())).sort(), [players]);
+  const returningOptions = useMemo(
+    () => uniq(players.map((p) => (p.returning ?? "").trim())).sort(),
+    [players]
+  );
   const primaryOptions = useMemo(
     () => uniq(players.map((p) => (p.potentialPrimary ?? "").trim())).sort(),
     [players]
@@ -501,7 +502,6 @@ export default function BoardPage() {
                         }`}
                         draggable={editMode}
                         onDragStart={(e) => onPlayerDragStart(e, p)}
-                        onDragEnd={() => {}}
                       >
                         {editMode ? "Drag to board" : "View mode"}
                       </div>
@@ -562,9 +562,9 @@ export default function BoardPage() {
             </aside>
           )}
 
-          {/* Canvas always behind sidebar */}
+          {/* Board always behind sidebar */}
           <section className="flex-1 relative z-0 overflow-hidden">
-            <BoardCanvas
+            <HtmlBoard
               editMode={editMode}
               placed={placedPlayers}
               onPlacedChange={(next) => {
@@ -572,7 +572,6 @@ export default function BoardPage() {
                 scheduleAutosave(next, undefined);
               }}
               backgroundUrl={backgroundUrl}
-              onBackgroundUrlChange={undefined}
               dragMime={PLAYER_DRAG_MIME}
             />
           </section>
@@ -591,9 +590,7 @@ export default function BoardPage() {
             </div>
 
             <div className="p-5">
-              <div className="text-sm text-gray-700 mb-2">
-                Paste an image URL. (Tip: hold Space to pan; scroll to zoom.)
-              </div>
+              <div className="text-sm text-gray-700 mb-2">Paste an image URL.</div>
               <input
                 className="w-full border rounded px-3 py-2 text-sm"
                 placeholder="https://…"
@@ -644,7 +641,7 @@ export default function BoardPage() {
   );
 }
 
-/** Dropdown multi-select (checkboxes inside a dropdown) */
+/** Dropdown multi-select */
 function DropdownMultiSelect({
   label,
   options,
