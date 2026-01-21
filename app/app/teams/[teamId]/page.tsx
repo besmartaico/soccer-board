@@ -29,7 +29,7 @@ function extractSheetIdFromUrl(input: string): string {
   try {
     const u = new URL(s);
 
-    // Typical: https://docs.google.com/spreadsheets/d/<ID>/edit#gid=...
+    // Typical: https://docs.google.com/spreadsheets/d/<ID>/edit
     const m = u.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
     if (m && m[1]) return m[1];
 
@@ -47,7 +47,6 @@ function extractSheetIdFromUrl(input: string): string {
 
 function normalizeColumn(col: string): string {
   const c = (col ?? "").trim().toUpperCase();
-  // Accept A..Z, AA..ZZ etc (simple)
   if (!c) return "";
   if (!/^[A-Z]{1,3}$/.test(c)) return "";
   return c;
@@ -57,7 +56,6 @@ function parseRosterRange(range: string | null): { sheetName: string; startCol: 
   const r = (range ?? "").trim();
   if (!r) return { sheetName: "", startCol: "", endCol: "" };
 
-  // Expect: Sheet Name!A:P  (we only parse this pattern)
   const parts = r.split("!");
   if (parts.length !== 2) return { sheetName: "", startCol: "", endCol: "" };
 
@@ -85,7 +83,7 @@ export default function TeamBoardsPage() {
 
   // Roster inputs (non-technical)
   const [sheetLink, setSheetLink] = useState("");
-  const [sheetIdPreview, setSheetIdPreview] = useState(""); // extracted
+  const [sheetIdPreview, setSheetIdPreview] = useState("");
   const [tabName, setTabName] = useState("");
   const [startCol, setStartCol] = useState("");
   const [endCol, setEndCol] = useState("");
@@ -106,7 +104,6 @@ export default function TeamBoardsPage() {
     const sc = normalizeColumn(startCol);
     const ec = normalizeColumn(endCol);
     if (!tn || !sc || !ec) return "";
-    // If tab name contains spaces, we keep it as-is. Google Sheets API accepts it.
     return `${tn}!${sc}:${ec}`;
   }, [tabName, startCol, endCol]);
 
@@ -145,13 +142,12 @@ export default function TeamBoardsPage() {
     const t = teamData as Team;
     setTeam(t);
 
-    // Populate inputs from saved roster fields (when present)
     const parsed = parseRosterRange(t.roster_range);
     setTabName(parsed.sheetName || "");
     setStartCol(parsed.startCol || "");
     setEndCol(parsed.endCol || "");
 
-    // We can’t reconstruct the full link reliably; show the ID as a placeholder-ish value
+    // We store ID, not URL (unless user pasted URL again)
     setSheetLink(t.roster_sheet_id ?? "");
     setSheetIdPreview(t.roster_sheet_id ?? "");
 
@@ -218,7 +214,7 @@ export default function TeamBoardsPage() {
         prev ? { ...prev, roster_sheet_id: nextSheetId, roster_range: nextRange } : prev
       );
     } catch (e: any) {
-      setError(e?.message ?? "Failed to save roster settings.");
+      setError(e?.message ?? "Failed to save roster.");
     } finally {
       setSavingRoster(false);
     }
@@ -275,7 +271,7 @@ export default function TeamBoardsPage() {
     try {
       const { error: delErr } = await supabase.from("boards").delete().eq("id", boardId);
       if (delErr) throw new Error(delErr.message);
-      setBoards((prev) => prev.filter((b) => b.id !== boardId));
+      setBoards((prev) => prev.filter((x) => x.id !== boardId));
     } catch (e: any) {
       setError(e?.message ?? "Failed to delete board.");
     } finally {
@@ -432,11 +428,16 @@ export default function TeamBoardsPage() {
                   )}
                 </div>
 
-                {/* Hidden-but-useful: show what is stored */}
+                {/* Show what is stored */}
                 {team?.roster_sheet_id || team?.roster_range ? (
                   <div className="text-xs text-gray-500">
                     Saved: <code>{team.roster_sheet_id ?? ""}</code>{" "}
-                    {team.roster_range ? <> / <code>{team.roster_range}</code></> : null}
+                    {team.roster_range ? (
+                      <>
+                        {" "}
+                        / <code>{team.roster_range}</code>
+                      </>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -445,9 +446,7 @@ export default function TeamBoardsPage() {
             {/* Create board */}
             <div className="rounded-xl border p-4">
               <div className="text-sm font-semibold text-gray-900">Create a Board</div>
-              <p className="mt-1 text-xs text-gray-600">
-                Example: Varsity Lineup vs Skyridge
-              </p>
+              <p className="mt-1 text-xs text-gray-600">Example: Varsity Lineup vs Skyridge</p>
 
               <div className="mt-3 flex flex-col gap-3 sm:flex-row">
                 <input
@@ -460,11 +459,6 @@ export default function TeamBoardsPage() {
                   className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
                   onClick={createBoard}
                   disabled={!boardName.trim()}
-                  title={
-                    !rosterConfigured
-                      ? "You can still create boards; roster will be empty until configured."
-                      : ""
-                  }
                 >
                   Create
                 </button>
@@ -475,9 +469,7 @@ export default function TeamBoardsPage() {
                   Note: roster isn’t configured yet, so new boards will start with an empty roster.
                 </div>
               ) : (
-                <div className="mt-3 text-xs text-gray-500">
-                  New boards will automatically load the roster.
-                </div>
+                <div className="mt-3 text-xs text-gray-500">New boards will automatically load the roster.</div>
               )}
             </div>
           </div>
@@ -552,55 +544,12 @@ export default function TeamBoardsPage() {
             </div>
           )}
         </div>
+
+        {/* Helpful debug (can remove later) */}
+        <div className="mt-8 text-xs text-gray-400">
+          Sheet ID preview: {sheetIdPreview || "(none)"}
+        </div>
       </div>
     </main>
   );
-
-  async function deleteBoard(boardId: string, boardName: string) {
-    setError(null);
-
-    const ok = window.confirm(`Delete board "${boardName}"?\n\nThis cannot be undone.`);
-    if (!ok) return;
-
-    const user = await requireLogin();
-    if (!user) return;
-
-    setDeletingBoardId(boardId);
-    try {
-      const { error: delErr } = await supabase.from("boards").delete().eq("id", boardId);
-      if (delErr) throw new Error(delErr.message);
-      setBoards((prev) => prev.filter((x) => x.id !== boardId));
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to delete board.");
-    } finally {
-      setDeletingBoardId(null);
-    }
-  }
-
-  async function deleteTeam(teamName: string) {
-    setError(null);
-
-    const ok = window.confirm(
-      `Delete team "${teamName}"?\n\nThis will also delete ALL boards under the team.\nThis cannot be undone.`
-    );
-    if (!ok) return;
-
-    const user = await requireLogin();
-    if (!user) return;
-
-    setDeletingTeam(true);
-    try {
-      const { error: delBoardsErr } = await supabase.from("boards").delete().eq("team_id", teamId);
-      if (delBoardsErr) throw new Error(delBoardsErr.message);
-
-      const { error: delTeamErr } = await supabase.from("teams").delete().eq("id", teamId);
-      if (delTeamErr) throw new Error(delTeamErr.message);
-
-      router.push("/app/teams");
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to delete team.");
-    } finally {
-      setDeletingTeam(false);
-    }
-  }
 }
