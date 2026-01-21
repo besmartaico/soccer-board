@@ -8,6 +8,7 @@ import Link from "next/link";
 type Team = {
   id: string;
   name: string;
+  data?: any; // contains google config, etc.
 };
 
 type Board = {
@@ -39,10 +40,10 @@ export default function TeamBoardsPage() {
       return;
     }
 
-    // Load team
+    // Load team (include data so we can copy google config to new boards)
     const { data: teamData, error: teamErr } = await supabase
       .from("teams")
-      .select("id,name")
+      .select("id,name,data")
       .eq("id", teamId)
       .single();
 
@@ -79,11 +80,28 @@ export default function TeamBoardsPage() {
       return;
     }
 
+    // Copy team google config (if it exists)
+    const teamGoogle = team?.data?.google;
+
+    const initialData: any = {
+      htmlBoard: {
+        placedPlayers: [],
+        backgroundUrl: "",
+      },
+    };
+
+    if (teamGoogle?.sheetId && teamGoogle?.range) {
+      initialData.google = {
+        sheetId: teamGoogle.sheetId,
+        range: teamGoogle.range,
+      };
+    }
+
     const { error: insErr } = await supabase.from("boards").insert([
       {
         team_id: teamId,
         name,
-        data: {}, // will store canvases here
+        data: initialData,
         created_by: user.id,
       },
     ]);
@@ -147,6 +165,18 @@ export default function TeamBoardsPage() {
               Create
             </button>
           </div>
+
+          {/* Optional hint so it's obvious why a new board might have no roster */}
+          {team?.data?.google?.sheetId && team?.data?.google?.range ? (
+            <div className="mt-3 text-xs text-gray-500">
+              New boards will use the team roster from Google Sheets.
+            </div>
+          ) : (
+            <div className="mt-3 text-xs text-amber-700">
+              Note: This team does not have a Google Sheets roster configured yet, so new boards
+              will start with an empty roster.
+            </div>
+          )}
         </div>
 
         {error && (
