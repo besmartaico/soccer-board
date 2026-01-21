@@ -80,7 +80,7 @@ export default function BoardPage() {
   // Background
   const [backgroundUrl, setBackgroundUrl] = useState<string>("");
 
-  // Photo modal (for roster thumbnail click)
+  // Photo modal
   const [photoModal, setPhotoModal] = useState<{ url: string; name: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -186,6 +186,7 @@ export default function BoardPage() {
         .map((r) => {
           const rawPic = (r[idxPicture] ?? "").toString();
           const normalized = normalizePictureUrl(rawPic);
+
           const proxy = normalized ? `/api/image-proxy?url=${encodeURIComponent(normalized)}` : "";
 
           return {
@@ -225,17 +226,14 @@ export default function BoardPage() {
       ),
     [players]
   );
-
   const returningOptions = useMemo(
     () => uniq(players.map((p) => (p.returning ?? "").trim())).sort(),
     [players]
   );
-
   const primaryOptions = useMemo(
     () => uniq(players.map((p) => (p.potentialPrimary ?? "").trim())).sort(),
     [players]
   );
-
   const likelihoodOptions = useMemo(
     () =>
       uniq(players.map((p) => (p.likelihoodPrimary ?? "").trim())).sort((a, b) =>
@@ -284,9 +282,8 @@ export default function BoardPage() {
       likelihood: p.likelihoodPrimary,
       pos1: p.position,
       pos2: p.secondaryPosition,
+      notes: p.notes,
       pictureUrl: p.pictureProxyUrl || "",
-      // ✅ include notes so the board modal can show them
-      notes: p.notes || "",
     };
 
     const json = JSON.stringify(payload);
@@ -344,9 +341,7 @@ export default function BoardPage() {
       });
 
       if (up.error) {
-        throw new Error(
-          `Storage upload failed: ${up.error.message}. (Make sure bucket "${BG_BUCKET}" exists and is public.)`
-        );
+        throw new Error(`Storage upload failed: ${up.error.message}.`);
       }
 
       const pub = supabase.storage.from(BG_BUCKET).getPublicUrl(path);
@@ -361,7 +356,7 @@ export default function BoardPage() {
   }
 
   return (
-    <main className="h-screen overflow-hidden">
+    <main className="h-screen">
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-white relative z-40">
         <div className="flex items-center gap-3 min-w-0">
@@ -445,6 +440,7 @@ export default function BoardPage() {
                   Clear
                 </button>
               </div>
+
               {backgroundUrl ? (
                 <div className="text-xs text-gray-600 mt-2 truncate" title={backgroundUrl}>
                   {backgroundUrl}
@@ -606,8 +602,8 @@ export default function BoardPage() {
             )}
           </aside>
 
-          {/* Board */}
-          <section className="flex-1 relative z-0 overflow-hidden">
+          {/* Board (SCROLL CONTAINER) */}
+          <section className="flex-1 relative overflow-auto bg-white">
             <HtmlBoard
               editMode={true}
               placed={placedPlayers}
@@ -617,26 +613,14 @@ export default function BoardPage() {
               }}
               dragMime={PLAYER_DRAG_MIME}
               backgroundUrl={backgroundUrl || undefined}
+              canvasWidth={3000}
+              canvasHeight={2000}
             />
           </section>
         </div>
       )}
 
-      {/* Sticky Save (backup, always visible) */}
-      <div className="fixed bottom-4 right-4 z-[1000]">
-        <button
-          type="button"
-          className={`border px-4 py-2 rounded shadow bg-white text-sm ${
-            dirty ? "font-semibold" : "opacity-70"
-          }`}
-          onClick={saveBoard}
-          disabled={!dirty || saving}
-        >
-          {saving ? "Saving..." : dirty ? "Save" : "Saved"}
-        </button>
-      </div>
-
-      {/* Photo modal (roster image click) */}
+      {/* Photo modal */}
       {photoModal ? (
         <div
           className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4"
@@ -742,11 +726,6 @@ function uniq(arr: string[]) {
 
 /**
  * Normalize Google Drive links into a "direct-ish" image URL.
- * Handles:
- * - https://drive.google.com/file/d/<ID>/view...
- * - https://drive.google.com/thumbnail?id=<ID>&sz=w1000
- * - malformed: https://drive.google.com/thumbnail?id=<ID>=w1000  (we extract the ID)
- * - ...?id=<ID> patterns
  */
 function normalizePictureUrl(raw: string) {
   const s = (raw ?? "").trim();
@@ -755,25 +734,20 @@ function normalizePictureUrl(raw: string) {
   try {
     const u = new URL(s);
 
-    // /file/d/<id>/
     const m = u.pathname.match(/\/file\/d\/([^/]+)/);
     if (m && m[1]) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
 
-    // /thumbnail?id=...
     if (u.hostname === "drive.google.com" && u.pathname === "/thumbnail") {
       let id = u.searchParams.get("id") ?? "";
-      // Handle malformed: id=<ID>=w1000
       if (id.includes("=") && !id.includes("%3D")) {
         id = id.split("=")[0];
       }
       if (id) {
-        // thumbnail works well for images; keep it but fix sz if missing
         const sz = u.searchParams.get("sz") || "w1000";
         return `https://drive.google.com/thumbnail?id=${id}&sz=${encodeURIComponent(sz)}`;
       }
     }
 
-    // ?id=<id>
     const idParam = u.searchParams.get("id");
     if (idParam) {
       const id = idParam.includes("=") ? idParam.split("=")[0] : idParam;
