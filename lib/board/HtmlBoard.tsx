@@ -104,9 +104,9 @@ export function HtmlBoard({
 }: Props) {
   const boardRef = useRef<HTMLDivElement | null>(null);
 
-  // Keep latest values for global listeners (prevents re-binding / listener explosion)
+  // Latest values for global listeners
   const placedRef = useRef<PlacedPlayer[]>(placed);
-  const onPlacedChangeRef = useRef<(next: PlacedPlayer[]) => void>(onPlacedChange);
+  const onPlacedChangeRef = useRef(onPlacedChange);
 
   useEffect(() => {
     placedRef.current = placed;
@@ -122,7 +122,7 @@ export function HtmlBoard({
     return m;
   }, [placed]);
 
-  // Drag-over highlight (guarded)
+  // Drag-over highlight
   const [isDragOver, setIsDragOver] = useState(false);
   const dragOverRef = useRef(false);
   function setDragOver(next: boolean) {
@@ -131,7 +131,7 @@ export function HtmlBoard({
     setIsDragOver(next);
   }
 
-  // During a drag of a placed card: do not spam parent state
+  // Live preview while dragging a placed card (no parent state spam)
   const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(null);
 
   const draggingRef = useRef<{
@@ -143,6 +143,12 @@ export function HtmlBoard({
     nextX: number;
     nextY: number;
   } | null>(null);
+
+  function cancelBoardDrag() {
+    if (!draggingRef.current) return;
+    draggingRef.current = null;
+    setDragPreview(null);
+  }
 
   function clientToBoard(clientX: number, clientY: number) {
     const el = boardRef.current;
@@ -204,9 +210,7 @@ export function HtmlBoard({
     const card = placedById.get(id);
     if (!card) return;
 
-    // Avoid starting a drag on right-click / secondary button
-    // (MouseEvent.buttons: 1 = primary)
-    // PointerEvent has buttons too.
+    // Primary button only
     if ((e as any).buttons !== undefined && (e as any).buttons !== 1) return;
 
     const el = e.currentTarget as HTMLDivElement;
@@ -216,7 +220,7 @@ export function HtmlBoard({
 
     draggingRef.current = {
       id,
-      pointerId: e.pointerId,
+      pointerId: e.pointerId, // for mouse this is usually 1
       dx: pt.x - card.x,
       dy: pt.y - card.y,
       rafPending: false,
@@ -241,7 +245,7 @@ export function HtmlBoard({
     });
   }
 
-  // ✅ Attach global listeners ONCE (no dependencies)
+  // ✅ Global listeners once — plus HARD cancel conditions to prevent “stuck drag”
   useEffect(() => {
     function onMove(ev: PointerEvent) {
       const d = draggingRef.current;
@@ -283,17 +287,48 @@ export function HtmlBoard({
 
       if (!card) return;
 
-      // Commit ONCE
       const next = currentPlaced.map((p) => (p.id === card.id ? { ...p, x: finalX, y: finalY } : p));
       onPlacedChangeRef.current(next);
     }
 
+    function onCancel(_ev: PointerEvent) {
+      cancelBoardDrag();
+    }
+
+    // 🔥 Critical: if user clicks outside the board while a board-drag is “active”,
+    // cancel it immediately. This prevents sidebar clicks from freezing the page.
+    function onPointerDownCapture(ev: PointerEvent) {
+      if (!draggingRef.current) return;
+      const board = boardRef.current;
+      const target = ev.target as Node | null;
+      if (!board || !target) return;
+      if (!board.contains(target)) {
+        cancelBoardDrag();
+      }
+    }
+
+    function onBlur() {
+      cancelBoardDrag();
+    }
+
     window.addEventListener("pointermove", onMove, { passive: true });
     window.addEventListener("pointerup", onUp, { passive: true });
+    window.addEventListener("pointercancel", onCancel, { passive: true });
+
+    // Capture phase to run before other handlers
+    window.addEventListener("pointerdown", onPointerDownCapture, true);
+
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) cancelBoardDrag();
+    });
 
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("pointerdown", onPointerDownCapture, true);
+      window.removeEventListener("blur", onBlur);
     };
   }, []);
 
@@ -324,7 +359,6 @@ export function HtmlBoard({
         <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" />
       ) : null}
 
-      {/* placed cards */}
       <div className="absolute inset-0 z-20" style={{ touchAction: "none" }}>
         {placed.map((p) => {
           const isDragging = dragPreview?.id === p.id;
@@ -340,13 +374,7 @@ export function HtmlBoard({
               className={`absolute rounded-xl border shadow-sm bg-white select-none ${
                 editMode ? "cursor-grab active:cursor-grabbing" : "cursor-default"
               }`}
-              style={{
-                left: x,
-                top: y,
-                width: w,
-                height: h,
-                userSelect: "none",
-              }}
+              style={{ left: x, top: y, width: w, height: h, userSelect: "none" }}
               onPointerDown={(e) => beginMove(e, p.id)}
             >
               <div className="flex h-full">
