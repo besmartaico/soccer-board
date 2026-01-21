@@ -25,8 +25,6 @@ export default function HomePage() {
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         router.replace("/app/teams");
-      } else {
-        setCheckingSession(false);
       }
     });
 
@@ -48,10 +46,6 @@ export default function HomePage() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6">
       <h1 className="text-3xl font-bold">Lone Peak Knights</h1>
-
-      <p className="text-gray-600 max-w-md text-center">
-        Invite-only access. Request access and you’ll receive an invite link to create your account.
-      </p>
 
       <div className="flex gap-4">
         <Link
