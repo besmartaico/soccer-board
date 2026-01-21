@@ -24,13 +24,14 @@ export default function HomePage() {
     });
 
     // Listen for auth changes (login/logout)
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        if (session?.user) {
-          router.replace("/app/teams");
-        }
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        router.replace("/app/teams");
+      } else {
+        // if user logs out while on /, show the home page
+        setCheckingSession(false);
       }
-    );
+    });
 
     return () => {
       mounted = false;
@@ -63,6 +64,7 @@ export default function HomePage() {
           Log In
         </Link>
 
+        {/* Invite-only signup page lives at /signup */}
         <Link
           href="/signup"
           className="rounded-md border border-gray-300 px-5 py-2 hover:bg-gray-50"
