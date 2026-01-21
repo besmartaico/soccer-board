@@ -48,7 +48,6 @@ export async function GET(req: Request) {
       "User-Agent": "SoccerBoardImageProxy/1.0",
     };
 
-    // Google endpoints often behave better with these headers
     if (isGoogleHost(target.hostname)) {
       headers.Referer = "https://drive.google.com/";
       headers.Origin = "https://drive.google.com";
@@ -61,11 +60,6 @@ export async function GET(req: Request) {
     });
 
     if (!upstream.ok) {
-      console.warn(
-        `[image-proxy] upstream not ok: ${upstream.status} for ${target.toString()}`
-      );
-
-      // Return a valid image so the UI doesn't spam errors / break layout
       const svg = placeholderSvg(String(upstream.status));
       return new Response(svg, {
         status: 200,

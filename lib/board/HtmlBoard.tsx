@@ -27,7 +27,6 @@ type Props = {
   editMode: boolean;
   placed: PlacedPlayer[];
   onPlacedChange: (next: PlacedPlayer[]) => void;
-
   backgroundUrl?: string;
   dragMime?: string;
 };
@@ -104,7 +103,7 @@ export function HtmlBoard({
 }: Props) {
   const boardRef = useRef<HTMLDivElement | null>(null);
 
-  // Latest values for global listeners
+  // keep latest placed + callback for global listeners
   const placedRef = useRef<PlacedPlayer[]>(placed);
   const onPlacedChangeRef = useRef(onPlacedChange);
 
@@ -122,33 +121,22 @@ export function HtmlBoard({
     return m;
   }, [placed]);
 
-  // Drag-over highlight
   const [isDragOver, setIsDragOver] = useState(false);
-  const dragOverRef = useRef(false);
-  function setDragOver(next: boolean) {
-    if (dragOverRef.current === next) return;
-    dragOverRef.current = next;
-    setIsDragOver(next);
-  }
 
-  // Live preview while dragging a placed card (no parent state spam)
-  const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(null);
+  // lightweight “preview” while dragging a placed card
+  const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(
+    null
+  );
 
   const draggingRef = useRef<{
     id: string;
     pointerId: number;
     dx: number;
     dy: number;
-    rafPending: boolean;
     nextX: number;
     nextY: number;
+    rafPending: boolean;
   } | null>(null);
-
-  function cancelBoardDrag() {
-    if (!draggingRef.current) return;
-    draggingRef.current = null;
-    setDragPreview(null);
-  }
 
   function clientToBoard(clientX: number, clientY: number) {
     const el = boardRef.current;
@@ -157,21 +145,20 @@ export function HtmlBoard({
     return { x: clientX - r.left, y: clientY - r.top };
   }
 
-  // ----- Drop from roster onto board -----
   function onDragOver(e: React.DragEvent) {
     if (!editMode) return;
     if (!canAcceptDrag(e, dragMime)) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "copy";
-    setDragOver(true);
+    setIsDragOver(true);
   }
 
   function onDragLeave() {
-    setDragOver(false);
+    setIsDragOver(false);
   }
 
   function onDrop(e: React.DragEvent) {
-    setDragOver(false);
+    setIsDragOver(false);
     if (!editMode) return;
     if (!canAcceptDrag(e, dragMime)) return;
 
@@ -203,29 +190,27 @@ export function HtmlBoard({
     onPlacedChangeRef.current([...placedRef.current, next]);
   }
 
-  // ----- Move placed cards -----
   function beginMove(e: React.PointerEvent, id: string) {
     if (!editMode) return;
+
+    // left click only
+    if ((e as any).buttons !== undefined && (e as any).buttons !== 1) return;
 
     const card = placedById.get(id);
     if (!card) return;
 
-    // Primary button only
-    if ((e as any).buttons !== undefined && (e as any).buttons !== 1) return;
-
-    const el = e.currentTarget as HTMLDivElement;
-    el.setPointerCapture?.(e.pointerId);
+    (e.currentTarget as HTMLDivElement).setPointerCapture?.(e.pointerId);
 
     const pt = clientToBoard(e.clientX, e.clientY);
 
     draggingRef.current = {
       id,
-      pointerId: e.pointerId, // for mouse this is usually 1
+      pointerId: e.pointerId,
       dx: pt.x - card.x,
       dy: pt.y - card.y,
-      rafPending: false,
       nextX: card.x,
       nextY: card.y,
+      rafPending: false,
     };
 
     setDragPreview({ id, x: card.x, y: card.y });
@@ -233,10 +218,9 @@ export function HtmlBoard({
 
   function schedulePreviewUpdate() {
     const d = draggingRef.current;
-    if (!d) return;
-    if (d.rafPending) return;
-
+    if (!d || d.rafPending) return;
     d.rafPending = true;
+
     requestAnimationFrame(() => {
       const dd = draggingRef.current;
       if (!dd) return;
@@ -245,7 +229,6 @@ export function HtmlBoard({
     });
   }
 
-  // ✅ Global listeners once — plus HARD cancel conditions to prevent “stuck drag”
   useEffect(() => {
     function onMove(ev: PointerEvent) {
       const d = draggingRef.current;
@@ -268,6 +251,7 @@ export function HtmlBoard({
 
       d.nextX = x;
       d.nextY = y;
+
       schedulePreviewUpdate();
     }
 
@@ -287,48 +271,18 @@ export function HtmlBoard({
 
       if (!card) return;
 
-      const next = currentPlaced.map((p) => (p.id === card.id ? { ...p, x: finalX, y: finalY } : p));
+      const next = currentPlaced.map((p) =>
+        p.id === card.id ? { ...p, x: finalX, y: finalY } : p
+      );
       onPlacedChangeRef.current(next);
-    }
-
-    function onCancel(_ev: PointerEvent) {
-      cancelBoardDrag();
-    }
-
-    // 🔥 Critical: if user clicks outside the board while a board-drag is “active”,
-    // cancel it immediately. This prevents sidebar clicks from freezing the page.
-    function onPointerDownCapture(ev: PointerEvent) {
-      if (!draggingRef.current) return;
-      const board = boardRef.current;
-      const target = ev.target as Node | null;
-      if (!board || !target) return;
-      if (!board.contains(target)) {
-        cancelBoardDrag();
-      }
-    }
-
-    function onBlur() {
-      cancelBoardDrag();
     }
 
     window.addEventListener("pointermove", onMove, { passive: true });
     window.addEventListener("pointerup", onUp, { passive: true });
-    window.addEventListener("pointercancel", onCancel, { passive: true });
-
-    // Capture phase to run before other handlers
-    window.addEventListener("pointerdown", onPointerDownCapture, true);
-
-    window.addEventListener("blur", onBlur);
-    document.addEventListener("visibilitychange", () => {
-      if (document.hidden) cancelBoardDrag();
-    });
 
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onCancel);
-      window.removeEventListener("pointerdown", onPointerDownCapture, true);
-      window.removeEventListener("blur", onBlur);
     };
   }, []);
 
@@ -388,12 +342,16 @@ export function HtmlBoard({
                       draggable={false}
                     />
                   ) : (
-                    <div className="text-lg font-bold text-gray-800">{getInitials(p.player.name)}</div>
+                    <div className="text-lg font-bold text-gray-800">
+                      {getInitials(p.player.name)}
+                    </div>
                   )}
                 </div>
 
                 <div className="flex-1 p-2 overflow-hidden">
-                  <div className="font-semibold text-sm truncate">{p.player.name || "Player"}</div>
+                  <div className="font-semibold text-sm truncate">
+                    {p.player.name || "Player"}
+                  </div>
                   <div className="text-[12px] text-gray-700 truncate">{buildLine1(p.player)}</div>
                   <div className="text-[12px] text-gray-700 truncate">{buildLine2(p.player)}</div>
                 </div>
