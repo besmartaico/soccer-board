@@ -93,6 +93,13 @@ export default function BoardPage() {
 
   const saveTimer = useRef<number | null>(null);
 
+  // Close dropdowns if user clicks anywhere else
+  useEffect(() => {
+    const onDown = () => setOpenDropdown(null);
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, []);
+
   function scheduleAutosave(nextPlaced?: PlacedPlayer[], nextBg?: string) {
     if (!boardId) return;
 
@@ -342,12 +349,13 @@ export default function BoardPage() {
   }
 
   return (
-    <main className="h-[calc(100vh-0px)]">
-      <div className="flex items-center justify-between px-6 py-4 border-b bg-white">
+    <main className="h-screen overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b bg-white relative z-40">
         <div className="flex items-center gap-3">
           <div className="text-2xl font-bold">{board ? board.name : "Board"}</div>
 
           <button
+            type="button"
             className="border px-3 py-1 rounded text-sm"
             onClick={openBackgroundModal}
             title="Set the background image for this board"
@@ -357,12 +365,12 @@ export default function BoardPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <button className="border px-3 py-1 rounded text-sm" onClick={() => setEditMode((v) => !v)}>
+          <button type="button" className="border px-3 py-1 rounded text-sm" onClick={() => setEditMode((v) => !v)}>
             {editMode ? "Switch to View" : "Switch to Edit"}
           </button>
 
-          <Link className="underline" href="/app/teams">
-            Teams
+          <Link className="underline" href="/app">
+            App
           </Link>
           <Link className="underline" href="/">
             Home
@@ -370,18 +378,19 @@ export default function BoardPage() {
         </div>
       </div>
 
-      {error && <div className="px-6 py-3 text-red-600 border-b">{error}</div>}
+      {error && <div className="px-6 py-3 text-red-600 border-b relative z-40">{error}</div>}
 
       {loading ? (
         <div className="p-6">Loading...</div>
       ) : (
         <div className="flex h-[calc(100vh-73px)]">
           {!sidebarCollapsed ? (
-            <aside className="w-96 border-r p-4 overflow-auto bg-gray-50">
+            <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
               <div className="flex items-center justify-between mb-2">
                 <div className="font-semibold">Roster</div>
                 <div className="flex items-center gap-2">
                   <button
+                    type="button"
                     className="border px-3 py-1 rounded text-sm bg-white"
                     onClick={() => {
                       if (googleConfig) loadPlayersFromGoogle(googleConfig);
@@ -392,13 +401,17 @@ export default function BoardPage() {
                     Refresh
                   </button>
 
-                  <button className="border px-3 py-1 rounded text-sm bg-white" onClick={() => setSidebarCollapsed(true)}>
+                  <button
+                    type="button"
+                    className="border px-3 py-1 rounded text-sm bg-white"
+                    onClick={() => setSidebarCollapsed(true)}
+                  >
                     Collapse
                   </button>
                 </div>
               </div>
 
-              <div className="border rounded p-3 mb-3 bg-white">
+              <div className="border rounded p-3 mb-3 bg-white relative z-30">
                 <div className="text-xs font-semibold mb-2">Filters</div>
 
                 <input
@@ -413,7 +426,10 @@ export default function BoardPage() {
                   options={gradeOptions.map((g) => ({ value: g, label: `Grade ${g}` }))}
                   selected={filters.grade}
                   open={openDropdown === "grade"}
-                  onOpen={() => setOpenDropdown((v) => (v === "grade" ? null : "grade"))}
+                  onOpen={(e) => {
+                    e.stopPropagation();
+                    setOpenDropdown((v) => (v === "grade" ? null : "grade"));
+                  }}
                   onToggle={(v) => toggleMulti("grade", v)}
                 />
 
@@ -422,7 +438,10 @@ export default function BoardPage() {
                   options={returningOptions.map((r) => ({ value: r, label: r }))}
                   selected={filters.returning}
                   open={openDropdown === "returning"}
-                  onOpen={() => setOpenDropdown((v) => (v === "returning" ? null : "returning"))}
+                  onOpen={(e) => {
+                    e.stopPropagation();
+                    setOpenDropdown((v) => (v === "returning" ? null : "returning"));
+                  }}
                   onToggle={(v) => toggleMulti("returning", v)}
                 />
 
@@ -431,7 +450,10 @@ export default function BoardPage() {
                   options={primaryOptions.map((p) => ({ value: p, label: p }))}
                   selected={filters.primary}
                   open={openDropdown === "primary"}
-                  onOpen={() => setOpenDropdown((v) => (v === "primary" ? null : "primary"))}
+                  onOpen={(e) => {
+                    e.stopPropagation();
+                    setOpenDropdown((v) => (v === "primary" ? null : "primary"));
+                  }}
                   onToggle={(v) => toggleMulti("primary", v)}
                 />
 
@@ -440,11 +462,15 @@ export default function BoardPage() {
                   options={likelihoodOptions.map((l) => ({ value: l, label: l }))}
                   selected={filters.likelihood}
                   open={openDropdown === "likelihood"}
-                  onOpen={() => setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"))}
+                  onOpen={(e) => {
+                    e.stopPropagation();
+                    setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"));
+                  }}
                   onToggle={(v) => toggleMulti("likelihood", v)}
                 />
 
                 <button
+                  type="button"
                   className="text-xs underline text-gray-600 mt-2"
                   onClick={() => setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })}
                 >
@@ -467,9 +493,8 @@ export default function BoardPage() {
                     <div
                       key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
                       className="border rounded bg-white"
-                      title={editMode ? "Drag from the handle onto the board" : "Switch to Edit to place players"}
                     >
-                      {/* DRAG HANDLE (reliable) */}
+                      {/* DRAG HANDLE */}
                       <div
                         className={`px-2 py-1 text-xs border-b select-none ${
                           editMode ? "cursor-grab active:cursor-grabbing bg-gray-50" : "cursor-not-allowed bg-gray-100"
@@ -481,7 +506,6 @@ export default function BoardPage() {
                         {editMode ? "Drag to board" : "View mode"}
                       </div>
 
-                      {/* Content (NOT draggable) */}
                       <div className="p-2">
                         <div className="flex gap-2">
                           <button
@@ -526,8 +550,9 @@ export default function BoardPage() {
               )}
             </aside>
           ) : (
-            <aside className="w-10 border-r flex flex-col items-center py-2 bg-gray-50">
+            <aside className="w-10 shrink-0 border-r flex flex-col items-center py-2 bg-gray-50 relative z-30">
               <button
+                type="button"
                 className="border rounded px-2 py-1 text-xs bg-white"
                 onClick={() => setSidebarCollapsed(false)}
                 title="Expand sidebar"
@@ -537,7 +562,8 @@ export default function BoardPage() {
             </aside>
           )}
 
-          <section className="flex-1 relative">
+          {/* Canvas always behind sidebar */}
+          <section className="flex-1 relative z-0 overflow-hidden">
             <BoardCanvas
               editMode={editMode}
               placed={placedPlayers}
@@ -555,11 +581,11 @@ export default function BoardPage() {
 
       {/* Background modal */}
       {bgModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl border">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <div className="font-semibold">Background image</div>
-              <button className="text-sm underline" onClick={() => setBgModalOpen(false)}>
+              <button type="button" className="text-sm underline" onClick={() => setBgModalOpen(false)}>
                 Close
               </button>
             </div>
@@ -576,10 +602,11 @@ export default function BoardPage() {
               />
 
               <div className="mt-4 flex items-center justify-end gap-2">
-                <button className="border rounded px-3 py-2 text-sm" onClick={() => applyBackground("")}>
+                <button type="button" className="border rounded px-3 py-2 text-sm" onClick={() => applyBackground("")}>
                   Clear
                 </button>
                 <button
+                  type="button"
                   className="rounded px-3 py-2 text-sm bg-gray-900 text-white"
                   onClick={() => applyBackground(bgDraft.trim())}
                 >
@@ -593,11 +620,14 @@ export default function BoardPage() {
 
       {/* Photo modal */}
       {photoModal ? (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onClick={() => setPhotoModal(null)}>
+        <div
+          className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setPhotoModal(null)}
+        >
           <div className="w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <div className="text-white font-semibold truncate">{photoModal.name}</div>
-              <button className="text-white underline text-sm" onClick={() => setPhotoModal(null)}>
+              <button type="button" className="text-white underline text-sm" onClick={() => setPhotoModal(null)}>
                 Close
               </button>
             </div>
@@ -627,16 +657,17 @@ function DropdownMultiSelect({
   options: { value: string; label: string }[];
   selected: string[];
   open: boolean;
-  onOpen: () => void;
+  onOpen: (e: React.MouseEvent) => void;
   onToggle: (value: string) => void;
 }) {
   const selectedCount = selected.length;
 
   return (
-    <div className="mb-2">
+    <div className="mb-2 relative">
       <button
         type="button"
-        className="w-full border rounded px-2 py-1 text-sm flex items-center justify-between"
+        className="w-full border rounded px-2 py-1 text-sm flex items-center justify-between bg-white"
+        onMouseDown={(e) => e.stopPropagation()}
         onClick={onOpen}
       >
         <span>
@@ -647,7 +678,11 @@ function DropdownMultiSelect({
       </button>
 
       {open ? (
-        <div className="mt-1 w-full bg-white border rounded shadow p-2 max-h-56 overflow-auto">
+        <div
+          className="mt-1 w-full bg-white border rounded shadow p-2 max-h-56 overflow-auto relative z-40"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        >
           {options.length === 0 ? (
             <div className="text-xs text-gray-500">No options</div>
           ) : (
