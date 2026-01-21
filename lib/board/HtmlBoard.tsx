@@ -104,13 +104,36 @@ export function HtmlBoard({
 }: Props) {
   const boardRef = useRef<HTMLDivElement | null>(null);
 
-  // Only for visuals (highlight on drag-over)
+  // Keep latest values for global listeners (prevents re-binding / listener explosion)
+  const placedRef = useRef<PlacedPlayer[]>(placed);
+  const onPlacedChangeRef = useRef<(next: PlacedPlayer[]) => void>(onPlacedChange);
+
+  useEffect(() => {
+    placedRef.current = placed;
+  }, [placed]);
+
+  useEffect(() => {
+    onPlacedChangeRef.current = onPlacedChange;
+  }, [onPlacedChange]);
+
+  const placedById = useMemo(() => {
+    const m = new Map<string, PlacedPlayer>();
+    for (const p of placed) m.set(p.id, p);
+    return m;
+  }, [placed]);
+
+  // Drag-over highlight (guarded)
   const [isDragOver, setIsDragOver] = useState(false);
   const dragOverRef = useRef(false);
+  function setDragOver(next: boolean) {
+    if (dragOverRef.current === next) return;
+    dragOverRef.current = next;
+    setIsDragOver(next);
+  }
 
-  // During a drag of an already-placed card: we DO NOT spam parent state.
-  // We keep a local override for the currently dragged card, then commit once on pointerup.
+  // During a drag of a placed card: do not spam parent state
   const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number } | null>(null);
+
   const draggingRef = useRef<{
     id: string;
     pointerId: number;
@@ -121,18 +144,6 @@ export function HtmlBoard({
     nextY: number;
   } | null>(null);
 
-  const placedById = useMemo(() => {
-    const m = new Map<string, PlacedPlayer>();
-    for (const p of placed) m.set(p.id, p);
-    return m;
-  }, [placed]);
-
-  function setDragOver(next: boolean) {
-    if (dragOverRef.current === next) return;
-    dragOverRef.current = next;
-    setIsDragOver(next);
-  }
-
   function clientToBoard(clientX: number, clientY: number) {
     const el = boardRef.current;
     if (!el) return { x: 0, y: 0 };
@@ -140,7 +151,7 @@ export function HtmlBoard({
     return { x: clientX - r.left, y: clientY - r.top };
   }
 
-  // --------- Drop new player from roster onto board ----------
+  // ----- Drop from roster onto board -----
   function onDragOver(e: React.DragEvent) {
     if (!editMode) return;
     if (!canAcceptDrag(e, dragMime)) return;
@@ -164,7 +175,7 @@ export function HtmlBoard({
 
     const pt = clientToBoard(e.clientX, e.clientY);
 
-    const newItem: PlacedPlayer = {
+    const next: PlacedPlayer = {
       id: `${payload.id || "p"}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
       x: pt.x,
       y: pt.y,
@@ -183,18 +194,21 @@ export function HtmlBoard({
       },
     };
 
-    onPlacedChange([...placed, newItem]);
+    onPlacedChangeRef.current([...placedRef.current, next]);
   }
 
-  // --------- Move already-placed cards around board ----------
+  // ----- Move placed cards -----
   function beginMove(e: React.PointerEvent, id: string) {
     if (!editMode) return;
 
     const card = placedById.get(id);
     if (!card) return;
 
-    // Only left-click / primary pointer
-    // (Pointer events already unify mouse/touch/pen)
+    // Avoid starting a drag on right-click / secondary button
+    // (MouseEvent.buttons: 1 = primary)
+    // PointerEvent has buttons too.
+    if ((e as any).buttons !== undefined && (e as any).buttons !== 1) return;
+
     const el = e.currentTarget as HTMLDivElement;
     el.setPointerCapture?.(e.pointerId);
 
@@ -227,22 +241,24 @@ export function HtmlBoard({
     });
   }
 
+  // ✅ Attach global listeners ONCE (no dependencies)
   useEffect(() => {
     function onMove(ev: PointerEvent) {
       const d = draggingRef.current;
       if (!d) return;
       if (ev.pointerId !== d.pointerId) return;
 
-      const pt = clientToBoard(ev.clientX, ev.clientY);
-      // clamp to board bounds if we can read them
       const board = boardRef.current;
       const bw = board?.clientWidth ?? Infinity;
       const bh = board?.clientHeight ?? Infinity;
 
-      const card = placedById.get(d.id);
+      const currentPlaced = placedRef.current;
+      const card = currentPlaced.find((p) => p.id === d.id);
+
       const w = card?.w ?? DEFAULT_W;
       const h = card?.h ?? DEFAULT_H;
 
+      const pt = clientToBoard(ev.clientX, ev.clientY);
       const x = clamp(pt.x - d.dx, 0, bw - w);
       const y = clamp(pt.y - d.dy, 0, bh - h);
 
@@ -256,12 +272,8 @@ export function HtmlBoard({
       if (!d) return;
       if (ev.pointerId !== d.pointerId) return;
 
-      const card = placedById.get(d.id);
-      if (!card) {
-        draggingRef.current = null;
-        setDragPreview(null);
-        return;
-      }
+      const currentPlaced = placedRef.current;
+      const card = currentPlaced.find((p) => p.id === d.id);
 
       const finalX = d.nextX;
       const finalY = d.nextY;
@@ -269,10 +281,11 @@ export function HtmlBoard({
       draggingRef.current = null;
       setDragPreview(null);
 
+      if (!card) return;
+
       // Commit ONCE
-      onPlacedChange(
-        placed.map((p) => (p.id === card.id ? { ...p, x: finalX, y: finalY } : p))
-      );
+      const next = currentPlaced.map((p) => (p.id === card.id ? { ...p, x: finalX, y: finalY } : p));
+      onPlacedChangeRef.current(next);
     }
 
     window.addEventListener("pointermove", onMove, { passive: true });
@@ -282,14 +295,10 @@ export function HtmlBoard({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  }, [placed, placedById, onPlacedChange]);
+  }, []);
 
   const bgStyle: React.CSSProperties = backgroundUrl
-    ? {
-        backgroundImage: `url(${backgroundUrl})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      }
+    ? { backgroundImage: `url(${backgroundUrl})`, backgroundSize: "cover", backgroundPosition: "center" }
     : {};
 
   return (
@@ -311,7 +320,6 @@ export function HtmlBoard({
         }}
       />
 
-      {/* drag over highlight */}
       {editMode && isDragOver ? (
         <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" />
       ) : null}
@@ -352,9 +360,7 @@ export function HtmlBoard({
                       draggable={false}
                     />
                   ) : (
-                    <div className="text-lg font-bold text-gray-800">
-                      {getInitials(p.player.name)}
-                    </div>
+                    <div className="text-lg font-bold text-gray-800">{getInitials(p.player.name)}</div>
                   )}
                 </div>
 
