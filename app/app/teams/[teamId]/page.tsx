@@ -19,6 +19,59 @@ type Board = {
   created_at: string;
 };
 
+function extractSheetIdFromUrl(input: string): string {
+  const s = (input ?? "").trim();
+  if (!s) return "";
+
+  // If they already pasted a raw ID, allow it
+  if (/^[a-zA-Z0-9-_]{20,}$/.test(s) && !s.includes("/")) return s;
+
+  try {
+    const u = new URL(s);
+
+    // Typical: https://docs.google.com/spreadsheets/d/<ID>/edit#gid=...
+    const m = u.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
+    if (m && m[1]) return m[1];
+
+    // Sometimes: ?id=<ID>
+    const idParam = u.searchParams.get("id");
+    if (idParam) return idParam;
+
+    return "";
+  } catch {
+    // Not a URL, maybe they pasted the ID
+    if (/^[a-zA-Z0-9-_]{20,}$/.test(s)) return s;
+    return "";
+  }
+}
+
+function normalizeColumn(col: string): string {
+  const c = (col ?? "").trim().toUpperCase();
+  // Accept A..Z, AA..ZZ etc (simple)
+  if (!c) return "";
+  if (!/^[A-Z]{1,3}$/.test(c)) return "";
+  return c;
+}
+
+function parseRosterRange(range: string | null): { sheetName: string; startCol: string; endCol: string } {
+  const r = (range ?? "").trim();
+  if (!r) return { sheetName: "", startCol: "", endCol: "" };
+
+  // Expect: Sheet Name!A:P  (we only parse this pattern)
+  const parts = r.split("!");
+  if (parts.length !== 2) return { sheetName: "", startCol: "", endCol: "" };
+
+  const sheetName = parts[0];
+  const cols = parts[1].split(":");
+  if (cols.length !== 2) return { sheetName, startCol: "", endCol: "" };
+
+  return {
+    sheetName,
+    startCol: (cols[0] ?? "").toUpperCase(),
+    endCol: (cols[1] ?? "").toUpperCase(),
+  };
+}
+
 export default function TeamBoardsPage() {
   const router = useRouter();
   const params = useParams<{ teamId: string }>();
@@ -30,9 +83,12 @@ export default function TeamBoardsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Team roster settings
-  const [sheetId, setSheetId] = useState("");
-  const [range, setRange] = useState("");
+  // Roster inputs (non-technical)
+  const [sheetLink, setSheetLink] = useState("");
+  const [sheetIdPreview, setSheetIdPreview] = useState(""); // extracted
+  const [tabName, setTabName] = useState("");
+  const [startCol, setStartCol] = useState("");
+  const [endCol, setEndCol] = useState("");
   const [savingRoster, setSavingRoster] = useState(false);
 
   // Deleting state
@@ -42,6 +98,21 @@ export default function TeamBoardsPage() {
   const rosterConfigured = useMemo(() => {
     return !!(team?.roster_sheet_id && team?.roster_range);
   }, [team]);
+
+  const computedSheetId = useMemo(() => extractSheetIdFromUrl(sheetLink), [sheetLink]);
+
+  const computedRange = useMemo(() => {
+    const tn = (tabName ?? "").trim();
+    const sc = normalizeColumn(startCol);
+    const ec = normalizeColumn(endCol);
+    if (!tn || !sc || !ec) return "";
+    // If tab name contains spaces, we keep it as-is. Google Sheets API accepts it.
+    return `${tn}!${sc}:${ec}`;
+  }, [tabName, startCol, endCol]);
+
+  useEffect(() => {
+    setSheetIdPreview(computedSheetId);
+  }, [computedSheetId]);
 
   async function requireLogin() {
     const { data: userResp } = await supabase.auth.getUser();
@@ -59,7 +130,6 @@ export default function TeamBoardsPage() {
     const user = await requireLogin();
     if (!user) return;
 
-    // Load team including roster fields
     const { data: teamData, error: teamErr } = await supabase
       .from("teams")
       .select("id,name,roster_sheet_id,roster_range")
@@ -74,10 +144,17 @@ export default function TeamBoardsPage() {
 
     const t = teamData as Team;
     setTeam(t);
-    setSheetId(t.roster_sheet_id ?? "");
-    setRange(t.roster_range ?? "");
 
-    // Load boards
+    // Populate inputs from saved roster fields (when present)
+    const parsed = parseRosterRange(t.roster_range);
+    setTabName(parsed.sheetName || "");
+    setStartCol(parsed.startCol || "");
+    setEndCol(parsed.endCol || "");
+
+    // We can’t reconstruct the full link reliably; show the ID as a placeholder-ish value
+    setSheetLink(t.roster_sheet_id ?? "");
+    setSheetIdPreview(t.roster_sheet_id ?? "");
+
     const { data: boardData, error: boardErr } = await supabase
       .from("boards")
       .select("id,team_id,name,created_at")
@@ -97,36 +174,48 @@ export default function TeamBoardsPage() {
 
   async function saveRosterSettings() {
     setError(null);
-    if (!teamId) return;
 
     const user = await requireLogin();
     if (!user) return;
 
-    const nextSheet = sheetId.trim();
-    const nextRange = range.trim();
+    const id = extractSheetIdFromUrl(sheetLink);
+    const tn = (tabName ?? "").trim();
+    const sc = normalizeColumn(startCol);
+    const ec = normalizeColumn(endCol);
 
-    const oneSet = !!nextSheet || !!nextRange;
-    if (oneSet && (!nextSheet || !nextRange)) {
-      setError("Please provide both Sheet ID and Range (or clear both).");
-      return;
+    const anySet = !!(sheetLink.trim() || tn || sc || ec);
+    if (anySet) {
+      if (!id) {
+        setError("Please paste a valid Google Sheets link (or the Sheet ID).");
+        return;
+      }
+      if (!tn) {
+        setError("Please enter the Sheet tab name (example: Player Detail).");
+        return;
+      }
+      if (!sc || !ec) {
+        setError("Please enter a valid Start Column and End Column (example: A to P).");
+        return;
+      }
     }
+
+    const nextSheetId = id || null;
+    const nextRange = anySet ? `${tn}!${sc}:${ec}` : null;
 
     setSavingRoster(true);
     try {
       const { error: upErr } = await supabase
         .from("teams")
         .update({
-          roster_sheet_id: nextSheet || null,
-          roster_range: nextRange || null,
+          roster_sheet_id: nextSheetId,
+          roster_range: nextRange,
         })
         .eq("id", teamId);
 
       if (upErr) throw new Error(upErr.message);
 
       setTeam((prev) =>
-        prev
-          ? { ...prev, roster_sheet_id: nextSheet || null, roster_range: nextRange || null }
-          : prev
+        prev ? { ...prev, roster_sheet_id: nextSheetId, roster_range: nextRange } : prev
       );
     } catch (e: any) {
       setError(e?.message ?? "Failed to save roster settings.");
@@ -176,9 +265,7 @@ export default function TeamBoardsPage() {
   async function deleteBoard(boardId: string, boardName: string) {
     setError(null);
 
-    const ok = window.confirm(
-      `Delete board "${boardName}"?\n\nThis cannot be undone.`
-    );
+    const ok = window.confirm(`Delete board "${boardName}"?\n\nThis cannot be undone.`);
     if (!ok) return;
 
     const user = await requireLogin();
@@ -188,7 +275,6 @@ export default function TeamBoardsPage() {
     try {
       const { error: delErr } = await supabase.from("boards").delete().eq("id", boardId);
       if (delErr) throw new Error(delErr.message);
-
       setBoards((prev) => prev.filter((b) => b.id !== boardId));
     } catch (e: any) {
       setError(e?.message ?? "Failed to delete board.");
@@ -210,11 +296,9 @@ export default function TeamBoardsPage() {
 
     setDeletingTeam(true);
     try {
-      // 1) delete boards for this team (avoids FK errors)
       const { error: delBoardsErr } = await supabase.from("boards").delete().eq("team_id", teamId);
       if (delBoardsErr) throw new Error(delBoardsErr.message);
 
-      // 2) delete team
       const { error: delTeamErr } = await supabase.from("teams").delete().eq("id", teamId);
       if (delTeamErr) throw new Error(delTeamErr.message);
 
@@ -230,6 +314,12 @@ export default function TeamBoardsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [teamId]);
+
+  const rosterHelp = useMemo(() => {
+    if (!sheetLink.trim()) return "";
+    if (!computedSheetId) return "Couldn’t detect a Sheet ID from that link.";
+    return `Detected Sheet ID: ${computedSheetId}`;
+  }, [sheetLink, computedSheetId]);
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -247,6 +337,149 @@ export default function TeamBoardsPage() {
             <Link href="/" className="text-sm font-medium text-gray-700 hover:text-gray-900">
               Home
             </Link>
+          </div>
+        </div>
+
+        {/* Combined: Roster + Create Board */}
+        <div className="mt-8 rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-6">
+            <div>
+              <h2 className="text-lg font-semibold text-gray-900">Roster + Create a Board</h2>
+              <p className="mt-1 text-sm text-gray-600">
+                Set the roster once per team. New boards will automatically load the roster.
+              </p>
+            </div>
+
+            {/* Roster settings */}
+            <div className="rounded-xl border bg-gray-50 p-4">
+              <div className="text-sm font-semibold text-gray-900">Team Roster (Google Sheets)</div>
+
+              <div className="mt-3 grid gap-3">
+                <div>
+                  <div className="text-xs font-semibold text-gray-700 mb-1">Google Sheet link</div>
+                  <input
+                    className="w-full rounded-xl border px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10"
+                    placeholder="Paste the full Google Sheets link here"
+                    value={sheetLink}
+                    onChange={(e) => setSheetLink(e.target.value)}
+                  />
+                  {sheetLink.trim() ? (
+                    <div className={`mt-1 text-xs ${computedSheetId ? "text-gray-600" : "text-red-600"}`}>
+                      {rosterHelp}
+                    </div>
+                  ) : (
+                    <div className="mt-1 text-xs text-gray-500">
+                      Example: https://docs.google.com/spreadsheets/d/XXXXXXXXXXXX/edit
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <div className="text-xs font-semibold text-gray-700 mb-1">Sheet tab name</div>
+                    <input
+                      className="w-full rounded-xl border px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10"
+                      placeholder="Player Detail"
+                      value={tabName}
+                      onChange={(e) => setTabName(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-gray-700 mb-1">Start column</div>
+                    <input
+                      className="w-full rounded-xl border px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10"
+                      placeholder="A"
+                      value={startCol}
+                      onChange={(e) => setStartCol(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-gray-700 mb-1">End column</div>
+                    <input
+                      className="w-full rounded-xl border px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10"
+                      placeholder="P"
+                      value={endCol}
+                      onChange={(e) => setEndCol(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="text-xs text-gray-600">
+                  {computedRange ? (
+                    <>
+                      We’ll use this range: <code>{computedRange}</code>
+                    </>
+                  ) : (
+                    <>Enter tab name + start/end columns to build the range automatically.</>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                    onClick={saveRosterSettings}
+                    disabled={savingRoster}
+                  >
+                    {savingRoster ? "Saving..." : "Save roster"}
+                  </button>
+
+                  {rosterConfigured ? (
+                    <div className="text-sm text-green-700">Roster configured ✓</div>
+                  ) : (
+                    <div className="text-sm text-amber-700">Roster not configured yet</div>
+                  )}
+                </div>
+
+                {/* Hidden-but-useful: show what is stored */}
+                {team?.roster_sheet_id || team?.roster_range ? (
+                  <div className="text-xs text-gray-500">
+                    Saved: <code>{team.roster_sheet_id ?? ""}</code>{" "}
+                    {team.roster_range ? <> / <code>{team.roster_range}</code></> : null}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Create board */}
+            <div className="rounded-xl border p-4">
+              <div className="text-sm font-semibold text-gray-900">Create a Board</div>
+              <p className="mt-1 text-xs text-gray-600">
+                Example: Varsity Lineup vs Skyridge
+              </p>
+
+              <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                <input
+                  className="w-full flex-1 rounded-xl border px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10"
+                  placeholder="Board name"
+                  value={boardName}
+                  onChange={(e) => setBoardName(e.target.value)}
+                />
+                <button
+                  className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
+                  onClick={createBoard}
+                  disabled={!boardName.trim()}
+                  title={
+                    !rosterConfigured
+                      ? "You can still create boards; roster will be empty until configured."
+                      : ""
+                  }
+                >
+                  Create
+                </button>
+              </div>
+
+              {!rosterConfigured ? (
+                <div className="mt-3 text-xs text-amber-700">
+                  Note: roster isn’t configured yet, so new boards will start with an empty roster.
+                </div>
+              ) : (
+                <div className="mt-3 text-xs text-gray-500">
+                  New boards will automatically load the roster.
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -272,84 +505,6 @@ export default function TeamBoardsPage() {
           </div>
         ) : null}
 
-        {/* Roster settings */}
-        <div className="mt-6 rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Team Roster (Google Sheets)</h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Set this once per team. New boards will automatically load the roster.
-          </p>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div>
-              <div className="text-xs font-semibold text-gray-700 mb-1">Sheet ID</div>
-              <input
-                className="w-full rounded-xl border px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10"
-                placeholder="Google Sheet ID"
-                value={sheetId}
-                onChange={(e) => setSheetId(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <div className="text-xs font-semibold text-gray-700 mb-1">Range</div>
-              <input
-                className="w-full rounded-xl border px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10"
-                placeholder='e.g. Player Detail!A:P'
-                value={range}
-                onChange={(e) => setRange(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
-              onClick={saveRosterSettings}
-              disabled={savingRoster}
-            >
-              {savingRoster ? "Saving..." : "Save roster settings"}
-            </button>
-
-            {rosterConfigured ? (
-              <div className="text-sm text-green-700">Roster configured ✓</div>
-            ) : (
-              <div className="text-sm text-amber-700">Roster not configured yet</div>
-            )}
-          </div>
-        </div>
-
-        {/* Create board */}
-        <div className="mt-6 rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Create a Board</h2>
-          <p className="mt-1 text-sm text-gray-600">Example: Varsity Lineup vs Skyridge</p>
-
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-            <input
-              className="w-full flex-1 rounded-xl border px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10"
-              placeholder="Board name"
-              value={boardName}
-              onChange={(e) => setBoardName(e.target.value)}
-            />
-            <button
-              className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:opacity-60"
-              onClick={createBoard}
-              disabled={!boardName.trim()}
-            >
-              Create
-            </button>
-          </div>
-
-          {!rosterConfigured ? (
-            <div className="mt-3 text-xs text-amber-700">
-              Note: This team does not have a roster configured yet, so new boards will start with an empty roster.
-            </div>
-          ) : (
-            <div className="mt-3 text-xs text-gray-500">
-              New boards will automatically load the roster from Google Sheets.
-            </div>
-          )}
-        </div>
-
         {error && (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
@@ -369,15 +524,9 @@ export default function TeamBoardsPage() {
           ) : (
             <div className="grid gap-3">
               {boards.map((b) => (
-                <div
-                  key={b.id}
-                  className="rounded-2xl border bg-white px-5 py-4 shadow-sm"
-                >
+                <div key={b.id} className="rounded-2xl border bg-white px-5 py-4 shadow-sm">
                   <div className="flex items-center justify-between gap-4">
-                    <Link
-                      href={`/app/boards/${b.id}`}
-                      className="min-w-0 flex-1"
-                    >
+                    <Link href={`/app/boards/${b.id}`} className="min-w-0 flex-1">
                       <div className="text-base font-semibold text-gray-900 truncate">{b.name}</div>
                     </Link>
 
@@ -406,4 +555,52 @@ export default function TeamBoardsPage() {
       </div>
     </main>
   );
+
+  async function deleteBoard(boardId: string, boardName: string) {
+    setError(null);
+
+    const ok = window.confirm(`Delete board "${boardName}"?\n\nThis cannot be undone.`);
+    if (!ok) return;
+
+    const user = await requireLogin();
+    if (!user) return;
+
+    setDeletingBoardId(boardId);
+    try {
+      const { error: delErr } = await supabase.from("boards").delete().eq("id", boardId);
+      if (delErr) throw new Error(delErr.message);
+      setBoards((prev) => prev.filter((x) => x.id !== boardId));
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete board.");
+    } finally {
+      setDeletingBoardId(null);
+    }
+  }
+
+  async function deleteTeam(teamName: string) {
+    setError(null);
+
+    const ok = window.confirm(
+      `Delete team "${teamName}"?\n\nThis will also delete ALL boards under the team.\nThis cannot be undone.`
+    );
+    if (!ok) return;
+
+    const user = await requireLogin();
+    if (!user) return;
+
+    setDeletingTeam(true);
+    try {
+      const { error: delBoardsErr } = await supabase.from("boards").delete().eq("team_id", teamId);
+      if (delBoardsErr) throw new Error(delBoardsErr.message);
+
+      const { error: delTeamErr } = await supabase.from("teams").delete().eq("id", teamId);
+      if (delTeamErr) throw new Error(delTeamErr.message);
+
+      router.push("/app/teams");
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to delete team.");
+    } finally {
+      setDeletingTeam(false);
+    }
+  }
 }
