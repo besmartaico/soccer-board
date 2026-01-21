@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -52,9 +52,6 @@ export default function BoardPage() {
     typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
 
   const [board, setBoard] = useState<BoardRow | null>(null);
-  const [editMode, setEditMode] = useState(true);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -74,18 +71,13 @@ export default function BoardPage() {
   });
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
 
-  // Board state (persisted)
+  // Board state (manual save)
   const [placedPlayers, setPlacedPlayers] = useState<PlacedPlayer[]>([]);
-  const [backgroundUrl, setBackgroundUrl] = useState<string>("");
-
-  // Background modal
-  const [bgModalOpen, setBgModalOpen] = useState(false);
-  const [bgDraft, setBgDraft] = useState("");
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Photo modal
   const [photoModal, setPhotoModal] = useState<{ url: string; name: string } | null>(null);
-
-  const saveTimer = useRef<number | null>(null);
 
   // Close dropdowns if user clicks elsewhere
   useEffect(() => {
@@ -93,53 +85,6 @@ export default function BoardPage() {
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
   }, []);
-
-  function scheduleAutosave(nextPlaced?: PlacedPlayer[], nextBg?: string) {
-    if (!boardId) return;
-
-    if (saveTimer.current) window.clearTimeout(saveTimer.current);
-
-    saveTimer.current = window.setTimeout(async () => {
-      try {
-        await persistBoardData({
-          placedPlayers: nextPlaced ?? placedPlayers,
-          backgroundUrl: typeof nextBg === "string" ? nextBg : backgroundUrl,
-        });
-      } catch (e: any) {
-        console.error(e);
-        setError(e?.message ?? "Failed to autosave.");
-      }
-    }, 600);
-  }
-
-  async function persistBoardData(patch: {
-    placedPlayers?: PlacedPlayer[];
-    backgroundUrl?: string;
-  }) {
-    if (!boardId) return;
-
-    const prevData = board?.data && typeof board.data === "object" ? board.data : {};
-
-    const nextData = {
-      ...prevData,
-      google: prevData.google ?? undefined,
-      board: {
-        ...(prevData.board ?? {}),
-      },
-      htmlBoard: {
-        placedPlayers: patch.placedPlayers ?? prevData?.htmlBoard?.placedPlayers ?? [],
-        backgroundUrl:
-          typeof patch.backgroundUrl === "string"
-            ? patch.backgroundUrl
-            : prevData?.htmlBoard?.backgroundUrl ?? "",
-      },
-    };
-
-    const { error } = await supabase.from("boards").update({ data: nextData }).eq("id", boardId);
-    if (error) throw new Error(error.message);
-
-    if (board) setBoard({ ...board, data: nextData });
-  }
 
   async function loadBoard() {
     setLoading(true);
@@ -172,16 +117,15 @@ export default function BoardPage() {
     const row = data as BoardRow;
     setBoard(row);
 
+    // Google config (optional)
     const gc = row?.data?.google;
     if (gc?.sheetId && gc?.range) setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
     else setGoogleConfig(null);
 
-    // Load HTML-board data
+    // Load placed players from board data (optional)
     const hb = row?.data?.htmlBoard ?? {};
-    const bg = typeof hb.backgroundUrl === "string" ? hb.backgroundUrl : "";
     setPlacedPlayers(Array.isArray(hb.placedPlayers) ? hb.placedPlayers : []);
-    setBackgroundUrl(bg);
-    setBgDraft(bg);
+    setDirty(false);
 
     setLoading(false);
   }
@@ -211,7 +155,6 @@ export default function BoardPage() {
       const values: string[][] = json.values ?? [];
       if (values.length === 0) {
         setPlayers([]);
-        setPlayersLoading(false);
         return;
       }
 
@@ -237,9 +180,8 @@ export default function BoardPage() {
           const rawPic = (r[idxPicture] ?? "").toString();
           const normalized = normalizePictureUrl(rawPic);
 
-          const proxy = normalized
-            ? `/api/image-proxy?url=${encodeURIComponent(normalized)}&ts=${Date.now()}`
-            : "";
+          // IMPORTANT: proxy URL is stable per load to avoid re-render thrash
+          const proxy = normalized ? `/api/image-proxy?url=${encodeURIComponent(normalized)}` : "";
 
           return {
             id: (r[idxId] ?? "").toString(),
@@ -302,9 +244,15 @@ export default function BoardPage() {
         if (!hay.includes(s)) return false;
       }
       if (filters.grade.length && !filters.grade.includes((p.grade ?? "").trim())) return false;
-      if (filters.returning.length && !filters.returning.includes((p.returning ?? "").trim())) return false;
-      if (filters.primary.length && !filters.primary.includes((p.potentialPrimary ?? "").trim())) return false;
-      if (filters.likelihood.length && !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim())) return false;
+      if (filters.returning.length && !filters.returning.includes((p.returning ?? "").trim()))
+        return false;
+      if (filters.primary.length && !filters.primary.includes((p.potentialPrimary ?? "").trim()))
+        return false;
+      if (
+        filters.likelihood.length &&
+        !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim())
+      )
+        return false;
       return true;
     });
   }, [players, filters]);
@@ -338,40 +286,69 @@ export default function BoardPage() {
     e.dataTransfer.effectAllowed = "copy";
   }
 
-  function openBackgroundModal() {
-    setBgDraft(backgroundUrl || "");
-    setBgModalOpen(true);
-  }
+  async function saveBoard() {
+    if (!boardId) return;
+    if (!board) return;
 
-  function applyBackground(url: string) {
-    setBackgroundUrl(url);
-    setBgModalOpen(false);
-    scheduleAutosave(undefined, url);
+    setSaving(true);
+    setError(null);
+
+    try {
+      const prevData = board?.data && typeof board.data === "object" ? board.data : {};
+
+      const nextData = {
+        ...prevData,
+        google: prevData.google ?? undefined,
+        htmlBoard: {
+          placedPlayers: placedPlayers,
+        },
+      };
+
+      const { error } = await supabase.from("boards").update({ data: nextData }).eq("id", boardId);
+      if (error) throw new Error(error.message);
+
+      setBoard({ ...board, data: nextData });
+      setDirty(false);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message ?? "Failed to save board.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <main className="h-screen overflow-hidden">
+      {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-white relative z-40">
-        <div className="flex items-center gap-3">
-          <div className="text-2xl font-bold">{board ? board.name : "Board"}</div>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="text-2xl font-bold truncate">{board ? board.name : "Board"}</div>
 
           <button
             type="button"
-            className="border px-3 py-1 rounded text-sm"
-            onClick={openBackgroundModal}
-            title="Set the background image for this board"
+            className={`border px-3 py-1 rounded text-sm ${
+              dirty ? "bg-gray-900 text-white" : "bg-white text-gray-700"
+            }`}
+            onClick={saveBoard}
+            disabled={!dirty || saving}
+            title={dirty ? "Save changes" : "No changes to save"}
           >
-            Background
+            {saving ? "Saving..." : dirty ? "Save" : "Saved"}
+          </button>
+
+          <button
+            type="button"
+            className="border px-3 py-1 rounded text-sm bg-white"
+            onClick={() => loadBoard()}
+            disabled={saving}
+          >
+            Reload
           </button>
         </div>
 
         <div className="flex items-center gap-3">
-          <button type="button" className="border px-3 py-1 rounded text-sm" onClick={() => setEditMode((v) => !v)}>
-            {editMode ? "Switch to View" : "Switch to Edit"}
-          </button>
-
-          <Link className="underline" href="/app">
-            App
+          <Link className="underline" href="/app/teams">
+            Teams
           </Link>
           <Link className="underline" href="/">
             Home
@@ -385,235 +362,179 @@ export default function BoardPage() {
         <div className="p-6">Loading...</div>
       ) : (
         <div className="flex h-[calc(100vh-73px)]">
-          {!sidebarCollapsed ? (
-            <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
-              <div className="flex items-center justify-between mb-2">
-                <div className="font-semibold">Roster</div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => {
-                      if (googleConfig) loadPlayersFromGoogle(googleConfig);
-                    }}
-                    disabled={!googleConfig || playersLoading}
-                    title={!googleConfig ? "No Google config on this board" : "Refresh roster"}
-                  >
-                    Refresh
-                  </button>
-
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => setSidebarCollapsed(true)}
-                  >
-                    Collapse
-                  </button>
-                </div>
-              </div>
-
-              <div className="border rounded p-3 mb-3 bg-white relative z-30">
-                <div className="text-xs font-semibold mb-2">Filters</div>
-
-                <input
-                  className="w-full border rounded px-2 py-1 text-sm mb-2"
-                  placeholder="Search name / notes / position"
-                  value={filters.search}
-                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                />
-
-                <DropdownMultiSelect
-                  label="Grade"
-                  options={gradeOptions.map((g) => ({ value: g, label: `Grade ${g}` }))}
-                  selected={filters.grade}
-                  open={openDropdown === "grade"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "grade" ? null : "grade"));
-                  }}
-                  onToggle={(v) => toggleMulti("grade", v)}
-                />
-
-                <DropdownMultiSelect
-                  label="Returning"
-                  options={returningOptions.map((r) => ({ value: r, label: r }))}
-                  selected={filters.returning}
-                  open={openDropdown === "returning"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "returning" ? null : "returning"));
-                  }}
-                  onToggle={(v) => toggleMulti("returning", v)}
-                />
-
-                <DropdownMultiSelect
-                  label="Primary"
-                  options={primaryOptions.map((p) => ({ value: p, label: p }))}
-                  selected={filters.primary}
-                  open={openDropdown === "primary"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "primary" ? null : "primary"));
-                  }}
-                  onToggle={(v) => toggleMulti("primary", v)}
-                />
-
-                <DropdownMultiSelect
-                  label="Likelihood"
-                  options={likelihoodOptions.map((l) => ({ value: l, label: l }))}
-                  selected={filters.likelihood}
-                  open={openDropdown === "likelihood"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"));
-                  }}
-                  onToggle={(v) => toggleMulti("likelihood", v)}
-                />
-
-                <button
-                  type="button"
-                  className="text-xs underline text-gray-600 mt-2"
-                  onClick={() => setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })}
-                >
-                  Clear filters
-                </button>
-              </div>
-
-              {playersLoading && <div className="text-sm">Loading players…</div>}
-              {playersError && <div className="text-sm text-red-600">{playersError}</div>}
-
-              {!playersLoading && !playersError && players.length > 0 && (
-                <div className="text-xs text-gray-600 mb-2">
-                  Showing {filteredPlayers.length} of {players.length}
-                </div>
-              )}
-
-              {!playersLoading && !playersError && filteredPlayers.length > 0 && (
-                <div className="space-y-2">
-                  {filteredPlayers.map((p, idx) => (
-                    <div
-                      key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-                      className="border rounded bg-white"
-                    >
-                      {/* DRAG HANDLE */}
-                      <div
-                        className={`px-2 py-1 text-xs border-b select-none ${
-                          editMode ? "cursor-grab active:cursor-grabbing bg-gray-50" : "cursor-not-allowed bg-gray-100"
-                        }`}
-                        draggable={editMode}
-                        onDragStart={(e) => onPlayerDragStart(e, p)}
-                      >
-                        {editMode ? "Drag to board" : "View mode"}
-                      </div>
-
-                      <div className="p-2">
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
-                            onClick={() => {
-                              if (p.pictureProxyUrl) setPhotoModal({ url: p.pictureProxyUrl, name: p.name });
-                            }}
-                            draggable={false}
-                            title="Click to enlarge"
-                          >
-                            {p.pictureProxyUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={p.pictureProxyUrl}
-                                alt={`${p.name} photo`}
-                                width={48}
-                                height={48}
-                                style={{ width: 48, height: 48, objectFit: "cover" }}
-                                draggable={false}
-                              />
-                            ) : null}
-                          </button>
-
-                          <div className="min-w-0">
-                            <div className="font-medium truncate">{p.name}</div>
-                            <div className="text-xs text-gray-700">
-                              Grade: {p.grade || "?"} • Pos: {p.position || "?"}
-                              {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning: {p.returning || "?"}
-                            </div>
-                            <div className="text-xs text-gray-700">
-                              Primary: {p.potentialPrimary || "?"} • Likelihood: {p.likelihoodPrimary || "?"}
-                            </div>
-                          </div>
-                        </div>
-
-                        {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </aside>
-          ) : (
-            <aside className="w-10 shrink-0 border-r flex flex-col items-center py-2 bg-gray-50 relative z-30">
+          {/* Left sidebar */}
+          <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
+            <div className="flex items-center justify-between mb-2">
+              <div className="font-semibold">Roster</div>
               <button
                 type="button"
-                className="border rounded px-2 py-1 text-xs bg-white"
-                onClick={() => setSidebarCollapsed(false)}
-                title="Expand sidebar"
+                className="border px-3 py-1 rounded text-sm bg-white"
+                onClick={() => {
+                  if (googleConfig) loadPlayersFromGoogle(googleConfig);
+                }}
+                disabled={!googleConfig || playersLoading}
+                title={!googleConfig ? "No Google config on this board" : "Refresh roster"}
               >
-                &gt;
+                Refresh
               </button>
-            </aside>
-          )}
+            </div>
 
-          {/* Board always behind sidebar */}
+            {/* Filters */}
+            <div className="border rounded p-3 mb-3 bg-white relative z-30">
+              <div className="text-xs font-semibold mb-2">Filters</div>
+
+              <input
+                className="w-full border rounded px-2 py-1 text-sm mb-2"
+                placeholder="Search name / notes / position"
+                value={filters.search}
+                onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+              />
+
+              <DropdownMultiSelect
+                label="Grade"
+                options={gradeOptions.map((g) => ({ value: g, label: `Grade ${g}` }))}
+                selected={filters.grade}
+                open={openDropdown === "grade"}
+                onOpen={(e) => {
+                  e.stopPropagation();
+                  setOpenDropdown((v) => (v === "grade" ? null : "grade"));
+                }}
+                onToggle={(v) => toggleMulti("grade", v)}
+              />
+
+              <DropdownMultiSelect
+                label="Returning"
+                options={returningOptions.map((r) => ({ value: r, label: r }))}
+                selected={filters.returning}
+                open={openDropdown === "returning"}
+                onOpen={(e) => {
+                  e.stopPropagation();
+                  setOpenDropdown((v) => (v === "returning" ? null : "returning"));
+                }}
+                onToggle={(v) => toggleMulti("returning", v)}
+              />
+
+              <DropdownMultiSelect
+                label="Primary"
+                options={primaryOptions.map((p) => ({ value: p, label: p }))}
+                selected={filters.primary}
+                open={openDropdown === "primary"}
+                onOpen={(e) => {
+                  e.stopPropagation();
+                  setOpenDropdown((v) => (v === "primary" ? null : "primary"));
+                }}
+                onToggle={(v) => toggleMulti("primary", v)}
+              />
+
+              <DropdownMultiSelect
+                label="Likelihood"
+                options={likelihoodOptions.map((l) => ({ value: l, label: l }))}
+                selected={filters.likelihood}
+                open={openDropdown === "likelihood"}
+                onOpen={(e) => {
+                  e.stopPropagation();
+                  setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"));
+                }}
+                onToggle={(v) => toggleMulti("likelihood", v)}
+              />
+
+              <button
+                type="button"
+                className="text-xs underline text-gray-600 mt-2"
+                onClick={() => setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })}
+              >
+                Clear filters
+              </button>
+            </div>
+
+            {playersLoading && <div className="text-sm">Loading players…</div>}
+            {playersError && <div className="text-sm text-red-600">{playersError}</div>}
+
+            {!playersLoading && !playersError && players.length > 0 && (
+              <div className="text-xs text-gray-600 mb-2">
+                Showing {filteredPlayers.length} of {players.length}
+              </div>
+            )}
+
+            {!playersLoading && !playersError && filteredPlayers.length > 0 && (
+              <div className="space-y-2">
+                {filteredPlayers.map((p, idx) => (
+                  <div
+                    key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
+                    className="border rounded bg-white"
+                  >
+                    {/* drag bar */}
+                    <div
+                      className="px-2 py-1 text-xs border-b select-none cursor-grab active:cursor-grabbing bg-gray-50"
+                      draggable
+                      onDragStart={(e) => onPlayerDragStart(e, p)}
+                    >
+                      Drag to board
+                    </div>
+
+                    <div className="p-2">
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
+                          onClick={() => {
+                            if (p.pictureProxyUrl) {
+                              // Add a cache-buster only when opening full-screen
+                              const u = `${p.pictureProxyUrl}${p.pictureProxyUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
+                              setPhotoModal({ url: u, name: p.name });
+                            }
+                          }}
+                          draggable={false}
+                          title="Click to enlarge"
+                        >
+                          {p.pictureProxyUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={p.pictureProxyUrl}
+                              alt={`${p.name} photo`}
+                              width={48}
+                              height={48}
+                              style={{ width: 48, height: 48, objectFit: "cover" }}
+                              draggable={false}
+                            />
+                          ) : null}
+                        </button>
+
+                        <div className="min-w-0">
+                          <div className="font-medium truncate">{p.name}</div>
+                          <div className="text-xs text-gray-700">
+                            Grade: {p.grade || "?"} • Pos: {p.position || "?"}
+                            {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
+                            {p.returning || "?"}
+                          </div>
+                          <div className="text-xs text-gray-700">
+                            Primary: {p.potentialPrimary || "?"} • Likelihood: {p.likelihoodPrimary || "?"}
+                          </div>
+                        </div>
+                      </div>
+
+                      {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </aside>
+
+          {/* Board */}
           <section className="flex-1 relative z-0 overflow-hidden">
             <HtmlBoard
-              editMode={editMode}
+              editMode={true}
               placed={placedPlayers}
               onPlacedChange={(next) => {
                 setPlacedPlayers(next);
-                scheduleAutosave(next, undefined);
+                setDirty(true);
               }}
-              backgroundUrl={backgroundUrl}
               dragMime={PLAYER_DRAG_MIME}
             />
           </section>
         </div>
       )}
-
-      {/* Background modal */}
-      {bgModalOpen ? (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl border">
-            <div className="flex items-center justify-between px-5 py-4 border-b">
-              <div className="font-semibold">Background image</div>
-              <button type="button" className="text-sm underline" onClick={() => setBgModalOpen(false)}>
-                Close
-              </button>
-            </div>
-
-            <div className="p-5">
-              <div className="text-sm text-gray-700 mb-2">Paste an image URL.</div>
-              <input
-                className="w-full border rounded px-3 py-2 text-sm"
-                placeholder="https://…"
-                value={bgDraft}
-                onChange={(e) => setBgDraft(e.target.value)}
-              />
-
-              <div className="mt-4 flex items-center justify-end gap-2">
-                <button type="button" className="border rounded px-3 py-2 text-sm" onClick={() => applyBackground("")}>
-                  Clear
-                </button>
-                <button
-                  type="button"
-                  className="rounded px-3 py-2 text-sm bg-gray-900 text-white"
-                  onClick={() => applyBackground(bgDraft.trim())}
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {/* Photo modal */}
       {photoModal ? (
