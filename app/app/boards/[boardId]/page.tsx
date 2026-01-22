@@ -221,31 +221,53 @@ export default function BoardPage() {
 
       setPlayers(parsed);
 
-      // Also refresh any already-placed cards on the canvas
+      // Also refresh any already-placed cards on the canvas.
+      // We match by player.id when possible, but fall back to name (case-insensitive)
+      // for older cards that may not have had an id.
       setPlacedPlayers((cur) => {
         if (!Array.isArray(cur) || cur.length === 0) return cur;
-        const byId = new Map(parsed.map((p) => [String(p.id), p] as const));
-        return cur.map((pp) => {
-          const pid = String((pp as any)?.player?.id ?? "");
-          const hit = byId.get(pid);
+
+        const norm = (s: any) => String(s ?? "").trim();
+        const normName = (s: any) => String(s ?? "").trim().toLowerCase();
+
+        const byId = new Map(parsed.map((p) => [norm(p.id), p] as const));
+        const byName = new Map(parsed.map((p) => [normName(p.name), p] as const));
+
+        let changed = false;
+        const next = cur.map((pp) => {
+          const existingPlayer: any = (pp as any)?.player ?? {};
+          const pid = norm(existingPlayer.id);
+          const pname = normName(existingPlayer.name);
+
+          const hit = (pid && byId.get(pid)) || (pname && byName.get(pname));
           if (!hit) return pp;
-          return {
-            ...pp,
-            player: {
-              ...(pp as any).player,
-              id: hit.id,
-              name: hit.name,
-              grade: hit.grade,
-              returning: hit.returning,
-              primary: hit.potentialPrimary,
-              likelihood: hit.likelihoodPrimary,
-              pos1: hit.position,
-              pos2: hit.secondaryPosition,
-              notes: hit.notes,
-              pictureUrl: hit.pictureProxyUrl || "",
-            },
-          } as any;
+
+          const nextPlayer = {
+            ...existingPlayer,
+            id: hit.id,
+            name: hit.name,
+            grade: hit.grade,
+            returning: hit.returning,
+            primary: hit.potentialPrimary,
+            likelihood: hit.likelihoodPrimary,
+            pos1: hit.position,
+            pos2: hit.secondaryPosition,
+            notes: hit.notes,
+            // HtmlBoard uses pictureUrl; older cards might have pictureProxyUrl.
+            pictureUrl: hit.pictureProxyUrl || "",
+            pictureProxyUrl: hit.pictureProxyUrl || "",
+          };
+
+          // Detect change so we can mark the board dirty (so user can save updated snapshot)
+          const before = JSON.stringify(existingPlayer);
+          const after = JSON.stringify(nextPlayer);
+          if (before !== after) changed = true;
+
+          return { ...pp, player: nextPlayer } as any;
         });
+
+        if (changed) setDirty(true);
+        return next;
       });
     } catch (e: any) {
       console.error(e);
