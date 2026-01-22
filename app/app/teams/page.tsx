@@ -1,86 +1,44 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 
-type Team = {
+type TeamRow = {
   id: string;
   name: string;
   created_at: string;
-  created_by: string;
 };
 
 export default function TeamsPage() {
   const router = useRouter();
+  const [teams, setTeams] = useState<TeamRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [email, setEmail] = useState<string | null>(null);
-  const [teamName, setTeamName] = useState("");
-  const [teams, setTeams] = useState<Team[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  const [newTeamName, setNewTeamName] = useState("");
+  const [creating, setCreating] = useState(false);
 
   async function load() {
     setLoading(true);
     setError(null);
 
     const { data: userResp } = await supabase.auth.getUser();
-    const user = userResp.user;
-
-    if (!user) {
+    if (!userResp.user) {
       router.push("/login");
       return;
     }
 
-    setEmail(user.email ?? null);
+    const res = await supabase.from("teams").select("id,name,created_at").order("created_at", { ascending: false });
+    if (res.error) {
+      setError(res.error.message);
+      setLoading(false);
+      return;
+    }
 
-    const { data, error } = await supabase
-      .from("teams")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) setError(error.message);
-    setTeams((data as Team[]) ?? []);
+    setTeams((res.data ?? []) as TeamRow[]);
     setLoading(false);
-  }
-
-  async function createTeam() {
-    setError(null);
-    const name = teamName.trim();
-    if (!name) return;
-
-    const { data: userResp } = await supabase.auth.getUser();
-    const user = userResp.user;
-
-    if (!user) {
-      router.push("/login");
-      return;
-    }
-
-    // 1) Create team
-    const { data: team, error: teamErr } = await supabase
-      .from("teams")
-      .insert([{ name, created_by: user.id }])
-      .select()
-      .single();
-
-    if (teamErr) {
-      setError(teamErr.message);
-      return;
-    }
-
-    // 2) Add creator as team member (owner)
-    const { error: memErr } = await supabase.from("team_members").insert([
-      { team_id: (team as any).id, user_id: user.id, role: "owner" },
-    ]);
-
-    if (memErr) {
-      setError(memErr.message);
-      return;
-    }
-
-    setTeamName("");
-    await load();
   }
 
   useEffect(() => {
@@ -88,79 +46,107 @@ export default function TeamsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function createTeam() {
+    const name = newTeamName.trim();
+    if (!name) return;
+
+    setCreating(true);
+    setError(null);
+
+    const ins = await supabase.from("teams").insert([{ name }]).select().single();
+    if (ins.error) {
+      setError(ins.error.message);
+      setCreating(false);
+      return;
+    }
+
+    setNewTeamName("");
+    setTeams((cur) => [ins.data as any, ...cur]);
+    setCreating(false);
+  }
+
+  async function deleteTeam(teamId: string, teamName: string) {
+    const ok = window.confirm(
+      `Delete team "${teamName}"?\n\nThis will also delete ALL boards under it (if your DB has cascade). This cannot be undone.`
+    );
+    if (!ok) return;
+
+    setError(null);
+
+    // If you don't have cascade deletes, you must delete boards first:
+    const delBoards = await supabase.from("boards").delete().eq("team_id", teamId);
+    if (delBoards.error) {
+      setError(delBoards.error.message);
+      return;
+    }
+
+    const delTeam = await supabase.from("teams").delete().eq("id", teamId);
+    if (delTeam.error) {
+      setError(delTeam.error.message);
+      return;
+    }
+
+    setTeams((cur) => cur.filter((t) => t.id !== teamId));
+  }
+
   return (
-    <main className="min-h-screen bg-gray-50">
-      <div className="mx-auto max-w-4xl px-6 py-10">
-        <div className="flex items-start justify-between gap-6">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Teams</h1>
-            {email && (
-              <p className="mt-2 text-sm text-gray-600">
-                Logged in as <span className="font-medium text-gray-900">{email}</span>
-              </p>
-            )}
-          </div>
-
-          <Link
-            href="/"
-            className="text-sm font-medium text-gray-700 hover:text-gray-900"
-          >
-            Home
-          </Link>
+    <main className="min-h-screen bg-white">
+      <div className="flex items-center justify-between px-8 py-6 border-b">
+        <div>
+          <div className="text-3xl font-bold">Teams</div>
+          <div className="text-gray-600">Create a team or open an existing one.</div>
         </div>
+        <Link className="underline" href="/">
+          Home
+        </Link>
+      </div>
 
-        <div className="mt-8 rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-lg font-semibold text-gray-900">Create a Team</h2>
-          <p className="mt-1 text-sm text-gray-600">Example: Lone Peak Boys Soccer</p>
+      {error ? <div className="px-8 py-3 text-red-600">{error}</div> : null}
 
-          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+      <div className="p-8 max-w-4xl mx-auto space-y-6">
+        <div className="border rounded-2xl p-6">
+          <div className="text-xl font-semibold mb-3">Create a Team</div>
+          <div className="flex gap-3">
             <input
-              className="w-full flex-1 rounded-xl border px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-gray-900/10"
-              placeholder="Team name"
-              value={teamName}
-              onChange={(e) => setTeamName(e.target.value)}
+              className="flex-1 border rounded px-3 py-2"
+              value={newTeamName}
+              onChange={(e) => setNewTeamName(e.target.value)}
+              placeholder="Team name (ex: Lone Peak Tryout)"
             />
             <button
-              className="rounded-xl bg-gray-900 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-800"
+              className="rounded-md bg-black px-5 py-2 text-white disabled:opacity-60"
+              disabled={creating}
               onClick={createTeam}
             >
-              Create
+              {creating ? "Creating..." : "Create"}
             </button>
           </div>
         </div>
 
-        {error && (
-          <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-
-        <div className="mt-8">
-          <div className="mb-3 text-sm font-semibold text-gray-700">Your Teams</div>
+        <div className="border rounded-2xl p-6">
+          <div className="text-xl font-semibold mb-3">Your Teams</div>
 
           {loading ? (
-            <div className="rounded-2xl border bg-white p-6 text-sm text-gray-600">
-              Loading...
-            </div>
+            <div>Loading...</div>
           ) : teams.length === 0 ? (
-            <div className="rounded-2xl border bg-white p-6 text-sm text-gray-600">
-              No teams yet. Create one above.
-            </div>
+            <div className="text-gray-600">No teams yet.</div>
           ) : (
-            <div className="grid gap-3">
+            <div className="space-y-3">
               {teams.map((t) => (
-                <Link
-                  key={t.id}
-                  href={`/app/teams/${t.id}`}
-                  className="group rounded-2xl border bg-white px-5 py-4 shadow-sm transition hover:border-gray-300 hover:shadow"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="text-base font-semibold text-gray-900">{t.name}</div>
-                    <div className="text-sm text-gray-500 group-hover:text-gray-700">
+                <div key={t.id} className="border rounded-xl px-4 py-3 flex items-center justify-between">
+                  <div className="font-medium">{t.name}</div>
+                  <div className="flex items-center gap-3">
+                    <Link className="underline" href={`/app/teams/${t.id}`}>
                       Open →
-                    </div>
+                    </Link>
+                    <button
+                      className="border px-3 py-1 rounded text-sm bg-white"
+                      onClick={() => deleteTeam(t.id, t.name)}
+                    >
+                      Delete Team
+                    </button>
                   </div>
-                </Link>
+                </div>
               ))}
             </div>
           )}

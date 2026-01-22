@@ -80,8 +80,12 @@ export default function BoardPage() {
   // Background
   const [backgroundUrl, setBackgroundUrl] = useState<string>("");
 
-  // Photo modal
+  // Modals
   const [photoModal, setPhotoModal] = useState<{ url: string; name: string } | null>(null);
+  const [playerModal, setPlayerModal] = useState<PlacedPlayer | null>(null);
+
+  // UI
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -123,12 +127,12 @@ export default function BoardPage() {
     const row = data as BoardRow;
     setBoard(row);
 
-    // Google config (optional)
+    // Google config
     const gc = row?.data?.google;
     if (gc?.sheetId && gc?.range) setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
     else setGoogleConfig(null);
 
-    // Load placed players + background from board data (optional)
+    // placed + background
     const hb = row?.data?.htmlBoard ?? {};
     setPlacedPlayers(Array.isArray(hb.placedPlayers) ? hb.placedPlayers : []);
     setBackgroundUrl(typeof hb.backgroundUrl === "string" ? hb.backgroundUrl : "");
@@ -186,7 +190,6 @@ export default function BoardPage() {
         .map((r) => {
           const rawPic = (r[idxPicture] ?? "").toString();
           const normalized = normalizePictureUrl(rawPic);
-
           const proxy = normalized ? `/api/image-proxy?url=${encodeURIComponent(normalized)}` : "";
 
           return {
@@ -355,8 +358,13 @@ export default function BoardPage() {
     }
   }
 
+  function removePlacedCard(id: string) {
+    setPlacedPlayers((cur) => cur.filter((p) => p.id !== id));
+    setDirty(true);
+  }
+
   return (
-    <main className="h-screen">
+    <main className="h-screen overflow-hidden">
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-white relative z-40">
         <div className="flex items-center gap-3 min-w-0">
@@ -401,209 +409,223 @@ export default function BoardPage() {
       ) : (
         <div className="flex h-[calc(100vh-73px)]">
           {/* Left sidebar */}
-          <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
-            <div className="flex items-center justify-between mb-2">
-              <div className="font-semibold">Roster</div>
-              <button
-                type="button"
-                className="border px-3 py-1 rounded text-sm bg-white"
-                onClick={() => {
-                  if (googleConfig) loadPlayersFromGoogle(googleConfig);
-                }}
-                disabled={!googleConfig || playersLoading}
-                title={!googleConfig ? "No Google config on this board" : "Refresh roster"}
-              >
-                Refresh
-              </button>
-            </div>
+          {!sidebarCollapsed ? (
+            <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
+              <div className="flex items-center justify-between mb-2">
+                <div className="font-semibold">Roster</div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="border px-3 py-1 rounded text-sm bg-white"
+                    onClick={() => setSidebarCollapsed(true)}
+                  >
+                    Collapse
+                  </button>
+                  <button
+                    type="button"
+                    className="border px-3 py-1 rounded text-sm bg-white"
+                    onClick={() => {
+                      if (googleConfig) loadPlayersFromGoogle(googleConfig);
+                    }}
+                    disabled={!googleConfig || playersLoading}
+                    title={!googleConfig ? "No Google config on this board" : "Refresh roster"}
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
 
-            {/* Background upload */}
-            <div className="border rounded p-3 mb-3 bg-white">
-              <div className="text-xs font-semibold mb-2">Background</div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="border px-3 py-1 rounded text-sm bg-white"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  Upload image
-                </button>
-                <button
-                  type="button"
-                  className="border px-3 py-1 rounded text-sm bg-white"
-                  onClick={() => {
-                    setBackgroundUrl("");
-                    setDirty(true);
+              {/* Background upload */}
+              <div className="border rounded p-3 mb-3 bg-white">
+                <div className="text-xs font-semibold mb-2">Background</div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="border px-3 py-1 rounded text-sm bg-white"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Upload image
+                  </button>
+                  <button
+                    type="button"
+                    className="border px-3 py-1 rounded text-sm bg-white"
+                    onClick={() => {
+                      setBackgroundUrl("");
+                      setDirty(true);
+                    }}
+                    disabled={!backgroundUrl}
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onSelectBackgroundFile(f);
+                    e.currentTarget.value = "";
                   }}
-                  disabled={!backgroundUrl}
+                />
+              </div>
+
+              {/* Filters */}
+              <div className="border rounded p-3 mb-3 bg-white relative z-30">
+                <div className="text-xs font-semibold mb-2">Filters</div>
+
+                <input
+                  className="w-full border rounded px-2 py-1 text-sm mb-2"
+                  placeholder="Search name / notes / position"
+                  value={filters.search}
+                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
+                />
+
+                <DropdownMultiSelect
+                  label="Grade"
+                  options={gradeOptions.map((g) => ({ value: g, label: `Grade ${g}` }))}
+                  selected={filters.grade}
+                  open={openDropdown === "grade"}
+                  onOpen={(e) => {
+                    e.stopPropagation();
+                    setOpenDropdown((v) => (v === "grade" ? null : "grade"));
+                  }}
+                  onToggle={(v) => toggleMulti("grade", v)}
+                />
+
+                <DropdownMultiSelect
+                  label="Returning"
+                  options={returningOptions.map((r) => ({ value: r, label: r }))}
+                  selected={filters.returning}
+                  open={openDropdown === "returning"}
+                  onOpen={(e) => {
+                    e.stopPropagation();
+                    setOpenDropdown((v) => (v === "returning" ? null : "returning"));
+                  }}
+                  onToggle={(v) => toggleMulti("returning", v)}
+                />
+
+                <DropdownMultiSelect
+                  label="Primary"
+                  options={primaryOptions.map((p) => ({ value: p, label: p }))}
+                  selected={filters.primary}
+                  open={openDropdown === "primary"}
+                  onOpen={(e) => {
+                    e.stopPropagation();
+                    setOpenDropdown((v) => (v === "primary" ? null : "primary"));
+                  }}
+                  onToggle={(v) => toggleMulti("primary", v)}
+                />
+
+                <DropdownMultiSelect
+                  label="Likelihood"
+                  options={likelihoodOptions.map((l) => ({ value: l, label: l }))}
+                  selected={filters.likelihood}
+                  open={openDropdown === "likelihood"}
+                  onOpen={(e) => {
+                    e.stopPropagation();
+                    setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"));
+                  }}
+                  onToggle={(v) => toggleMulti("likelihood", v)}
+                />
+
+                <button
+                  type="button"
+                  className="text-xs underline text-gray-600 mt-2"
+                  onClick={() =>
+                    setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
+                  }
                 >
-                  Clear
+                  Clear filters
                 </button>
               </div>
 
-              {backgroundUrl ? (
-                <div className="text-xs text-gray-600 mt-2 truncate" title={backgroundUrl}>
-                  {backgroundUrl}
+              {playersLoading && <div className="text-sm">Loading players…</div>}
+              {playersError && <div className="text-sm text-red-600">{playersError}</div>}
+
+              {!playersLoading && !playersError && players.length > 0 && (
+                <div className="text-xs text-gray-600 mb-2">
+                  Showing {filteredPlayers.length} of {players.length}
                 </div>
-              ) : (
-                <div className="text-xs text-gray-500 mt-2">No background</div>
               )}
 
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) onSelectBackgroundFile(f);
-                  e.currentTarget.value = "";
-                }}
-              />
-            </div>
+              {!playersLoading && !playersError && filteredPlayers.length > 0 && (
+                <div className="space-y-2">
+                  {filteredPlayers.map((p, idx) => (
+                    <div
+                      key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
+                      className="border rounded bg-white cursor-grab active:cursor-grabbing"
+                      draggable
+                      onDragStart={(e) => onPlayerDragStart(e, p)}
+                    >
+                      <div className="p-2">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (p.pictureProxyUrl) {
+                                const u = `${p.pictureProxyUrl}${
+                                  p.pictureProxyUrl.includes("?") ? "&" : "?"
+                                }ts=${Date.now()}`;
+                                setPhotoModal({ url: u, name: p.name });
+                              }
+                            }}
+                            draggable={false}
+                            title="Click to enlarge"
+                          >
+                            {p.pictureProxyUrl ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={p.pictureProxyUrl}
+                                alt={`${p.name} photo`}
+                                width={48}
+                                height={48}
+                                style={{ width: 48, height: 48, objectFit: "cover" }}
+                                draggable={false}
+                              />
+                            ) : null}
+                          </button>
 
-            {/* Filters */}
-            <div className="border rounded p-3 mb-3 bg-white relative z-30">
-              <div className="text-xs font-semibold mb-2">Filters</div>
-
-              <input
-                className="w-full border rounded px-2 py-1 text-sm mb-2"
-                placeholder="Search name / notes / position"
-                value={filters.search}
-                onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-              />
-
-              <DropdownMultiSelect
-                label="Grade"
-                options={gradeOptions.map((g) => ({ value: g, label: `Grade ${g}` }))}
-                selected={filters.grade}
-                open={openDropdown === "grade"}
-                onOpen={(e) => {
-                  e.stopPropagation();
-                  setOpenDropdown((v) => (v === "grade" ? null : "grade"));
-                }}
-                onToggle={(v) => toggleMulti("grade", v)}
-              />
-
-              <DropdownMultiSelect
-                label="Returning"
-                options={returningOptions.map((r) => ({ value: r, label: r }))}
-                selected={filters.returning}
-                open={openDropdown === "returning"}
-                onOpen={(e) => {
-                  e.stopPropagation();
-                  setOpenDropdown((v) => (v === "returning" ? null : "returning"));
-                }}
-                onToggle={(v) => toggleMulti("returning", v)}
-              />
-
-              <DropdownMultiSelect
-                label="Primary"
-                options={primaryOptions.map((p) => ({ value: p, label: p }))}
-                selected={filters.primary}
-                open={openDropdown === "primary"}
-                onOpen={(e) => {
-                  e.stopPropagation();
-                  setOpenDropdown((v) => (v === "primary" ? null : "primary"));
-                }}
-                onToggle={(v) => toggleMulti("primary", v)}
-              />
-
-              <DropdownMultiSelect
-                label="Likelihood"
-                options={likelihoodOptions.map((l) => ({ value: l, label: l }))}
-                selected={filters.likelihood}
-                open={openDropdown === "likelihood"}
-                onOpen={(e) => {
-                  e.stopPropagation();
-                  setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"));
-                }}
-                onToggle={(v) => toggleMulti("likelihood", v)}
-              />
-
-              <button
-                type="button"
-                className="text-xs underline text-gray-600 mt-2"
-                onClick={() =>
-                  setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
-                }
-              >
-                Clear filters
-              </button>
-            </div>
-
-            {playersLoading && <div className="text-sm">Loading players…</div>}
-            {playersError && <div className="text-sm text-red-600">{playersError}</div>}
-
-            {!playersLoading && !playersError && players.length > 0 && (
-              <div className="text-xs text-gray-600 mb-2">
-                Showing {filteredPlayers.length} of {players.length}
-              </div>
-            )}
-
-            {!playersLoading && !playersError && filteredPlayers.length > 0 && (
-              <div className="space-y-2">
-                {filteredPlayers.map((p, idx) => (
-                  <div
-                    key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-                    className="border rounded bg-white cursor-grab active:cursor-grabbing"
-                    draggable
-                    onDragStart={(e) => onPlayerDragStart(e, p)}
-                  >
-                    <div className="p-2">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (p.pictureProxyUrl) {
-                              const u = `${p.pictureProxyUrl}${
-                                p.pictureProxyUrl.includes("?") ? "&" : "?"
-                              }ts=${Date.now()}`;
-                              setPhotoModal({ url: u, name: p.name });
-                            }
-                          }}
-                          draggable={false}
-                          title="Click to enlarge"
-                        >
-                          {p.pictureProxyUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={p.pictureProxyUrl}
-                              alt={`${p.name} photo`}
-                              width={48}
-                              height={48}
-                              style={{ width: 48, height: 48, objectFit: "cover" }}
-                              draggable={false}
-                            />
-                          ) : null}
-                        </button>
-
-                        <div className="min-w-0">
-                          <div className="font-medium truncate">{p.name}</div>
-                          <div className="text-xs text-gray-700">
-                            Grade: {p.grade || "?"} • Pos: {p.position || "?"}
-                            {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
-                            {p.returning || "?"}
-                          </div>
-                          <div className="text-xs text-gray-700">
-                            Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
-                            {p.likelihoodPrimary || "?"}
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{p.name}</div>
+                            <div className="text-xs text-gray-700">
+                              Grade: {p.grade || "?"} • Pos: {p.position || "?"}
+                              {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
+                              {p.returning || "?"}
+                            </div>
+                            <div className="text-xs text-gray-700">
+                              Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
+                              {p.likelihoodPrimary || "?"}
+                            </div>
                           </div>
                         </div>
+
+                        {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
                       </div>
-
-                      {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </aside>
+                  ))}
+                </div>
+              )}
+            </aside>
+          ) : (
+            <aside className="w-12 shrink-0 border-r bg-gray-50 relative z-30 flex flex-col items-center py-3">
+              <button
+                type="button"
+                className="border px-2 py-1 rounded text-xs bg-white rotate-90"
+                onClick={() => setSidebarCollapsed(false)}
+                title="Show roster"
+              >
+                Show
+              </button>
+            </aside>
+          )}
 
-          {/* Board (SCROLL CONTAINER) */}
-          <section className="flex-1 relative overflow-auto bg-white">
+          {/* Board */}
+          <section className="flex-1 relative z-0 overflow-hidden">
             <HtmlBoard
               editMode={true}
               placed={placedPlayers}
@@ -613,6 +635,7 @@ export default function BoardPage() {
               }}
               dragMime={PLAYER_DRAG_MIME}
               backgroundUrl={backgroundUrl || undefined}
+              onOpenPlayer={(pp) => setPlayerModal(pp)}
               canvasWidth={3000}
               canvasHeight={2000}
             />
@@ -620,7 +643,7 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* Photo modal */}
+      {/* Photo modal (roster thumbnail) */}
       {photoModal ? (
         <div
           className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4"
@@ -643,6 +666,96 @@ export default function BoardPage() {
               alt={`${photoModal.name} large`}
               className="w-full max-h-[80vh] object-contain rounded-lg bg-black"
             />
+          </div>
+        </div>
+      ) : null}
+
+      {/* Player modal (clicked on canvas) */}
+      {playerModal ? (
+        <div
+          className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setPlayerModal(null)}
+        >
+          <div
+            className="w-full max-w-5xl bg-white rounded-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <div className="font-semibold truncate">{playerModal.player.name}</div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="border px-3 py-1 rounded text-sm bg-white"
+                  onClick={() => {
+                    removePlacedCard(playerModal.id);
+                    setPlayerModal(null);
+                  }}
+                >
+                  Remove from board
+                </button>
+                <button
+                  type="button"
+                  className="underline text-sm"
+                  onClick={() => setPlayerModal(null)}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 flex gap-4">
+              <div className="w-48 h-48 bg-gray-100 rounded overflow-hidden flex items-center justify-center shrink-0">
+                {playerModal.player.pictureUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={playerModal.player.pictureUrl}
+                    alt={`${playerModal.player.name} photo`}
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                  />
+                ) : (
+                  <div className="text-3xl font-bold text-gray-800">
+                    {(playerModal.player.name || "?").slice(0, 2).toUpperCase()}
+                  </div>
+                )}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="text-sm text-gray-800 mb-1">
+                  <span className="font-semibold">Grade:</span> {playerModal.player.grade || "?"}
+                </div>
+                <div className="text-sm text-gray-800 mb-1">
+                  <span className="font-semibold">Position:</span>{" "}
+                  {playerModal.player.pos1 || "?"}
+                  {playerModal.player.pos2 ? ` / ${playerModal.player.pos2}` : ""}
+                </div>
+                <div className="text-sm text-gray-800 mb-1">
+                  <span className="font-semibold">Returning:</span>{" "}
+                  {playerModal.player.returning || "?"}
+                </div>
+                <div className="text-sm text-gray-800 mb-1">
+                  <span className="font-semibold">Primary:</span>{" "}
+                  {playerModal.player.primary || "?"}
+                </div>
+                <div className="text-sm text-gray-800 mb-1">
+                  <span className="font-semibold">Likelihood:</span>{" "}
+                  {playerModal.player.likelihood || "?"}
+                </div>
+
+                {playerModal.player.notes ? (
+                  <div className="mt-3">
+                    <div className="text-xs font-semibold text-gray-700 mb-1">Notes</div>
+                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                      {playerModal.player.notes}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-4 text-xs text-gray-500">
+                  Tip: resize the card using the bottom-right handle on the card.
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
@@ -734,9 +847,11 @@ function normalizePictureUrl(raw: string) {
   try {
     const u = new URL(s);
 
+    // /file/d/<id>/
     const m = u.pathname.match(/\/file\/d\/([^/]+)/);
     if (m && m[1]) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
 
+    // /thumbnail?id=...
     if (u.hostname === "drive.google.com" && u.pathname === "/thumbnail") {
       let id = u.searchParams.get("id") ?? "";
       if (id.includes("=") && !id.includes("%3D")) {
@@ -748,6 +863,7 @@ function normalizePictureUrl(raw: string) {
       }
     }
 
+    // ?id=<id>
     const idParam = u.searchParams.get("id");
     if (idParam) {
       const id = idParam.includes("=") ? idParam.split("=")[0] : idParam;
