@@ -133,19 +133,31 @@ export default function TeamsPage() {
           ) : (
             <div className="space-y-3">
               {teams.map((t) => (
-                <div key={t.id} className="border rounded-xl px-4 py-3 flex items-center justify-between">
-                  <div className="font-medium">{t.name}</div>
-                  <div className="flex items-center gap-3">
-                    <Link className="underline" href={`/app/teams/${t.id}`}>
-                      Open →
-                    </Link>
-                    <button
-                      className="border px-3 py-1 rounded text-sm bg-white"
-                      onClick={() => deleteTeam(t.id, t.name)}
-                    >
-                      Delete Team
-                    </button>
-                  </div>
+                <div
+                  key={t.id}
+                  role="button"
+                  tabIndex={0}
+                  className="border rounded-xl px-4 py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer"
+                  onClick={() => router.push(`/app/teams/${t.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") router.push(`/app/teams/${t.id}`);
+                  }}
+                  title="Open team"
+                >
+                  <div className="font-medium min-w-0 truncate">{t.name}</div>
+
+                  <button
+                    type="button"
+                    className="ml-3 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200"
+                    title="Delete team"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      deleteTeam(t.id, t.name);
+                    }}
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
             </div>

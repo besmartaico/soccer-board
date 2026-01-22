@@ -80,6 +80,13 @@ export default function BoardPage() {
   // Background
   const [backgroundUrl, setBackgroundUrl] = useState<string>("");
 
+  // Sharing
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareEmails, setShareEmails] = useState<string[]>([]);
+  const [shareInput, setShareInput] = useState("");
+  const [shareSaving, setShareSaving] = useState(false);
+
+
   // Modals
   const [photoModal, setPhotoModal] = useState<{ url: string; name: string } | null>(null);
   const [playerModal, setPlayerModal] = useState<PlacedPlayer | null>(null);
@@ -136,6 +143,11 @@ export default function BoardPage() {
     const hb = row?.data?.htmlBoard ?? {};
     setPlacedPlayers(Array.isArray(hb.placedPlayers) ? hb.placedPlayers : []);
     setBackgroundUrl(typeof hb.backgroundUrl === "string" ? hb.backgroundUrl : "");
+
+    // sharing
+    const sh = row?.data?.sharing ?? {};
+    setShareEmails(Array.isArray(sh.emails) ? sh.emails : []);
+
     setDirty(false);
 
     setLoading(false);
@@ -208,6 +220,33 @@ export default function BoardPage() {
         });
 
       setPlayers(parsed);
+
+      // Also refresh any already-placed cards on the canvas
+      setPlacedPlayers((cur) => {
+        if (!Array.isArray(cur) || cur.length === 0) return cur;
+        const byId = new Map(parsed.map((p) => [String(p.id), p] as const));
+        return cur.map((pp) => {
+          const pid = String((pp as any)?.player?.id ?? "");
+          const hit = byId.get(pid);
+          if (!hit) return pp;
+          return {
+            ...pp,
+            player: {
+              ...(pp as any).player,
+              id: hit.id,
+              name: hit.name,
+              grade: hit.grade,
+              returning: hit.returning,
+              primary: hit.potentialPrimary,
+              likelihood: hit.likelihoodPrimary,
+              pos1: hit.position,
+              pos2: hit.secondaryPosition,
+              notes: hit.notes,
+              pictureUrl: hit.pictureProxyUrl || "",
+            },
+          } as any;
+        });
+      });
     } catch (e: any) {
       console.error(e);
       setPlayersError(e?.message ?? "Failed to load players");
@@ -294,6 +333,42 @@ export default function BoardPage() {
     e.dataTransfer.setData("application/json", json);
     e.dataTransfer.setData("text/plain", json);
     e.dataTransfer.effectAllowed = "copy";
+  }
+
+  async function saveSharing() {
+    if (!boardId || !board) return;
+    setShareSaving(true);
+    setError(null);
+
+    try {
+      const cleaned = Array.from(
+        new Set(
+          shareEmails
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean)
+        )
+      );
+
+      const prevData = board?.data && typeof board.data === "object" ? board.data : {};
+      const nextData = {
+        ...prevData,
+        sharing: {
+          ...(prevData as any).sharing,
+          emails: cleaned,
+        },
+      };
+
+      const u = await supabase.from("boards").update({ data: nextData }).eq("id", boardId);
+      if (u.error) throw new Error(u.error.message);
+
+      setBoard({ ...board, data: nextData });
+      setShareEmails(cleaned);
+      setShareOpen(false);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to save sharing settings.");
+    } finally {
+      setShareSaving(false);
+    }
   }
 
   async function saveBoard() {
@@ -389,6 +464,16 @@ export default function BoardPage() {
             disabled={saving}
           >
             Reload
+          </button>
+
+          <button
+            type="button"
+            className="border px-3 py-1 rounded text-sm bg-white"
+            onClick={() => setShareOpen(true)}
+            disabled={!board}
+            title="Share this board"
+          >
+            Share
           </button>
         </div>
 
@@ -759,6 +844,104 @@ export default function BoardPage() {
           </div>
         </div>
       ) : null}
+          {/* Share modal */}
+      {shareOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-white shadow-lg border">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div>
+                <div className="text-lg font-semibold">Share Board</div>
+                <div className="text-sm text-gray-600">Add email addresses who should have access to this board.</div>
+              </div>
+              <button
+                type="button"
+                className="w-8 h-8 rounded-full border hover:bg-gray-50"
+                onClick={() => setShareOpen(false)}
+                title="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Email address</label>
+                <div className="flex gap-2">
+                  <input
+                    className="flex-1 border rounded px-3 py-2"
+                    value={shareInput}
+                    onChange={(e) => setShareInput(e.target.value)}
+                    placeholder="ex: coach@example.com"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const val = shareInput.trim();
+                        if (!val) return;
+                        setShareEmails((cur) => Array.from(new Set([...cur, val])));
+                        setShareInput("");
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="border px-3 py-2 rounded bg-white"
+                    onClick={() => {
+                      const val = shareInput.trim();
+                      if (!val) return;
+                      setShareEmails((cur) => Array.from(new Set([...cur, val])));
+                      setShareInput("");
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Tip: press Enter to add.</div>
+              </div>
+
+              <div>
+                <div className="text-sm font-medium mb-2">Shared with</div>
+                {shareEmails.length === 0 ? (
+                  <div className="text-sm text-gray-600">No one yet.</div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {shareEmails.map((em) => (
+                      <span
+                        key={em}
+                        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-gray-50"
+                      >
+                        <span className="max-w-[320px] truncate">{em}</span>
+                        <button
+                          type="button"
+                          className="w-6 h-6 rounded-full border hover:bg-white"
+                          title="Remove"
+                          onClick={() => setShareEmails((cur) => cur.filter((x) => x !== em))}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button type="button" className="border px-4 py-2 rounded bg-white" onClick={() => setShareOpen(false)}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded bg-black text-white px-4 py-2 disabled:opacity-60"
+                  onClick={saveSharing}
+                  disabled={shareSaving}
+                >
+                  {shareSaving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
     </main>
   );
 }

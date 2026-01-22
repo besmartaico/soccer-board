@@ -57,6 +57,8 @@ function buildLine2(p: PlayerPayload) {
   return `${primary} • ${like}`;
 }
 
+type PointerInfo = { x: number; y: number; pointerType: string };
+
 export function HtmlBoard({
   editMode,
   placed,
@@ -93,6 +95,11 @@ export function HtmlBoard({
   const [isDragOver, setIsDragOver] = useState(false);
 
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Touch pointers for two-finger scroll
+  const pointersRef = useRef<Map<number, PointerInfo>>(new Map());
+  const twoFingerRef = useRef<{ active: boolean; lastCx: number; lastCy: number } | null>(null);
 
   // ---------- coordinate helpers ----------
   function clientToBoard(clientX: number, clientY: number) {
@@ -163,6 +170,10 @@ export function HtmlBoard({
 
     onPlacedChangeRef.current(next);
 
+    // select the newly added card
+    setActiveId(id);
+    setSelectedIds(new Set([id]));
+
     // try to bring into view a bit (nice UX)
     requestAnimationFrame(() => {
       const sc = scrollRef.current;
@@ -177,56 +188,104 @@ export function HtmlBoard({
   // ---------- moving / resizing ----------
   type DragState = {
     pointerId: number;
-    id: string;
+    ids: string[];
     mode: "move" | "resize";
     startX: number;
     startY: number;
-    origX: number;
-    origY: number;
-    origW: number;
-    origH: number;
-    dx: number;
-    dy: number;
     moved: boolean;
     lastClientX: number;
     lastClientY: number;
+    // per-card origin snapshot
+    origin: Record<
+      string,
+      {
+        x: number;
+        y: number;
+        w: number;
+        h: number;
+      }
+    >;
   };
 
   const dragRef = useRef<DragState | null>(null);
 
+  function ensureSelectionOnPointerDown(id: string, e: React.PointerEvent) {
+    const isMeta = (e as any).metaKey || (e as any).ctrlKey;
+    const isShift = (e as any).shiftKey;
+
+    if (isMeta) {
+      // toggle
+      setSelectedIds((cur) => {
+        const next = new Set(cur);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next.size ? next : new Set([id]);
+      });
+      setActiveId(id);
+      return;
+    }
+
+    if (isShift) {
+      // additive (simple)
+      setSelectedIds((cur) => new Set([...Array.from(cur), id]));
+      setActiveId(id);
+      return;
+    }
+
+    // single select
+    setSelectedIds(new Set([id]));
+    setActiveId(id);
+  }
+
+  function getMoveIds(id: string) {
+    const sel = selectedIds;
+    if (sel.has(id)) return Array.from(sel);
+    return [id];
+  }
+
   function beginMove(e: React.PointerEvent, id: string) {
     if (!editMode) return;
     if (e.button !== 0) return; // left click / primary touch
-    const canvas = canvasRef.current;
-    if (!canvas) return;
 
-    const current = placedRef.current.find((p) => p.id === id);
-    if (!current) return;
+    // If this is a touch device and we already have another touch pointer down,
+    // treat this as a two-finger scroll gesture (not a card drag).
+    if (e.pointerType === "touch") {
+      const ptrs = pointersRef.current;
+      if (ptrs.size >= 2) return;
+    }
 
-    setActiveId(id);
+    const currentPlaced = placedRef.current;
+    const first = currentPlaced.find((p) => p.id === id);
+    if (!first) return;
 
-    const w = Number.isFinite(current.w) ? (current.w as number) : DEFAULT_W;
-    const h = Number.isFinite(current.h) ? (current.h as number) : DEFAULT_H;
+    ensureSelectionOnPointerDown(id, e);
+
+    const ids = getMoveIds(id);
+
+    const origin: DragState["origin"] = {};
+    for (const pid of ids) {
+      const p = currentPlaced.find((x) => x.id === pid);
+      if (!p) continue;
+      origin[pid] = {
+        x: p.x,
+        y: p.y,
+        w: Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W,
+        h: Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H,
+      };
+    }
 
     const pt = clientToBoard(e.clientX, e.clientY);
-    const dx = pt.x - current.x;
-    const dy = pt.y - current.y;
 
     dragRef.current = {
       pointerId: e.pointerId,
-      id,
+      ids,
       mode: "move",
       startX: pt.x,
       startY: pt.y,
-      origX: current.x,
-      origY: current.y,
-      origW: w,
-      origH: h,
-      dx,
-      dy,
       moved: false,
       lastClientX: e.clientX,
       lastClientY: e.clientY,
+      origin,
     };
 
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -237,10 +296,12 @@ export function HtmlBoard({
   function beginResize(e: React.PointerEvent, id: string) {
     if (!editMode) return;
     if (e.button !== 0) return;
+
     const current = placedRef.current.find((p) => p.id === id);
     if (!current) return;
 
     setActiveId(id);
+    setSelectedIds(new Set([id]));
 
     const w = Number.isFinite(current.w) ? (current.w as number) : DEFAULT_W;
     const h = Number.isFinite(current.h) ? (current.h as number) : DEFAULT_H;
@@ -249,19 +310,16 @@ export function HtmlBoard({
 
     dragRef.current = {
       pointerId: e.pointerId,
-      id,
+      ids: [id],
       mode: "resize",
       startX: pt.x,
       startY: pt.y,
-      origX: current.x,
-      origY: current.y,
-      origW: w,
-      origH: h,
-      dx: 0,
-      dy: 0,
       moved: false,
       lastClientX: e.clientX,
       lastClientY: e.clientY,
+      origin: {
+        [id]: { x: current.x, y: current.y, w, h },
+      },
     };
 
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -270,6 +328,36 @@ export function HtmlBoard({
   }
 
   function onPointerMove(e: React.PointerEvent) {
+    // 1) two-finger scroll (touch only) — does not require editMode
+    const tf = twoFingerRef.current;
+    if (tf?.active && e.pointerType === "touch") {
+      const ptrs = pointersRef.current;
+      if (ptrs.size >= 2) {
+        // update this pointer
+        ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
+
+        const pts = Array.from(ptrs.values()).slice(0, 2);
+        const cx = (pts[0].x + pts[1].x) / 2;
+        const cy = (pts[0].y + pts[1].y) / 2;
+
+        const dx = cx - tf.lastCx;
+        const dy = cy - tf.lastCy;
+
+        tf.lastCx = cx;
+        tf.lastCy = cy;
+
+        const sc = scrollRef.current;
+        if (sc) {
+          sc.scrollLeft -= dx;
+          sc.scrollTop -= dy;
+        }
+
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // 2) card drag / resize
     const d = dragRef.current;
     if (!d) return;
     if (e.pointerId !== d.pointerId) return;
@@ -280,25 +368,32 @@ export function HtmlBoard({
     if (dist > 2) d.moved = true;
 
     const currentPlaced = placedRef.current;
-    const card = currentPlaced.find((p) => p.id === d.id);
-    if (!card) return;
 
     if (d.mode === "move") {
-      const w = d.origW;
-      const h = d.origH;
-      const x = clamp(pt.x - d.dx, 0, canvasWidth - w);
-      const y = clamp(pt.y - d.dy, 0, canvasHeight - h);
+      const dx = pt.x - d.startX;
+      const dy = pt.y - d.startY;
 
-      const next = currentPlaced.map((p) => (p.id === card.id ? { ...p, x, y, w, h } : p));
+      const next = currentPlaced.map((p) => {
+        if (!d.origin[p.id]) return p;
+        const o = d.origin[p.id];
+        const w = o.w;
+        const h = o.h;
+        const x = clamp(o.x + dx, 0, canvasWidth - w);
+        const y = clamp(o.y + dy, 0, canvasHeight - h);
+        return { ...p, x, y, w, h };
+      });
+
       onPlacedChangeRef.current(next);
     } else {
-      // resize
-      const newW = clamp(d.origW + (pt.x - d.startX), MIN_W, canvasWidth - d.origX);
-      const newH = clamp(d.origH + (pt.y - d.startY), MIN_H, canvasHeight - d.origY);
+      // resize only first id
+      const id = d.ids[0];
+      const o = d.origin[id];
+      if (!o) return;
 
-      const next = currentPlaced.map((p) =>
-        p.id === card.id ? { ...p, w: newW, h: newH } : p
-      );
+      const newW = clamp(o.w + (pt.x - d.startX), MIN_W, canvasWidth - o.x);
+      const newH = clamp(o.h + (pt.y - d.startY), MIN_H, canvasHeight - o.y);
+
+      const next = currentPlaced.map((p) => (p.id === id ? { ...p, w: newW, h: newH } : p));
       onPlacedChangeRef.current(next);
     }
 
@@ -308,6 +403,16 @@ export function HtmlBoard({
   }
 
   function onPointerUp(e: React.PointerEvent) {
+    // pointer tracking for two-finger scroll
+    if (e.pointerType === "touch") {
+      pointersRef.current.delete(e.pointerId);
+
+      const tf = twoFingerRef.current;
+      if (tf?.active && pointersRef.current.size < 2) {
+        twoFingerRef.current = null;
+      }
+    }
+
     const d = dragRef.current;
     if (!d) return;
     if (e.pointerId !== d.pointerId) return;
@@ -315,9 +420,31 @@ export function HtmlBoard({
     dragRef.current = null;
 
     // click-to-open if not moved
-    if (!d.moved && onOpenPlayer) {
-      const card = placedRef.current.find((p) => p.id === d.id);
+    if (!d.moved && d.ids.length === 1 && onOpenPlayer) {
+      const card = placedRef.current.find((p) => p.id === d.ids[0]);
       if (card) onOpenPlayer(card);
+    }
+  }
+
+  function onPointerDownCanvas(e: React.PointerEvent) {
+    // Track touch pointers so we can do two-finger scroll
+    if (e.pointerType === "touch") {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
+
+      if (pointersRef.current.size >= 2) {
+        const pts = Array.from(pointersRef.current.values()).slice(0, 2);
+        twoFingerRef.current = {
+          active: true,
+          lastCx: (pts[0].x + pts[1].x) / 2,
+          lastCy: (pts[0].y + pts[1].y) / 2,
+        };
+      }
+    }
+
+    // clicking blank space clears selection
+    if ((e.target as HTMLElement) === canvasRef.current) {
+      setActiveId(null);
+      setSelectedIds(new Set());
     }
   }
 
@@ -348,15 +475,17 @@ export function HtmlBoard({
           width: canvasWidth,
           height: canvasHeight,
           ...bgStyle,
+          // We keep touchAction none so single-finger drags stay responsive,
+          // and we implement custom two-finger scrolling above.
           touchAction: "none",
         }}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
+        onPointerDown={onPointerDownCanvas}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
-        onPointerDown={() => setActiveId(null)}
       >
         {editMode && isDragOver ? (
           <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" />
@@ -366,16 +495,21 @@ export function HtmlBoard({
         {placed.map((p) => {
           const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
           const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
-          const compact = w < 170 || h < 70;
+
+          // Show less info sooner as the card shrinks — but ALWAYS show the name (wrapping).
+          const showPhoto = w >= 160 && h >= 64;
+          const showLine1 = w >= 220 && h >= 76;
+          const showLine2 = w >= 240 && h >= 86;
 
           const isActive = activeId === p.id;
+          const isSelected = selectedIds.has(p.id);
 
           return (
             <div
               key={p.id}
               className={`absolute rounded-xl border shadow-sm bg-white select-none ${
                 editMode ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-              }`}
+              } ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
               style={{
                 left: p.x,
                 top: p.y,
@@ -386,12 +520,8 @@ export function HtmlBoard({
               }}
               onPointerDown={(e) => beginMove(e, p.id)}
             >
-              {compact ? (
-                <div className="h-full w-full flex items-center justify-center px-2">
-                  <div className="text-sm font-semibold truncate">{p.player.name || "Player"}</div>
-                </div>
-              ) : (
-                <div className="flex h-full">
+              <div className="flex h-full">
+                {showPhoto ? (
                   <div className="w-[88px] h-full bg-gray-100 border-r rounded-l-xl overflow-hidden flex items-center justify-center">
                     {p.player.pictureUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -405,21 +535,40 @@ export function HtmlBoard({
                       <div className="text-lg font-bold text-gray-800">{getInitials(p.player.name)}</div>
                     )}
                   </div>
+                ) : null}
 
-                  <div className="flex-1 p-2 overflow-hidden">
-                    <div className="font-semibold text-sm truncate">{p.player.name || "Player"}</div>
-                    <div className="text-[12px] text-gray-700 truncate">{buildLine1(p.player)}</div>
-                    <div className="text-[12px] text-gray-700 truncate">{buildLine2(p.player)}</div>
+                <div className="flex-1 p-2 overflow-hidden">
+                  {/* Name ALWAYS visible; wrap instead of truncating */}
+                  <div
+                    className="font-semibold text-sm text-gray-900 break-words whitespace-normal leading-tight"
+                    style={{
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {p.player.name || "Player"}
                   </div>
+
+                  {showLine1 ? (
+                    <div className="text-[12px] text-gray-700 mt-1 overflow-hidden whitespace-nowrap text-ellipsis">
+                      {buildLine1(p.player)}
+                    </div>
+                  ) : null}
+
+                  {showLine2 ? (
+                    <div className="text-[12px] text-gray-700 mt-1 overflow-hidden whitespace-nowrap text-ellipsis">
+                      {buildLine2(p.player)}
+                    </div>
+                  ) : null}
                 </div>
-              )}
+              </div>
 
               {/* resize handle */}
               {editMode ? (
                 <div
-                  className={`absolute right-0 bottom-0 rounded-tl bg-black/10 ${
-                    isActive ? "bg-black/20" : ""
-                  }`}
+                  className={`absolute right-0 bottom-0 rounded-tl bg-black/10 ${isActive ? "bg-black/20" : ""}`}
                   style={{
                     width: RESIZE_HANDLE,
                     height: RESIZE_HANDLE,

@@ -236,20 +236,29 @@ export default function TeamBoardsPage() {
                 {boards.map((b) => (
                   <div
                     key={b.id}
-                    className="border rounded-xl px-4 py-3 flex items-center justify-between"
+                    role="button"
+                    tabIndex={0}
+                    className="border rounded-xl px-4 py-3 flex items-center justify-between hover:bg-gray-50 cursor-pointer"
+                    onClick={() => router.push(`/app/boards/${b.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") router.push(`/app/boards/${b.id}`);
+                    }}
+                    title="Open board"
                   >
-                    <div className="font-medium">{b.name}</div>
-                    <div className="flex items-center gap-3">
-                      <Link className="underline" href={`/app/boards/${b.id}`}>
-                        Open →
-                      </Link>
-                      <button
-                        className="border px-3 py-1 rounded text-sm bg-white"
-                        onClick={() => deleteBoard(b.id, b.name)}
-                      >
-                        Delete
-                      </button>
-                    </div>
+                    <div className="font-medium min-w-0 truncate">{b.name}</div>
+
+                    <button
+                      type="button"
+                      className="ml-3 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200"
+                      title="Delete board"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        deleteBoard(b.id, b.name);
+                      }}
+                    >
+                      ×
+                    </button>
                   </div>
                 ))}
               </div>
