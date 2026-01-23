@@ -277,6 +277,13 @@ export function HtmlBoard({
     if (!editMode) return;
     if (e.button !== 0) return; // left click / primary touch
 
+    // If the user clicked the photo area, we do NOT start a drag.
+    // Photo clicks open details instead (handled on the photo wrapper).
+    const targetEl = e.target as HTMLElement | null;
+    if (targetEl && targetEl.closest('[data-zone="photo"]')) {
+      return;
+    }
+
     // If this is a touch device and we already have another touch pointer down,
     // treat this as a two-finger scroll gesture (not a card drag).
     if (e.pointerType === "touch") {
@@ -640,7 +647,23 @@ export function HtmlBoard({
 
               <div className="flex h-full">
                 {showPhoto ? (
-                  <div className="w-[88px] h-full border-r rounded-l-xl overflow-hidden flex items-center justify-center relative" style={{ backgroundColor: "#f3f4f6" }}>
+                  <div
+                    data-zone="photo"
+                    className="w-[88px] h-full border-r rounded-l-xl overflow-hidden flex items-center justify-center relative cursor-pointer"
+                    style={{ backgroundColor: "#f3f4f6" }}
+                    onPointerDown={(e) => {
+                      // Prevent starting a drag when touching/clicking the photo
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      // Clicking the photo should open details, but also select the card.
+                      setActiveId(p.id);
+                      setSelectedIds(new Set([p.id]));
+                      onOpenPlayer?.(p);
+                    }}
+                  >
                     {p.player.pictureUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -653,20 +676,7 @@ export function HtmlBoard({
                       <div className="text-lg font-bold" style={{ color: gradeTextColor(gradeColor(p.player.grade)) }}>{getInitials(p.player.name)}</div>
                     )}
          
-                    {onOpenPlayer ? (
-                      <button
-                        type="button"
-                        className="absolute bottom-1 right-1 bg-white/90 hover:bg-white text-[11px] px-2 py-1 rounded border shadow"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          onOpenPlayer(p);
-                        }}
-                        title="Open details"
-                      >
-                        Details
-                      </button>
-                    ) : null}
+                    
          </div>
                 ) : null}
 
