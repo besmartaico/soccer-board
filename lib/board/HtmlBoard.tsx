@@ -36,7 +36,6 @@ export type BoardObject = {
   title?: string; // lane
   text?: string; // text/note
   color?: string; // note bg
-  locked?: boolean;
 };
 
 const DEFAULT_W = 260;
@@ -62,7 +61,6 @@ function getEffectiveCardSize(mode: "large" | "medium" | "small", p: PlacedPlaye
   return { w, h };
 }
 
-
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -87,17 +85,15 @@ function gradeColor(grade?: string) {
   if (g === 11) return "#c7b782";
   if (g === 10) return "#808080";
   if (g === 9) return "#000000";
-  return "#d1d5db"; // fallback gray
+  return "#d1d5db";
 }
 
 function isDark(hex: string) {
-  // naive luminance check for contrast; expects #RRGGBB
   const h = hex.replace("#", "");
   if (h.length !== 6) return false;
   const r = parseInt(h.slice(0, 2), 16);
   const g = parseInt(h.slice(2, 4), 16);
   const b = parseInt(h.slice(4, 6), 16);
-  // relative luminance approximation
   const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
   return lum < 140;
 }
@@ -139,16 +135,10 @@ export function HtmlBoard({
   onOpenPlayer,
   canvasWidth = 3000,
   canvasHeight = 2000,
-
-  // new: board objects (lanes/text/notes)
   objects = [],
   onObjectsChange,
-
-  // new: active tool
   tool = "select",
   onToolChange,
-
-  // new: canvas-level card sizing
   cardSizeMode = "large",
 }: {
   editMode: boolean;
@@ -159,13 +149,10 @@ export function HtmlBoard({
   onOpenPlayer?: (p: PlacedPlayer) => void;
   canvasWidth?: number;
   canvasHeight?: number;
-
   objects?: BoardObject[];
   onObjectsChange?: (next: BoardObject[]) => void;
-
   tool?: BoardTool;
   onToolChange?: (t: BoardTool) => void;
-
   cardSizeMode?: "large" | "medium" | "small";
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -193,6 +180,10 @@ export function HtmlBoard({
     selectedIdsRef.current = selectedIds;
   }, [selectedIds]);
 
+  // inline editing id for note/text objects
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingIdRef = useRef<string | null>(null);
+  useEffect(() => void (editingIdRef.current = editingId), [editingId]);
 
   // Touch pointers for two-finger scroll
   const pointersRef = useRef<Map<number, PointerInfo>>(new Map());
@@ -224,10 +215,6 @@ export function HtmlBoard({
 
   function rectIntersects(a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }) {
     return !(b.left > a.right || b.right < a.left || b.top > a.bottom || b.bottom < a.top);
-  }
-
-  function anySelected() {
-    return selectedIds.size > 0;
   }
 
   // ---------- drag from roster drop ----------
@@ -354,10 +341,16 @@ export function HtmlBoard({
     if (!editMode) return;
     if (e.button !== 0) return;
 
+    // if currently editing this object, do not start a drag
+    if (editingIdRef.current && editingIdRef.current === id) return;
+
     // if touch and already 2 fingers down, ignore (two-finger scroll)
     if (e.pointerType === "touch") {
       if (pointersRef.current.size >= 2) return;
     }
+
+    // allow dblclick to work by not starting drag on 2nd click
+    if ((e as any).detail && (e as any).detail >= 2) return;
 
     ensureSelectionOnPointerDown(id, e);
 
@@ -380,13 +373,15 @@ export function HtmlBoard({
     };
 
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    // Don't call preventDefault here; it can block dblclick needed for editing text/notes.
     e.stopPropagation();
   }
 
   function beginResizeAny(e: React.PointerEvent, id: string) {
     if (!editMode) return;
     if (e.button !== 0) return;
+
+    // if editing, don't resize
+    if (editingIdRef.current && editingIdRef.current === id) return;
 
     setActiveId(id);
     setSelectedIds(new Set([id]));
@@ -435,7 +430,7 @@ export function HtmlBoard({
         y: clamp(y, 0, canvasHeight - 160),
         w: 220,
         h: 160,
-        text: "Sticky note...",
+        text: "",
         color: "#fff7b2",
       };
     } else {
@@ -446,7 +441,7 @@ export function HtmlBoard({
         y: clamp(y, 0, canvasHeight - 120),
         w: 260,
         h: 120,
-        text: "Text...",
+        text: "",
       };
     }
 
@@ -456,8 +451,18 @@ export function HtmlBoard({
     setActiveId(id);
     setSelectedIds(new Set([id]));
 
-    // auto-return to select tool for convenience
+    // auto-return to select tool
     onToolChange?.("select");
+
+    // if placing text/note, immediately enter edit mode
+    if (kind === "note" || kind === "text") {
+      setEditingId(id);
+      // focus after render
+      requestAnimationFrame(() => {
+        const el = document.getElementById(`obj-edit-${id}`);
+        (el as HTMLElement | null)?.focus();
+      });
+    }
   }
 
   // ---------- pointer handlers ----------
@@ -479,17 +484,28 @@ export function HtmlBoard({
     // only respond when clicking on the canvas background (not child elements)
     if (e.target !== canvasRef.current) return;
 
+    // if inline editing, click-away should just end editing (blur will persist)
+    if (editingIdRef.current) {
+      setEditingId(null);
+    }
+
     const pt = clientToBoard(e.clientX, e.clientY);
 
     if (editMode && tool !== "select") {
-      // create a new object
       createObject(tool === "lane" ? "lane" : tool === "note" ? "note" : "text", pt.x, pt.y);
       e.preventDefault();
       return;
     }
 
     // start box select on desktop/mouse/pen when in select tool
-    if (editMode && tool === "select" && e.pointerType !== "touch" && !(e as any).metaKey && !(e as any).ctrlKey && !(e as any).shiftKey) {
+    if (
+      editMode &&
+      tool === "select" &&
+      e.pointerType !== "touch" &&
+      !(e as any).metaKey &&
+      !(e as any).ctrlKey &&
+      !(e as any).shiftKey
+    ) {
       dragRef.current = {
         pointerId: e.pointerId,
         ids: [],
@@ -509,7 +525,7 @@ export function HtmlBoard({
       return;
     }
 
-    // otherwise clicking blank clears selection
+    // clicking blank clears selection
     setActiveId(null);
     setSelectedIds(new Set());
   }
@@ -570,6 +586,7 @@ export function HtmlBoard({
         const h = o.h;
         const x = clamp(o.x + dx, 0, canvasWidth - w);
         const y = clamp(o.y + dy, 0, canvasHeight - h);
+
         if (cardSizeMode === "large") {
           return { ...p, x, y, w, h };
         }
@@ -641,7 +658,6 @@ export function HtmlBoard({
       if (!bx) return;
 
       const r = rectNorm(bx.x1, bx.y1, bx.x2, bx.y2);
-      // very small box = treat as click (clears selection)
       if (r.w < 6 && r.h < 6) {
         setActiveId(null);
         setSelectedIds(new Set());
@@ -681,46 +697,49 @@ export function HtmlBoard({
     };
   }, [backgroundUrl]);
 
-  // ---------- object editing ----------
+  // ---------- object updates / delete ----------
   function updateObject(id: string, patch: Partial<BoardObject>) {
     const next = objectsRef.current.map((o) => (o.id === id ? { ...o, ...patch } : o));
     onObjectsChangeRef.current?.(next);
   }
 
-  
-function deleteSelectedObjects(ids: string[]) {
-  if (!ids.length) return;
-  const set = new Set(ids);
-  const next = objectsRef.current.filter((o) => !set.has(o.id));
-  onObjectsChangeRef.current?.(next);
+  function deleteSelectedObjects(ids: string[]) {
+    if (!ids.length) return;
+    const set = new Set(ids);
+    const next = objectsRef.current.filter((o) => !set.has(o.id));
+    onObjectsChangeRef.current?.(next);
 
-  // clear selection if we deleted selected objects
-  setSelectedIds((cur) => {
-    const n = new Set(cur);
-    ids.forEach((id) => n.delete(id));
-    return n;
-  });
-  setActiveId((cur) => (cur && set.has(cur) ? null : cur));
-}
-
-// Keyboard delete/backspace to remove selected board objects (lanes/text/notes)
-useEffect(() => {
-  function onKeyDown(e: KeyboardEvent) {
-    if (!editMode) return;
-    if (e.key !== "Delete" && e.key !== "Backspace") return;
-
-    const objIds = new Set(objectsRef.current.map((o) => o.id));
-    const toDelete = Array.from(selectedIdsRef.current).filter((id) => objIds.has(id));
-    if (!toDelete.length) return;
-
-    e.preventDefault();
-    deleteSelectedObjects(toDelete);
+    setSelectedIds((cur) => {
+      const n = new Set(cur);
+      ids.forEach((id) => n.delete(id));
+      return n;
+    });
+    setActiveId((cur) => (cur && set.has(cur) ? null : cur));
   }
 
-  window.addEventListener("keydown", onKeyDown);
-  return () => window.removeEventListener("keydown", onKeyDown);
-}, [editMode]);
-// ---------- rendering ----------
+  // Keyboard delete/backspace to remove selected board objects (lanes/text/notes)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!editMode) return;
+
+      // while editing inline, don't treat keys as delete-object
+      if (editingIdRef.current) return;
+
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+
+      const objIds = new Set(objectsRef.current.map((o) => o.id));
+      const toDelete = Array.from(selectedIdsRef.current).filter((id) => objIds.has(id));
+      if (!toDelete.length) return;
+
+      e.preventDefault();
+      deleteSelectedObjects(toDelete);
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [editMode]);
+
+  // ---------- rendering ----------
   return (
     <div
       ref={scrollRef}
@@ -736,8 +755,6 @@ useEffect(() => {
           width: canvasWidth,
           height: canvasHeight,
           ...bgStyle,
-          // Keep touchAction none so single-finger drags stay responsive.
-          // We implement custom two-finger scrolling above.
           touchAction: "none",
         }}
         onDragOver={onDragOver}
@@ -763,18 +780,17 @@ useEffect(() => {
           })()
         ) : null}
 
-        {/* Board Objects (lanes/text/notes) - render behind players */}
+        {/* Board Objects - render behind players */}
         {objects.map((o) => {
           const isSelected = selectedIds.has(o.id);
           const isActive = activeId === o.id;
+          const isEditing = editingId === o.id;
 
           if (o.kind === "lane") {
             return (
               <div
                 key={o.id}
-                className={`absolute rounded-xl border bg-white/60 ${
-                  isSelected ? "ring-2 ring-blue-500/50" : ""
-                } ${isActive ? "ring-blue-600/70" : ""}`}
+                className={`absolute rounded-xl border bg-white/60 ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
                 style={{
                   left: o.x,
                   top: o.y,
@@ -783,42 +799,37 @@ useEffect(() => {
                   zIndex: 1,
                   backdropFilter: "blur(2px)",
                 }}
-                onPointerDown={(e) => {
-              // Allow double-click to reach onDoubleClick handlers (don't start a drag on the 2nd click)
-              if ((e as any).detail && (e as any).detail >= 2) return;
-              beginMoveAny(e, o.id);
-            }}
+                onPointerDown={(e) => beginMoveAny(e, o.id)}
               >
                 <div
-  className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none"
-  title={editMode ? "Double-click to rename lane" : undefined}
-  onDoubleClick={(e) => {
-    if (!editMode) return;
-    e.stopPropagation();
-    const next = window.prompt("Lane title:", o.title || "");
-    if (next === null) return;
-    updateObject(o.id, { title: next.trim() });
-  }}
->
-  <div className="min-w-0 truncate">{o.title || ""}</div>
+                  className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none"
+                  title={editMode ? "Double-click to rename lane" : undefined}
+                  onDoubleClick={(e) => {
+                    if (!editMode) return;
+                    e.stopPropagation();
+                    const next = window.prompt("Lane title:", o.title || "");
+                    if (next === null) return;
+                    updateObject(o.id, { title: next.trim() });
+                  }}
+                >
+                  <div className="min-w-0 truncate">{o.title || ""}</div>
 
-  {editMode && isSelected ? (
-    <button
-      type="button"
-      className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
-      title="Delete"
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation();
-        deleteSelectedObjects([o.id]);
-      }}
-    >
-      ×
-    </button>
-  ) : null}
-</div>
+                  {editMode && isSelected ? (
+                    <button
+                      type="button"
+                      className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
+                      title="Delete"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSelectedObjects([o.id]);
+                      }}
+                    >
+                      ×
+                    </button>
+                  ) : null}
+                </div>
 
-                {/* resize handle */}
                 {editMode ? (
                   <div
                     className="absolute right-0 bottom-0 rounded-tl bg-black/10"
@@ -836,16 +847,13 @@ useEffect(() => {
             );
           }
 
-const isNote = o.kind === "note";
-const isText = o.kind === "text";
-const bg = isNote ? o.color || "#fff7b2" : "transparent";
+          const isNote = o.kind === "note";
+          const bg = isNote ? o.color || "#fff7b2" : "transparent";
 
-return (
-  <div
-    key={o.id}
-    className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${
-      isSelected ? "ring-2 ring-blue-500/50" : ""
-    } ${isActive ? "ring-blue-600/70" : ""}`}
+          return (
+            <div
+              key={o.id}
+              className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
               style={{
                 left: o.x,
                 top: o.y,
@@ -855,31 +863,69 @@ return (
                 background: bg,
               }}
               onPointerDown={(e) => {
-              // Allow double-click to reach onDoubleClick handlers (don't start a drag on the 2nd click)
-              if ((e as any).detail && (e as any).detail >= 2) return;
-              beginMoveAny(e, o.id);
-            }}
+                // If editing, don't initiate a drag
+                if (isEditing) return;
+                beginMoveAny(e, o.id);
+              }}
+              onDoubleClick={(e) => {
+                if (!editMode) return;
+                e.stopPropagation();
+                setEditingId(o.id);
+                // focus after render
+                requestAnimationFrame(() => {
+                  const el = document.getElementById(`obj-edit-${o.id}`);
+                  (el as HTMLElement | null)?.focus();
+                });
+              }}
+              title={editMode ? "Double-click to edit" : undefined}
             >
-              <div
-  className="w-full h-full p-2 text-sm overflow-auto"
-  style={{
-    outline: "none",
-    whiteSpace: "pre-wrap",
-    cursor: editMode ? "inherit" : "default",
-  }}
-  title={editMode ? "Double-click to edit text" : undefined}
-  onDoubleClick={(e) => {
-    if (!editMode) return;
-    e.stopPropagation();
-    const current = o.text || "";
-    const next = window.prompt("Text:", current);
-    if (next === null) return;
-    updateObject(o.id, { text: next });
-  }}
->
-  {o.text || ""}
-</div>
+              {/* Inline editable content */}
+              {isEditing ? (
+                <div
+                  id={`obj-edit-${o.id}`}
+                  contentEditable
+                  suppressContentEditableWarning
+                  className="w-full h-full outline-none"
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    overflow: "auto",
+                    padding: isNote ? 10 : 6,
+                    border: "none",
+                    background: "transparent",
+                    cursor: "text",
+                  }}
+                  onPointerDown={(e) => {
+                    // allow caret placement; don't drag
+                    e.stopPropagation();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      (e.currentTarget as HTMLDivElement).blur();
+                    }
+                  }}
+                  onBlur={(e) => {
+                    const nextText = e.currentTarget.innerText ?? "";
+                    updateObject(o.id, { text: nextText });
+                    setEditingId(null);
+                  }}
+                >
+                  {o.text || ""}
+                </div>
+              ) : (
+                <div
+                  className="w-full h-full text-sm"
+                  style={{
+                    whiteSpace: "pre-wrap",
+                    overflow: "hidden",
+                    padding: isNote ? 10 : 6,
+                    pointerEvents: "none",
+                  }}
+                >
+                  {o.text || ""}
+                </div>
+              )}
 
+              {/* Delete button */}
               {editMode && isSelected ? (
                 <button
                   type="button"
@@ -895,6 +941,7 @@ return (
                 </button>
               ) : null}
 
+              {/* Resize handle */}
               {editMode ? (
                 <div
                   className="absolute right-0 bottom-0 rounded-tl bg-black/10"
@@ -946,14 +993,8 @@ return (
               }}
               onPointerDown={(e) => beginMoveAny(e, p.id)}
             >
-              {/* grade color bar on top (does not consume card space) */}
-              <div
-                className="absolute left-0 top-0 w-full rounded-t-xl"
-                style={{
-                  height: 6,
-                  background: gCol,
-                }}
-              />
+              {/* grade bar */}
+              <div className="absolute left-0 top-0 w-full rounded-t-xl" style={{ height: 6, background: gCol }} />
 
               <div className="flex h-full pt-[6px]">
                 {showPhoto ? (
@@ -985,7 +1026,6 @@ return (
                   </div>
                 ) : null}
 
-                {/* Body: click/select + drag */}
                 <div className="flex-1 p-2 overflow-hidden">
                   <div
                     className="font-semibold text-sm text-gray-900 break-words whitespace-normal leading-tight"
@@ -1012,21 +1052,6 @@ return (
                   ) : null}
                 </div>
               </div>
-
-              {/* resize handle */}
-              {false ? (
-                <div
-                  className="absolute right-0 bottom-0 rounded-tl bg-black/10"
-                  style={{
-                    width: RESIZE_HANDLE,
-                    height: RESIZE_HANDLE,
-                    cursor: "nwse-resize",
-                    touchAction: "none",
-                  }}
-                  onPointerDown={(e) => beginResizeAny(e, p.id)}
-                  title="Resize"
-                />
-              ) : null}
             </div>
           );
         })}
