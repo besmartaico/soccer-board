@@ -783,7 +783,11 @@ useEffect(() => {
                   zIndex: 1,
                   backdropFilter: "blur(2px)",
                 }}
-                onPointerDown={(e) => beginMoveAny(e, o.id)}
+                onPointerDown={(e) => {
+              // Allow double-click to reach onDoubleClick handlers (don't start a drag on the 2nd click)
+              if ((e as any).detail && (e as any).detail >= 2) return;
+              beginMoveAny(e, o.id);
+            }}
               >
                 <div
   className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none"
@@ -850,7 +854,11 @@ return (
                 zIndex: 2,
                 background: bg,
               }}
-              onPointerDown={(e) => beginMoveAny(e, o.id)}
+              onPointerDown={(e) => {
+              // Allow double-click to reach onDoubleClick handlers (don't start a drag on the 2nd click)
+              if ((e as any).detail && (e as any).detail >= 2) return;
+              beginMoveAny(e, o.id);
+            }}
             >
               <div
   className="w-full h-full p-2 text-sm overflow-auto"
