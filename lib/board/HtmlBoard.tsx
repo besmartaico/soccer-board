@@ -32,6 +32,12 @@ const MIN_H = 48;
 
 const RESIZE_HANDLE = 14;
 
+const CARD_PRESETS = {
+  large: { w: DEFAULT_W, h: DEFAULT_H },
+  medium: { w: 190, h: 72 },
+  small: { w: 150, h: 52 },
+} as const;
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -57,6 +63,23 @@ function buildLine2(p: PlayerPayload) {
   return `${primary} • ${like}`;
 }
 
+
+function gradeColor(grade?: string) {
+  const g = (grade || "").toString().trim();
+  if (g === "12") return "#74213c";
+  if (g === "11") return "#c7b782";
+  if (g === "10") return "#808080";
+  if (g === "9") return "#ffffff";
+  return "#e5e7eb"; // default gray-200
+}
+
+function gradeTextColor(bg: string) {
+  // simple contrast heuristic for the 12/10 dark colors
+  if (bg.toLowerCase() === "#74213c") return "#ffffff";
+  if (bg.toLowerCase() === "#808080") return "#ffffff";
+  return "#111827";
+}
+
 type PointerInfo = { x: number; y: number; pointerType: string };
 
 export function HtmlBoard({
@@ -68,6 +91,7 @@ export function HtmlBoard({
   onOpenPlayer,
   canvasWidth = 3000,
   canvasHeight = 2000,
+  cardSize = "large",
 }: {
   editMode: boolean;
   placed: PlacedPlayer[];
@@ -77,6 +101,7 @@ export function HtmlBoard({
   onOpenPlayer?: (p: PlacedPlayer) => void;
   canvasWidth?: number;
   canvasHeight?: number;
+  cardSize?: "large" | "medium" | "small";
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -96,6 +121,9 @@ export function HtmlBoard({
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // Box (drag) select
+  const [boxSelect, setBoxSelect] = useState<null | { active: boolean; startX: number; startY: number; x: number; y: number }>(null);
 
   // Touch pointers for two-finger scroll
   const pointersRef = useRef<Map<number, PointerInfo>>(new Map());
@@ -150,8 +178,9 @@ export function HtmlBoard({
     const pt = clientToBoard(e.clientX, e.clientY);
     const id = `${payload.id || payload.name}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-    const w = DEFAULT_W;
-    const h = DEFAULT_H;
+    const preset = CARD_PRESETS[cardSize];
+    const w = preset.w;
+    const h = preset.h;
 
     const nextX = clamp(pt.x - w / 2, 0, canvasWidth - w);
     const nextY = clamp(pt.y - h / 2, 0, canvasHeight - h);
@@ -294,6 +323,8 @@ export function HtmlBoard({
   }
 
   function beginResize(e: React.PointerEvent, id: string) {
+    if (cardSize !== "large") return;
+
     if (!editMode) return;
     if (e.button !== 0) return;
 
@@ -357,7 +388,43 @@ export function HtmlBoard({
       }
     }
 
-    // 2) card drag / resize
+    // 2) box select (mouse/pen)
+    if (boxSelect?.active && !dragRef.current && (e.pointerType === "mouse" || e.pointerType === "pen")) {
+      const pt = clientToBoard(e.clientX, e.clientY);
+      setBoxSelect((cur) => (cur ? { ...cur, x: pt.x, y: pt.y } : cur));
+      e.preventDefault();
+      return;
+    }
+
+    // 3) card drag / resize
+    // Finalize box select
+    if (boxSelect?.active && !dragRef.current && (e.pointerType === "mouse" || e.pointerType === "pen")) {
+      const x1 = Math.min(boxSelect.startX, boxSelect.x);
+      const y1 = Math.min(boxSelect.startY, boxSelect.y);
+      const x2 = Math.max(boxSelect.startX, boxSelect.x);
+      const y2 = Math.max(boxSelect.startY, boxSelect.y);
+
+      const hits = placedRef.current.filter((p) => {
+        const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
+        const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
+        const pw = cardSize === "large" ? w : CARD_PRESETS[cardSize].w;
+        const ph = cardSize === "large" ? h : CARD_PRESETS[cardSize].h;
+        const bx1 = p.x;
+        const by1 = p.y;
+        const bx2 = p.x + pw;
+        const by2 = p.y + ph;
+        const inter = !(bx2 < x1 || bx1 > x2 || by2 < y1 || by1 > y2);
+        return inter;
+      });
+
+      const nextSet = new Set(hits.map((h) => h.id));
+      setSelectedIds(nextSet);
+      setActiveId(hits.length === 1 ? hits[0].id : null);
+      setBoxSelect(null);
+      e.preventDefault();
+      return;
+    }
+
     const d = dragRef.current;
     if (!d) return;
     if (e.pointerId !== d.pointerId) return;
@@ -413,17 +480,39 @@ export function HtmlBoard({
       }
     }
 
+    // Finalize box select
+    if (boxSelect?.active && !dragRef.current && (e.pointerType === "mouse" || e.pointerType === "pen")) {
+      const x1 = Math.min(boxSelect.startX, boxSelect.x);
+      const y1 = Math.min(boxSelect.startY, boxSelect.y);
+      const x2 = Math.max(boxSelect.startX, boxSelect.x);
+      const y2 = Math.max(boxSelect.startY, boxSelect.y);
+
+      const hits = placedRef.current.filter((p) => {
+        const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
+        const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
+        const pw = cardSize === "large" ? w : CARD_PRESETS[cardSize].w;
+        const ph = cardSize === "large" ? h : CARD_PRESETS[cardSize].h;
+        const bx1 = p.x;
+        const by1 = p.y;
+        const bx2 = p.x + pw;
+        const by2 = p.y + ph;
+        const inter = !(bx2 < x1 || bx1 > x2 || by2 < y1 || by1 > y2);
+        return inter;
+      });
+
+      const nextSet = new Set(hits.map((h) => h.id));
+      setSelectedIds(nextSet);
+      setActiveId(hits.length === 1 ? hits[0].id : null);
+      setBoxSelect(null);
+      e.preventDefault();
+      return;
+    }
+
     const d = dragRef.current;
     if (!d) return;
     if (e.pointerId !== d.pointerId) return;
 
     dragRef.current = null;
-
-    // click-to-open if not moved
-    if (!d.moved && d.ids.length === 1 && onOpenPlayer) {
-      const card = placedRef.current.find((p) => p.id === d.ids[0]);
-      if (card) onOpenPlayer(card);
-    }
   }
 
   function onPointerDownCanvas(e: React.PointerEvent) {
@@ -441,8 +530,13 @@ export function HtmlBoard({
       }
     }
 
-    // clicking blank space clears selection
+    // clicking blank space clears selection / begins box select
     if ((e.target as HTMLElement) === canvasRef.current) {
+      // If in editMode and mouse/pen, allow click-drag box selection
+      if (editMode && (e.pointerType === "mouse" || e.pointerType === "pen") && e.button === 0) {
+        const pt = clientToBoard(e.clientX, e.clientY);
+        setBoxSelect({ active: true, startX: pt.x, startY: pt.y, x: pt.x, y: pt.y });
+      }
       setActiveId(null);
       setSelectedIds(new Set());
     }
@@ -491,10 +585,26 @@ export function HtmlBoard({
           <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" />
         ) : null}
 
+        {/* box select overlay */}
+        {boxSelect?.active ? (
+          <div
+            className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/20"
+            style={{
+              left: Math.min(boxSelect.startX, boxSelect.x),
+              top: Math.min(boxSelect.startY, boxSelect.y),
+              width: Math.abs(boxSelect.x - boxSelect.startX),
+              height: Math.abs(boxSelect.y - boxSelect.startY),
+            }}
+          />
+        ) : null}
+
         {/* placed cards */}
         {placed.map((p) => {
-          const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
-          const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
+          const storedW = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
+          const storedH = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
+          const preset = CARD_PRESETS[cardSize];
+          const w = cardSize === "large" ? storedW : preset.w;
+          const h = cardSize === "large" ? storedH : preset.h;
 
           // Show less info sooner as the card shrinks — but ALWAYS show the name (wrapping).
           const showPhoto = w >= 160 && h >= 64;
@@ -517,12 +627,40 @@ export function HtmlBoard({
                 height: h,
                 userSelect: "none",
                 touchAction: "none",
+                borderColor: gradeColor(p.player.grade),
               }}
               onPointerDown={(e) => beginMove(e, p.id)}
             >
+              {/* grade strip */}
+              <div
+                className="absolute left-0 top-0 right-0 h-2 rounded-t-xl"
+                style={{ backgroundColor: gradeColor(p.player.grade) }}
+              />
+
+              {/* expand button (details) */}
+              {onOpenPlayer ? (
+                <button
+                  type="button"
+                  className="absolute right-2 top-2 z-20 text-xs px-2 py-1 rounded bg-white/90 border shadow-sm hover:bg-white"
+                  title="Open details"
+                  onPointerDown={(e) => {
+                    // don’t start drag when pressing this
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onOpenPlayer(p);
+                  }}
+                >
+                  Details
+                </button>
+              ) : null}
+
               <div className="flex h-full">
                 {showPhoto ? (
-                  <div className="w-[88px] h-full bg-gray-100 border-r rounded-l-xl overflow-hidden flex items-center justify-center">
+                  <div className="w-[88px] h-full border-r rounded-l-xl overflow-hidden flex items-center justify-center" style={{ backgroundColor: gradeColor(p.player.grade) }}>
                     {p.player.pictureUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -532,7 +670,7 @@ export function HtmlBoard({
                         draggable={false}
                       />
                     ) : (
-                      <div className="text-lg font-bold text-gray-800">{getInitials(p.player.name)}</div>
+                      <div className="text-lg font-bold" style={{ color: gradeTextColor(gradeColor(p.player.grade)) }}>{getInitials(p.player.name)}</div>
                     )}
                   </div>
                 ) : null}
@@ -566,7 +704,7 @@ export function HtmlBoard({
               </div>
 
               {/* resize handle */}
-              {editMode ? (
+              {editMode && cardSize === "large" ? (
                 <div
                   className={`absolute right-0 bottom-0 rounded-tl bg-black/10 ${isActive ? "bg-black/20" : ""}`}
                   style={{
