@@ -188,6 +188,11 @@ export function HtmlBoard({
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectedIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+  }, [selectedIds]);
+
 
   // Touch pointers for two-finger scroll
   const pointersRef = useRef<Map<number, PointerInfo>>(new Map());
@@ -682,7 +687,40 @@ export function HtmlBoard({
     onObjectsChangeRef.current?.(next);
   }
 
-  // ---------- rendering ----------
+  
+function deleteSelectedObjects(ids: string[]) {
+  if (!ids.length) return;
+  const set = new Set(ids);
+  const next = objectsRef.current.filter((o) => !set.has(o.id));
+  onObjectsChangeRef.current?.(next);
+
+  // clear selection if we deleted selected objects
+  setSelectedIds((cur) => {
+    const n = new Set(cur);
+    ids.forEach((id) => n.delete(id));
+    return n;
+  });
+  setActiveId((cur) => (cur && set.has(cur) ? null : cur));
+}
+
+// Keyboard delete/backspace to remove selected board objects (lanes/text/notes)
+useEffect(() => {
+  function onKeyDown(e: KeyboardEvent) {
+    if (!editMode) return;
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+
+    const objIds = new Set(objectsRef.current.map((o) => o.id));
+    const toDelete = Array.from(selectedIdsRef.current).filter((id) => objIds.has(id));
+    if (!toDelete.length) return;
+
+    e.preventDefault();
+    deleteSelectedObjects(toDelete);
+  }
+
+  window.addEventListener("keydown", onKeyDown);
+  return () => window.removeEventListener("keydown", onKeyDown);
+}, [editMode]);
+// ---------- rendering ----------
   return (
     <div
       ref={scrollRef}
@@ -748,7 +786,34 @@ export function HtmlBoard({
                 onPointerDown={(e) => beginMoveAny(e, o.id)}
               >
                 <div className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between">
-                </div>
+  <button
+    type="button"
+    className="text-left truncate"
+    title="Rename lane"
+    onClick={(e) => {
+      e.stopPropagation();
+      const next = window.prompt("Lane title:", o.title || "Lane");
+      if (next === null) return;
+      updateObject(o.id, { title: next.trim() || "Lane" });
+    }}
+  >
+    {o.title || "Lane"}
+  </button>
+
+  {editMode && isSelected ? (
+    <button
+      type="button"
+      className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200"
+      title="Delete"
+      onClick={(e) => {
+        e.stopPropagation();
+        deleteSelectedObjects([o.id]);
+      }}
+    >
+      ×
+    </button>
+  ) : null}
+</div>
 
                 {/* resize handle */}
                 {editMode ? (
@@ -768,15 +833,16 @@ export function HtmlBoard({
             );
           }
 
-          const isNote = o.kind === "note";
-          const bg = isNote ? o.color || "#fff7b2" : "transparent";
+const isNote = o.kind === "note";
+const isText = o.kind === "text";
+const bg = isNote ? o.color || "#fff7b2" : "transparent";
 
-          return (
-            <div
-              key={o.id}
-              className={`absolute rounded-xl border shadow-sm ${
-                isSelected ? "ring-2 ring-blue-500/50" : ""
-              } ${isActive ? "ring-blue-600/70" : ""}`}
+return (
+  <div
+    key={o.id}
+    className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${
+      isSelected ? "ring-2 ring-blue-500/50" : ""
+    } ${isActive ? "ring-blue-600/70" : ""}`}
               style={{
                 left: o.x,
                 top: o.y,
@@ -806,6 +872,20 @@ export function HtmlBoard({
               >
                 {o.text || ""}
               </div>
+
+              {editMode && isSelected ? (
+                <button
+                  type="button"
+                  className="absolute top-1 right-1 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
+                  title="Delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteSelectedObjects([o.id]);
+                  }}
+                >
+                  ×
+                </button>
+              ) : null}
 
               {editMode ? (
                 <div
