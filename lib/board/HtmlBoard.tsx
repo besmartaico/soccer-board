@@ -425,7 +425,7 @@ export function HtmlBoard({
         y: clamp(y, 0, canvasHeight - 200),
         w: 600,
         h: 200,
-        title: "Lane",
+        title: "",
       };
     } else if (kind === "note") {
       obj = {
@@ -785,26 +785,25 @@ useEffect(() => {
                 }}
                 onPointerDown={(e) => beginMoveAny(e, o.id)}
               >
-                <div className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between">
-  <button
-    type="button"
-    className="text-left truncate"
-    title="Rename lane"
-    onClick={(e) => {
-      e.stopPropagation();
-      const next = window.prompt("Lane title:", o.title || "Lane");
-      if (next === null) return;
-      updateObject(o.id, { title: next.trim() || "Lane" });
-    }}
-  >
-    {o.title || "Lane"}
-  </button>
+                <div
+  className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none"
+  title={editMode ? "Double-click to rename lane" : undefined}
+  onDoubleClick={(e) => {
+    if (!editMode) return;
+    e.stopPropagation();
+    const next = window.prompt("Lane title:", o.title || "");
+    if (next === null) return;
+    updateObject(o.id, { title: next.trim() });
+  }}
+>
+  <div className="min-w-0 truncate">{o.title || ""}</div>
 
   {editMode && isSelected ? (
     <button
       type="button"
-      className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200"
+      className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
       title="Delete"
+      onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
         deleteSelectedObjects([o.id]);
@@ -854,30 +853,31 @@ return (
               onPointerDown={(e) => beginMoveAny(e, o.id)}
             >
               <div
-                className="w-full h-full p-2 text-sm overflow-auto"
-                contentEditable
-                suppressContentEditableWarning
-                spellCheck={false}
-                style={{
-                  outline: "none",
-                  whiteSpace: "pre-wrap",
-                  cursor: "text",
-                }}
-                onPointerDown={(e) => {
-                  // allow selecting text without starting drag when locked or when editing:
-                  e.stopPropagation();
-                  ensureSelectionOnPointerDown(o.id, e);
-                }}
-                onBlur={(e) => updateObject(o.id, { text: e.currentTarget.textContent || "" })}
-              >
-                {o.text || ""}
-              </div>
+  className="w-full h-full p-2 text-sm overflow-auto"
+  style={{
+    outline: "none",
+    whiteSpace: "pre-wrap",
+    cursor: editMode ? "inherit" : "default",
+  }}
+  title={editMode ? "Double-click to edit text" : undefined}
+  onDoubleClick={(e) => {
+    if (!editMode) return;
+    e.stopPropagation();
+    const current = o.text || "";
+    const next = window.prompt("Text:", current);
+    if (next === null) return;
+    updateObject(o.id, { text: next });
+  }}
+>
+  {o.text || ""}
+</div>
 
               {editMode && isSelected ? (
                 <button
                   type="button"
                   className="absolute top-1 right-1 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
                   title="Delete"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     deleteSelectedObjects([o.id]);
