@@ -69,7 +69,7 @@ function gradeColor(grade?: string) {
   if (g === "12") return "#74213c";
   if (g === "11") return "#c7b782";
   if (g === "10") return "#808080";
-  if (g === "9") return "#ffffff";
+  if (g === "9") return "#000000";
   return "#e5e7eb"; // default gray-200
 }
 
@@ -77,6 +77,7 @@ function gradeTextColor(bg: string) {
   // simple contrast heuristic for the 12/10 dark colors
   if (bg.toLowerCase() === "#74213c") return "#ffffff";
   if (bg.toLowerCase() === "#808080") return "#ffffff";
+  if (bg.toLowerCase() === "#000000") return "#ffffff";
   return "#111827";
 }
 
@@ -637,30 +638,9 @@ export function HtmlBoard({
                 style={{ backgroundColor: gradeColor(p.player.grade) }}
               />
 
-              {/* expand button (details) */}
-              {onOpenPlayer ? (
-                <button
-                  type="button"
-                  className="absolute right-2 top-2 z-20 text-xs px-2 py-1 rounded bg-white/90 border shadow-sm hover:bg-white"
-                  title="Open details"
-                  onPointerDown={(e) => {
-                    // don’t start drag when pressing this
-                    e.preventDefault();
-                    e.stopPropagation();
-                  }}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onOpenPlayer(p);
-                  }}
-                >
-                  Details
-                </button>
-              ) : null}
-
               <div className="flex h-full">
                 {showPhoto ? (
-                  <div className="w-[88px] h-full border-r rounded-l-xl overflow-hidden flex items-center justify-center" style={{ backgroundColor: gradeColor(p.player.grade) }}>
+                  <div className="w-[88px] h-full border-r rounded-l-xl overflow-hidden flex items-center justify-center relative" style={{ backgroundColor: "#f3f4f6" }}>
                     {p.player.pictureUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
@@ -672,7 +652,22 @@ export function HtmlBoard({
                     ) : (
                       <div className="text-lg font-bold" style={{ color: gradeTextColor(gradeColor(p.player.grade)) }}>{getInitials(p.player.name)}</div>
                     )}
-                  </div>
+         
+                    {onOpenPlayer ? (
+                      <button
+                        type="button"
+                        className="absolute bottom-1 right-1 bg-white/90 hover:bg-white text-[11px] px-2 py-1 rounded border shadow"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          onOpenPlayer(p);
+                        }}
+                        title="Open details"
+                      >
+                        Details
+                      </button>
+                    ) : null}
+         </div>
                 ) : null}
 
                 <div className="flex-1 p-2 overflow-hidden">
