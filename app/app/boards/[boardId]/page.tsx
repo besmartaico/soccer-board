@@ -549,9 +549,26 @@ export default function BoardPage() {
           {/* Left sidebar */}
           {!sidebarCollapsed ? (
             <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
-              <div className="flex items-center justify-             Note
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-sm font-semibold">Roster</div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="border px-3 py-1 rounded text-sm bg-white"
+                    onClick={() => setSidebarCollapsed(true)}
+                  >
+                    Collapse
                   </button>
-
+                  <button
+                    type="button"
+                    className="border px-3 py-1 rounded text-sm bg-white"
+                    onClick={() => {
+                      if (googleConfig) loadPlayersFromGoogle(googleConfig);
+                    }}
+                    disabled={!googleConfig}
+                  >
+                    Refresh
+                  </button>
                 </div>
               </div>
 
