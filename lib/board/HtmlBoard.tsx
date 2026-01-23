@@ -24,19 +24,31 @@ export type PlacedPlayer = {
   player: PlayerPayload;
 };
 
+export type BoardTool = "select" | "lane" | "text" | "note";
+
+export type BoardObject = {
+  id: string;
+  kind: "lane" | "text" | "note";
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  title?: string; // lane
+  text?: string; // text/note
+  color?: string; // note bg
+  locked?: boolean;
+};
+
 const DEFAULT_W = 260;
 const DEFAULT_H = 92;
 
 const MIN_W = 110;
 const MIN_H = 48;
 
-const RESIZE_HANDLE = 14;
+const OBJ_MIN_W = 80;
+const OBJ_MIN_H = 40;
 
-const CARD_PRESETS = {
-  large: { w: DEFAULT_W, h: DEFAULT_H },
-  medium: { w: 190, h: 72 },
-  small: { w: 150, h: 52 },
-} as const;
+const RESIZE_HANDLE = 14;
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
@@ -48,6 +60,33 @@ function getInitials(name?: string) {
   const parts = s.split(/\s+/).filter(Boolean);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function normalizeGrade(g?: string) {
+  const n = Number(String(g ?? "").trim());
+  if (!Number.isFinite(n)) return null;
+  return n;
+}
+
+function gradeColor(grade?: string) {
+  const g = normalizeGrade(grade);
+  if (g === 12) return "#74213c";
+  if (g === 11) return "#c7b782";
+  if (g === 10) return "#808080";
+  if (g === 9) return "#000000";
+  return "#d1d5db"; // fallback gray
+}
+
+function isDark(hex: string) {
+  // naive luminance check for contrast; expects #RRGGBB
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return false;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  // relative luminance approximation
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum < 140;
 }
 
 function buildLine1(p: PlayerPayload) {
@@ -63,25 +102,20 @@ function buildLine2(p: PlayerPayload) {
   return `${primary} • ${like}`;
 }
 
-
-function gradeColor(grade?: string) {
-  const g = (grade || "").toString().trim();
-  if (g === "12") return "#74213c";
-  if (g === "11") return "#c7b782";
-  if (g === "10") return "#808080";
-  if (g === "9") return "#000000";
-  return "#e5e7eb"; // default gray-200
-}
-
-function gradeTextColor(bg: string) {
-  // simple contrast heuristic for the 12/10 dark colors
-  if (bg.toLowerCase() === "#74213c") return "#ffffff";
-  if (bg.toLowerCase() === "#808080") return "#ffffff";
-  if (bg.toLowerCase() === "#000000") return "#ffffff";
-  return "#111827";
-}
-
 type PointerInfo = { x: number; y: number; pointerType: string };
+
+type DragState = {
+  pointerId: number;
+  ids: string[];
+  mode: "move" | "resize" | "box";
+  startX: number;
+  startY: number;
+  moved: boolean;
+  lastClientX: number;
+  lastClientY: number;
+  originPlayers: Record<string, { x: number; y: number; w: number; h: number }>;
+  originObjects: Record<string, { x: number; y: number; w: number; h: number }>;
+};
 
 export function HtmlBoard({
   editMode,
@@ -92,7 +126,14 @@ export function HtmlBoard({
   onOpenPlayer,
   canvasWidth = 3000,
   canvasHeight = 2000,
-  cardSize = "large",
+
+  // new: board objects (lanes/text/notes)
+  objects = [],
+  onObjectsChange,
+
+  // new: active tool
+  tool = "select",
+  onToolChange,
 }: {
   editMode: boolean;
   placed: PlacedPlayer[];
@@ -102,33 +143,42 @@ export function HtmlBoard({
   onOpenPlayer?: (p: PlacedPlayer) => void;
   canvasWidth?: number;
   canvasHeight?: number;
-  cardSize?: "large" | "medium" | "small";
+
+  objects?: BoardObject[];
+  onObjectsChange?: (next: BoardObject[]) => void;
+
+  tool?: BoardTool;
+  onToolChange?: (t: BoardTool) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
-  // keep latest placed in a ref for pointer handlers
+  // latest state refs for pointer handlers
   const placedRef = useRef<PlacedPlayer[]>(placed);
-  useEffect(() => {
-    placedRef.current = placed;
-  }, [placed]);
+  useEffect(() => void (placedRef.current = placed), [placed]);
+
+  const objectsRef = useRef<BoardObject[]>(objects);
+  useEffect(() => void (objectsRef.current = objects), [objects]);
 
   const onPlacedChangeRef = useRef(onPlacedChange);
-  useEffect(() => {
-    onPlacedChangeRef.current = onPlacedChange;
-  }, [onPlacedChange]);
+  useEffect(() => void (onPlacedChangeRef.current = onPlacedChange), [onPlacedChange]);
+
+  const onObjectsChangeRef = useRef(onObjectsChange);
+  useEffect(() => void (onObjectsChangeRef.current = onObjectsChange), [onObjectsChange]);
 
   const [isDragOver, setIsDragOver] = useState(false);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  // Box (drag) select
-  const [boxSelect, setBoxSelect] = useState<null | { active: boolean; startX: number; startY: number; x: number; y: number }>(null);
-
   // Touch pointers for two-finger scroll
   const pointersRef = useRef<Map<number, PointerInfo>>(new Map());
   const twoFingerRef = useRef<{ active: boolean; lastCx: number; lastCy: number } | null>(null);
+
+  // Selection box
+  const [box, setBox] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
+
+  const dragRef = useRef<DragState | null>(null);
 
   // ---------- coordinate helpers ----------
   function clientToBoard(clientX: number, clientY: number) {
@@ -139,6 +189,22 @@ export function HtmlBoard({
       x: clientX - rect.left,
       y: clientY - rect.top,
     };
+  }
+
+  function rectNorm(x1: number, y1: number, x2: number, y2: number) {
+    const left = Math.min(x1, x2);
+    const top = Math.min(y1, y2);
+    const right = Math.max(x1, x2);
+    const bottom = Math.max(y1, y2);
+    return { left, top, right, bottom, w: right - left, h: bottom - top };
+  }
+
+  function rectIntersects(a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }) {
+    return !(b.left > a.right || b.right < a.left || b.top > a.bottom || b.bottom < a.top);
+  }
+
+  function anySelected() {
+    return selectedIds.size > 0;
   }
 
   // ---------- drag from roster drop ----------
@@ -179,9 +245,8 @@ export function HtmlBoard({
     const pt = clientToBoard(e.clientX, e.clientY);
     const id = `${payload.id || payload.name}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-    const preset = CARD_PRESETS[cardSize];
-    const w = preset.w;
-    const h = preset.h;
+    const w = DEFAULT_W;
+    const h = DEFAULT_H;
 
     const nextX = clamp(pt.x - w / 2, 0, canvasWidth - w);
     const nextY = clamp(pt.y - h / 2, 0, canvasHeight - h);
@@ -200,51 +265,16 @@ export function HtmlBoard({
 
     onPlacedChangeRef.current(next);
 
-    // select the newly added card
     setActiveId(id);
     setSelectedIds(new Set([id]));
-
-    // try to bring into view a bit (nice UX)
-    requestAnimationFrame(() => {
-      const sc = scrollRef.current;
-      if (!sc) return;
-      const margin = 80;
-      const targetLeft = clamp(nextX - margin, 0, canvasWidth);
-      const targetTop = clamp(nextY - margin, 0, canvasHeight);
-      sc.scrollTo({ left: targetLeft, top: targetTop, behavior: "smooth" });
-    });
   }
 
-  // ---------- moving / resizing ----------
-  type DragState = {
-    pointerId: number;
-    ids: string[];
-    mode: "move" | "resize";
-    startX: number;
-    startY: number;
-    moved: boolean;
-    lastClientX: number;
-    lastClientY: number;
-    // per-card origin snapshot
-    origin: Record<
-      string,
-      {
-        x: number;
-        y: number;
-        w: number;
-        h: number;
-      }
-    >;
-  };
-
-  const dragRef = useRef<DragState | null>(null);
-
+  // ---------- selection helpers ----------
   function ensureSelectionOnPointerDown(id: string, e: React.PointerEvent) {
     const isMeta = (e as any).metaKey || (e as any).ctrlKey;
     const isShift = (e as any).shiftKey;
 
     if (isMeta) {
-      // toggle
       setSelectedIds((cur) => {
         const next = new Set(cur);
         if (next.has(id)) next.delete(id);
@@ -256,60 +286,59 @@ export function HtmlBoard({
     }
 
     if (isShift) {
-      // additive (simple)
       setSelectedIds((cur) => new Set([...Array.from(cur), id]));
       setActiveId(id);
       return;
     }
 
-    // single select
     setSelectedIds(new Set([id]));
     setActiveId(id);
   }
 
   function getMoveIds(id: string) {
-    const sel = selectedIds;
-    if (sel.has(id)) return Array.from(sel);
+    if (selectedIds.has(id)) return Array.from(selectedIds);
     return [id];
   }
 
-  function beginMove(e: React.PointerEvent, id: string) {
+  function snapshotOrigins(ids: string[]) {
+    const originPlayers: DragState["originPlayers"] = {};
+    const originObjects: DragState["originObjects"] = {};
+
+    for (const pid of ids) {
+      const p = placedRef.current.find((x) => x.id === pid);
+      if (p) {
+        originPlayers[pid] = {
+          x: p.x,
+          y: p.y,
+          w: Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W,
+          h: Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H,
+        };
+        continue;
+      }
+
+      const o = objectsRef.current.find((x) => x.id === pid);
+      if (o) {
+        originObjects[pid] = { x: o.x, y: o.y, w: o.w, h: o.h };
+      }
+    }
+
+    return { originPlayers, originObjects };
+  }
+
+  // ---------- moving / resizing ----------
+  function beginMoveAny(e: React.PointerEvent, id: string) {
     if (!editMode) return;
-    if (e.button !== 0) return; // left click / primary touch
+    if (e.button !== 0) return;
 
-    // If the user clicked the photo area, we do NOT start a drag.
-    // Photo clicks open details instead (handled on the photo wrapper).
-    const targetEl = e.target as HTMLElement | null;
-    if (targetEl && targetEl.closest('[data-zone="photo"]')) {
-      return;
-    }
-
-    // If this is a touch device and we already have another touch pointer down,
-    // treat this as a two-finger scroll gesture (not a card drag).
+    // if touch and already 2 fingers down, ignore (two-finger scroll)
     if (e.pointerType === "touch") {
-      const ptrs = pointersRef.current;
-      if (ptrs.size >= 2) return;
+      if (pointersRef.current.size >= 2) return;
     }
-
-    const currentPlaced = placedRef.current;
-    const first = currentPlaced.find((p) => p.id === id);
-    if (!first) return;
 
     ensureSelectionOnPointerDown(id, e);
 
     const ids = getMoveIds(id);
-
-    const origin: DragState["origin"] = {};
-    for (const pid of ids) {
-      const p = currentPlaced.find((x) => x.id === pid);
-      if (!p) continue;
-      origin[pid] = {
-        x: p.x,
-        y: p.y,
-        w: Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W,
-        h: Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H,
-      };
-    }
+    const { originPlayers, originObjects } = snapshotOrigins(ids);
 
     const pt = clientToBoard(e.clientX, e.clientY);
 
@@ -322,7 +351,8 @@ export function HtmlBoard({
       moved: false,
       lastClientX: e.clientX,
       lastClientY: e.clientY,
-      origin,
+      originPlayers,
+      originObjects,
     };
 
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -330,21 +360,14 @@ export function HtmlBoard({
     e.stopPropagation();
   }
 
-  function beginResize(e: React.PointerEvent, id: string) {
-    if (cardSize !== "large") return;
-
+  function beginResizeAny(e: React.PointerEvent, id: string) {
     if (!editMode) return;
     if (e.button !== 0) return;
-
-    const current = placedRef.current.find((p) => p.id === id);
-    if (!current) return;
 
     setActiveId(id);
     setSelectedIds(new Set([id]));
 
-    const w = Number.isFinite(current.w) ? (current.w as number) : DEFAULT_W;
-    const h = Number.isFinite(current.h) ? (current.h as number) : DEFAULT_H;
-
+    const { originPlayers, originObjects } = snapshotOrigins([id]);
     const pt = clientToBoard(e.clientX, e.clientY);
 
     dragRef.current = {
@@ -356,9 +379,8 @@ export function HtmlBoard({
       moved: false,
       lastClientX: e.clientX,
       lastClientY: e.clientY,
-      origin: {
-        [id]: { x: current.x, y: current.y, w, h },
-      },
+      originPlayers,
+      originObjects,
     };
 
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -366,13 +388,117 @@ export function HtmlBoard({
     e.stopPropagation();
   }
 
+  // ---------- tools (create objects) ----------
+  function createObject(kind: BoardObject["kind"], x: number, y: number) {
+    const id = `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    let obj: BoardObject;
+    if (kind === "lane") {
+      obj = {
+        id,
+        kind,
+        x: clamp(x, 0, canvasWidth - 600),
+        y: clamp(y, 0, canvasHeight - 200),
+        w: 600,
+        h: 200,
+        title: "Lane",
+        locked: false,
+      };
+    } else if (kind === "note") {
+      obj = {
+        id,
+        kind,
+        x: clamp(x, 0, canvasWidth - 220),
+        y: clamp(y, 0, canvasHeight - 160),
+        w: 220,
+        h: 160,
+        text: "Sticky note...",
+        color: "#fff7b2",
+        locked: false,
+      };
+    } else {
+      obj = {
+        id,
+        kind: "text",
+        x: clamp(x, 0, canvasWidth - 260),
+        y: clamp(y, 0, canvasHeight - 120),
+        w: 260,
+        h: 120,
+        text: "Text...",
+        locked: false,
+      };
+    }
+
+    const next = [...objectsRef.current, obj];
+    onObjectsChangeRef.current?.(next);
+
+    setActiveId(id);
+    setSelectedIds(new Set([id]));
+
+    // auto-return to select tool for convenience
+    onToolChange?.("select");
+  }
+
+  // ---------- pointer handlers ----------
+  function onPointerDownCanvas(e: React.PointerEvent) {
+    // Track touch pointers for two-finger scroll
+    if (e.pointerType === "touch") {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
+
+      if (pointersRef.current.size >= 2) {
+        const pts = Array.from(pointersRef.current.values()).slice(0, 2);
+        twoFingerRef.current = {
+          active: true,
+          lastCx: (pts[0].x + pts[1].x) / 2,
+          lastCy: (pts[0].y + pts[1].y) / 2,
+        };
+      }
+    }
+
+    // only respond when clicking on the canvas background (not child elements)
+    if (e.target !== canvasRef.current) return;
+
+    const pt = clientToBoard(e.clientX, e.clientY);
+
+    if (editMode && tool !== "select") {
+      // create a new object
+      createObject(tool === "lane" ? "lane" : tool === "note" ? "note" : "text", pt.x, pt.y);
+      e.preventDefault();
+      return;
+    }
+
+    // start box select on desktop/mouse/pen when in select tool
+    if (editMode && tool === "select" && e.pointerType !== "touch" && !(e as any).metaKey && !(e as any).ctrlKey && !(e as any).shiftKey) {
+      dragRef.current = {
+        pointerId: e.pointerId,
+        ids: [],
+        mode: "box",
+        startX: pt.x,
+        startY: pt.y,
+        moved: false,
+        lastClientX: e.clientX,
+        lastClientY: e.clientY,
+        originPlayers: {},
+        originObjects: {},
+      };
+      setBox({ x1: pt.x, y1: pt.y, x2: pt.x, y2: pt.y });
+
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
+
+    // otherwise clicking blank clears selection
+    setActiveId(null);
+    setSelectedIds(new Set());
+  }
+
   function onPointerMove(e: React.PointerEvent) {
-    // 1) two-finger scroll (touch only) — does not require editMode
+    // two-finger scroll
     const tf = twoFingerRef.current;
     if (tf?.active && e.pointerType === "touch") {
       const ptrs = pointersRef.current;
       if (ptrs.size >= 2) {
-        // update this pointer
         ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
 
         const pts = Array.from(ptrs.values()).slice(0, 2);
@@ -396,43 +522,6 @@ export function HtmlBoard({
       }
     }
 
-    // 2) box select (mouse/pen)
-    if (boxSelect?.active && !dragRef.current && (e.pointerType === "mouse" || e.pointerType === "pen")) {
-      const pt = clientToBoard(e.clientX, e.clientY);
-      setBoxSelect((cur) => (cur ? { ...cur, x: pt.x, y: pt.y } : cur));
-      e.preventDefault();
-      return;
-    }
-
-    // 3) card drag / resize
-    // Finalize box select
-    if (boxSelect?.active && !dragRef.current && (e.pointerType === "mouse" || e.pointerType === "pen")) {
-      const x1 = Math.min(boxSelect.startX, boxSelect.x);
-      const y1 = Math.min(boxSelect.startY, boxSelect.y);
-      const x2 = Math.max(boxSelect.startX, boxSelect.x);
-      const y2 = Math.max(boxSelect.startY, boxSelect.y);
-
-      const hits = placedRef.current.filter((p) => {
-        const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
-        const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
-        const pw = cardSize === "large" ? w : CARD_PRESETS[cardSize].w;
-        const ph = cardSize === "large" ? h : CARD_PRESETS[cardSize].h;
-        const bx1 = p.x;
-        const by1 = p.y;
-        const bx2 = p.x + pw;
-        const by2 = p.y + ph;
-        const inter = !(bx2 < x1 || bx1 > x2 || by2 < y1 || by1 > y2);
-        return inter;
-      });
-
-      const nextSet = new Set(hits.map((h) => h.id));
-      setSelectedIds(nextSet);
-      setActiveId(hits.length === 1 ? hits[0].id : null);
-      setBoxSelect(null);
-      e.preventDefault();
-      return;
-    }
-
     const d = dragRef.current;
     if (!d) return;
     if (e.pointerId !== d.pointerId) return;
@@ -442,15 +531,20 @@ export function HtmlBoard({
     const dist = Math.hypot(e.clientX - d.lastClientX, e.clientY - d.lastClientY);
     if (dist > 2) d.moved = true;
 
-    const currentPlaced = placedRef.current;
+    if (d.mode === "box") {
+      setBox((cur) => (cur ? { ...cur, x2: pt.x, y2: pt.y } : { x1: d.startX, y1: d.startY, x2: pt.x, y2: pt.y }));
+      e.preventDefault();
+      return;
+    }
 
     if (d.mode === "move") {
       const dx = pt.x - d.startX;
       const dy = pt.y - d.startY;
 
-      const next = currentPlaced.map((p) => {
-        if (!d.origin[p.id]) return p;
-        const o = d.origin[p.id];
+      // players
+      const nextPlayers = placedRef.current.map((p) => {
+        const o = d.originPlayers[p.id];
+        if (!o) return p;
         const w = o.w;
         const h = o.h;
         const x = clamp(o.x + dx, 0, canvasWidth - w);
@@ -458,18 +552,42 @@ export function HtmlBoard({
         return { ...p, x, y, w, h };
       });
 
-      onPlacedChangeRef.current(next);
-    } else {
-      // resize only first id
+      // objects
+      const nextObjects = objectsRef.current.map((o) => {
+        const oo = d.originObjects[o.id];
+        if (!oo) return o;
+        if (o.locked) return o;
+        const x = clamp(oo.x + dx, 0, canvasWidth - oo.w);
+        const y = clamp(oo.y + dy, 0, canvasHeight - oo.h);
+        return { ...o, x, y };
+      });
+
+      onPlacedChangeRef.current(nextPlayers);
+      onObjectsChangeRef.current?.(nextObjects);
+    } else if (d.mode === "resize") {
       const id = d.ids[0];
-      const o = d.origin[id];
-      if (!o) return;
 
-      const newW = clamp(o.w + (pt.x - d.startX), MIN_W, canvasWidth - o.x);
-      const newH = clamp(o.h + (pt.y - d.startY), MIN_H, canvasHeight - o.y);
+      // resize player if exists
+      const op = d.originPlayers[id];
+      if (op) {
+        const newW = clamp(op.w + (pt.x - d.startX), MIN_W, canvasWidth - op.x);
+        const newH = clamp(op.h + (pt.y - d.startY), MIN_H, canvasHeight - op.y);
+        const nextPlayers = placedRef.current.map((p) => (p.id === id ? { ...p, w: newW, h: newH } : p));
+        onPlacedChangeRef.current(nextPlayers);
+        e.preventDefault();
+        return;
+      }
 
-      const next = currentPlaced.map((p) => (p.id === id ? { ...p, w: newW, h: newH } : p));
-      onPlacedChangeRef.current(next);
+      // resize object
+      const oo = d.originObjects[id];
+      if (oo) {
+        const newW = clamp(oo.w + (pt.x - d.startX), OBJ_MIN_W, canvasWidth - oo.x);
+        const newH = clamp(oo.h + (pt.y - d.startY), OBJ_MIN_H, canvasHeight - oo.y);
+        const nextObjects = objectsRef.current.map((o) => (o.id === id ? { ...o, w: newW, h: newH } : o));
+        onObjectsChangeRef.current?.(nextObjects);
+        e.preventDefault();
+        return;
+      }
     }
 
     d.lastClientX = e.clientX;
@@ -488,66 +606,44 @@ export function HtmlBoard({
       }
     }
 
-    // Finalize box select
-    if (boxSelect?.active && !dragRef.current && (e.pointerType === "mouse" || e.pointerType === "pen")) {
-      const x1 = Math.min(boxSelect.startX, boxSelect.x);
-      const y1 = Math.min(boxSelect.startY, boxSelect.y);
-      const x2 = Math.max(boxSelect.startX, boxSelect.x);
-      const y2 = Math.max(boxSelect.startY, boxSelect.y);
-
-      const hits = placedRef.current.filter((p) => {
-        const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
-        const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
-        const pw = cardSize === "large" ? w : CARD_PRESETS[cardSize].w;
-        const ph = cardSize === "large" ? h : CARD_PRESETS[cardSize].h;
-        const bx1 = p.x;
-        const by1 = p.y;
-        const bx2 = p.x + pw;
-        const by2 = p.y + ph;
-        const inter = !(bx2 < x1 || bx1 > x2 || by2 < y1 || by1 > y2);
-        return inter;
-      });
-
-      const nextSet = new Set(hits.map((h) => h.id));
-      setSelectedIds(nextSet);
-      setActiveId(hits.length === 1 ? hits[0].id : null);
-      setBoxSelect(null);
-      e.preventDefault();
-      return;
-    }
-
     const d = dragRef.current;
     if (!d) return;
     if (e.pointerId !== d.pointerId) return;
 
+    if (d.mode === "box") {
+      const bx = box;
+      setBox(null);
+      dragRef.current = null;
+
+      if (!bx) return;
+
+      const r = rectNorm(bx.x1, bx.y1, bx.x2, bx.y2);
+      // very small box = treat as click (clears selection)
+      if (r.w < 6 && r.h < 6) {
+        setActiveId(null);
+        setSelectedIds(new Set());
+        return;
+      }
+
+      const selected = new Set<string>();
+
+      for (const p of placedRef.current) {
+        const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
+        const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
+        const pr = { left: p.x, top: p.y, right: p.x + w, bottom: p.y + h };
+        if (rectIntersects(pr, { left: r.left, top: r.top, right: r.right, bottom: r.bottom })) selected.add(p.id);
+      }
+      for (const o of objectsRef.current) {
+        const or = { left: o.x, top: o.y, right: o.x + o.w, bottom: o.y + o.h };
+        if (rectIntersects(or, { left: r.left, top: r.top, right: r.right, bottom: r.bottom })) selected.add(o.id);
+      }
+
+      setSelectedIds(selected);
+      setActiveId(selected.size ? Array.from(selected)[0] : null);
+      return;
+    }
+
     dragRef.current = null;
-  }
-
-  function onPointerDownCanvas(e: React.PointerEvent) {
-    // Track touch pointers so we can do two-finger scroll
-    if (e.pointerType === "touch") {
-      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
-
-      if (pointersRef.current.size >= 2) {
-        const pts = Array.from(pointersRef.current.values()).slice(0, 2);
-        twoFingerRef.current = {
-          active: true,
-          lastCx: (pts[0].x + pts[1].x) / 2,
-          lastCy: (pts[0].y + pts[1].y) / 2,
-        };
-      }
-    }
-
-    // clicking blank space clears selection / begins box select
-    if ((e.target as HTMLElement) === canvasRef.current) {
-      // If in editMode and mouse/pen, allow click-drag box selection
-      if (editMode && (e.pointerType === "mouse" || e.pointerType === "pen") && e.button === 0) {
-        const pt = clientToBoard(e.clientX, e.clientY);
-        setBoxSelect({ active: true, startX: pt.x, startY: pt.y, x: pt.x, y: pt.y });
-      }
-      setActiveId(null);
-      setSelectedIds(new Set());
-    }
   }
 
   // background
@@ -562,6 +658,13 @@ export function HtmlBoard({
     };
   }, [backgroundUrl]);
 
+  // ---------- object editing ----------
+  function updateObject(id: string, patch: Partial<BoardObject>) {
+    const next = objectsRef.current.map((o) => (o.id === id ? { ...o, ...patch } : o));
+    onObjectsChangeRef.current?.(next);
+  }
+
+  // ---------- rendering ----------
   return (
     <div
       ref={scrollRef}
@@ -577,8 +680,8 @@ export function HtmlBoard({
           width: canvasWidth,
           height: canvasHeight,
           ...bgStyle,
-          // We keep touchAction none so single-finger drags stay responsive,
-          // and we implement custom two-finger scrolling above.
+          // Keep touchAction none so single-finger drags stay responsive.
+          // We implement custom two-finger scrolling above.
           touchAction: "none",
         }}
         onDragOver={onDragOver}
@@ -589,38 +692,147 @@ export function HtmlBoard({
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        {editMode && isDragOver ? (
-          <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" />
+        {editMode && isDragOver ? <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" /> : null}
+
+        {/* Selection box */}
+        {box ? (
+          (() => {
+            const r = rectNorm(box.x1, box.y1, box.x2, box.y2);
+            return (
+              <div
+                className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/15"
+                style={{ left: r.left, top: r.top, width: r.w, height: r.h }}
+              />
+            );
+          })()
         ) : null}
 
-        {/* box select overlay */}
-        {boxSelect?.active ? (
-          <div
-            className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/20"
-            style={{
-              left: Math.min(boxSelect.startX, boxSelect.x),
-              top: Math.min(boxSelect.startY, boxSelect.y),
-              width: Math.abs(boxSelect.x - boxSelect.startX),
-              height: Math.abs(boxSelect.y - boxSelect.startY),
-            }}
-          />
-        ) : null}
+        {/* Board Objects (lanes/text/notes) - render behind players */}
+        {objects.map((o) => {
+          const isSelected = selectedIds.has(o.id);
+          const isActive = activeId === o.id;
 
-        {/* placed cards */}
+          if (o.kind === "lane") {
+            return (
+              <div
+                key={o.id}
+                className={`absolute rounded-xl border bg-white/60 ${
+                  isSelected ? "ring-2 ring-blue-500/50" : ""
+                } ${isActive ? "ring-blue-600/70" : ""}`}
+                style={{
+                  left: o.x,
+                  top: o.y,
+                  width: o.w,
+                  height: o.h,
+                  zIndex: 1,
+                  backdropFilter: "blur(2px)",
+                }}
+                onPointerDown={(e) => beginMoveAny(e, o.id)}
+              >
+                <div className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between">
+                  <span className="truncate">{o.title || "Lane"}</span>
+                  <button
+                    type="button"
+                    className="text-xs px-2 py-1 border rounded hover:bg-gray-50"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      updateObject(o.id, { locked: !o.locked });
+                    }}
+                    title={o.locked ? "Unlock lane" : "Lock lane"}
+                  >
+                    {o.locked ? "Locked" : "Lock"}
+                  </button>
+                </div>
+
+                {/* resize handle */}
+                {editMode && !o.locked ? (
+                  <div
+                    className="absolute right-0 bottom-0 rounded-tl bg-black/10"
+                    style={{
+                      width: RESIZE_HANDLE,
+                      height: RESIZE_HANDLE,
+                      cursor: "nwse-resize",
+                      touchAction: "none",
+                    }}
+                    onPointerDown={(e) => beginResizeAny(e, o.id)}
+                    title="Resize"
+                  />
+                ) : null}
+              </div>
+            );
+          }
+
+          const isNote = o.kind === "note";
+          const bg = isNote ? o.color || "#fff7b2" : "transparent";
+
+          return (
+            <div
+              key={o.id}
+              className={`absolute rounded-xl border shadow-sm ${
+                isSelected ? "ring-2 ring-blue-500/50" : ""
+              } ${isActive ? "ring-blue-600/70" : ""}`}
+              style={{
+                left: o.x,
+                top: o.y,
+                width: o.w,
+                height: o.h,
+                zIndex: 2,
+                background: bg,
+              }}
+              onPointerDown={(e) => beginMoveAny(e, o.id)}
+            >
+              <div
+                className="w-full h-full p-2 text-sm overflow-auto"
+                contentEditable
+                suppressContentEditableWarning
+                spellCheck={false}
+                style={{
+                  outline: "none",
+                  whiteSpace: "pre-wrap",
+                  cursor: "text",
+                }}
+                onPointerDown={(e) => {
+                  // allow selecting text without starting drag when locked or when editing:
+                  e.stopPropagation();
+                  ensureSelectionOnPointerDown(o.id, e);
+                }}
+                onBlur={(e) => updateObject(o.id, { text: e.currentTarget.textContent || "" })}
+              >
+                {o.text || ""}
+              </div>
+
+              {editMode && !o.locked ? (
+                <div
+                  className="absolute right-0 bottom-0 rounded-tl bg-black/10"
+                  style={{
+                    width: RESIZE_HANDLE,
+                    height: RESIZE_HANDLE,
+                    cursor: "nwse-resize",
+                    touchAction: "none",
+                  }}
+                  onPointerDown={(e) => beginResizeAny(e, o.id)}
+                  title="Resize"
+                />
+              ) : null}
+            </div>
+          );
+        })}
+
+        {/* placed player cards */}
         {placed.map((p) => {
-          const storedW = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
-          const storedH = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
-          const preset = CARD_PRESETS[cardSize];
-          const w = cardSize === "large" ? storedW : preset.w;
-          const h = cardSize === "large" ? storedH : preset.h;
+          const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
+          const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
 
-          // Show less info sooner as the card shrinks — but ALWAYS show the name (wrapping).
           const showPhoto = w >= 160 && h >= 64;
           const showLine1 = w >= 220 && h >= 76;
           const showLine2 = w >= 240 && h >= 86;
 
           const isActive = activeId === p.id;
           const isSelected = selectedIds.has(p.id);
+
+          const gCol = gradeColor(p.player.grade);
+          const onDark = isDark(gCol);
 
           return (
             <div
@@ -635,34 +847,33 @@ export function HtmlBoard({
                 height: h,
                 userSelect: "none",
                 touchAction: "none",
-                borderColor: gradeColor(p.player.grade),
+                zIndex: 5,
+                borderColor: gCol,
               }}
-              onPointerDown={(e) => beginMove(e, p.id)}
+              onPointerDown={(e) => beginMoveAny(e, p.id)}
             >
-              {/* grade strip */}
+              {/* grade color bar on top (does not consume card space) */}
               <div
-                className="absolute left-0 top-0 right-0 h-2 rounded-t-xl"
-                style={{ backgroundColor: gradeColor(p.player.grade) }}
+                className="absolute left-0 top-0 w-full rounded-t-xl"
+                style={{
+                  height: 6,
+                  background: gCol,
+                }}
               />
 
-              <div className="flex h-full">
+              <div className="flex h-full pt-[6px]">
                 {showPhoto ? (
                   <div
-                    data-zone="photo"
-                    className="w-[88px] h-full border-r rounded-l-xl overflow-hidden flex items-center justify-center relative cursor-pointer"
-                    style={{ backgroundColor: "#f3f4f6" }}
+                    className="w-[88px] h-full bg-gray-100 border-r rounded-bl-xl overflow-hidden flex items-center justify-center relative"
                     onPointerDown={(e) => {
-                      // Prevent starting a drag when touching/clicking the photo
-                      e.stopPropagation();
-                    }}
-                    onClick={(e) => {
+                      // photo click opens details; do not drag
                       e.preventDefault();
                       e.stopPropagation();
-                      // Clicking the photo should open details, but also select the card.
-                      setActiveId(p.id);
-                      setSelectedIds(new Set([p.id]));
+                      ensureSelectionOnPointerDown(p.id, e);
                       onOpenPlayer?.(p);
                     }}
+                    title="Open details"
+                    style={{ cursor: "pointer" }}
                   >
                     {p.player.pictureUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -673,15 +884,15 @@ export function HtmlBoard({
                         draggable={false}
                       />
                     ) : (
-                      <div className="text-lg font-bold" style={{ color: gradeTextColor(gradeColor(p.player.grade)) }}>{getInitials(p.player.name)}</div>
+                      <div className="text-lg font-bold" style={{ color: onDark ? "#ffffff" : "#111827" }}>
+                        {getInitials(p.player.name)}
+                      </div>
                     )}
-         
-                    
-         </div>
+                  </div>
                 ) : null}
 
+                {/* Body: click/select + drag */}
                 <div className="flex-1 p-2 overflow-hidden">
-                  {/* Name ALWAYS visible; wrap instead of truncating */}
                   <div
                     className="font-semibold text-sm text-gray-900 break-words whitespace-normal leading-tight"
                     style={{
@@ -709,16 +920,16 @@ export function HtmlBoard({
               </div>
 
               {/* resize handle */}
-              {editMode && cardSize === "large" ? (
+              {editMode ? (
                 <div
-                  className={`absolute right-0 bottom-0 rounded-tl bg-black/10 ${isActive ? "bg-black/20" : ""}`}
+                  className="absolute right-0 bottom-0 rounded-tl bg-black/10"
                   style={{
                     width: RESIZE_HANDLE,
                     height: RESIZE_HANDLE,
                     cursor: "nwse-resize",
                     touchAction: "none",
                   }}
-                  onPointerDown={(e) => beginResize(e, p.id)}
+                  onPointerDown={(e) => beginResizeAny(e, p.id)}
                   title="Resize"
                 />
               ) : null}

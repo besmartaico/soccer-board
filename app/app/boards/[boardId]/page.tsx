@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
-import { HtmlBoard, type PlacedPlayer } from "@/lib/board/HtmlBoard";
+import { HtmlBoard, type PlacedPlayer, type BoardObject, type BoardTool } from "@/lib/board/HtmlBoard";
 
 type BoardRow = {
   id: string;
@@ -74,14 +74,13 @@ export default function BoardPage() {
 
   // Board state (manual save)
   const [placedPlayers, setPlacedPlayers] = useState<PlacedPlayer[]>([]);
+  const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
+  const [tool, setTool] = useState<BoardTool>("select");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // Background
   const [backgroundUrl, setBackgroundUrl] = useState<string>("");
-
-  // Canvas card size (canvas-level)
-  const [cardSize, setCardSize] = useState<"large" | "medium" | "small">("large");
 
   // Sharing
   const [shareOpen, setShareOpen] = useState(false);
@@ -145,6 +144,7 @@ export default function BoardPage() {
     // placed + background
     const hb = row?.data?.htmlBoard ?? {};
     setPlacedPlayers(Array.isArray(hb.placedPlayers) ? hb.placedPlayers : []);
+    setBoardObjects(Array.isArray(hb.objects) ? hb.objects : []);
     setBackgroundUrl(typeof hb.backgroundUrl === "string" ? hb.backgroundUrl : "");
 
     // sharing
@@ -389,6 +389,7 @@ export default function BoardPage() {
         google: prevData.google ?? undefined,
         htmlBoard: {
           placedPlayers: placedPlayers,
+          objects: boardObjects,
           backgroundUrl: backgroundUrl || "",
         },
       };
@@ -521,20 +522,39 @@ export default function BoardPage() {
                     Refresh
                   </button>
 
-                  {/* Card Size */}
-                  <div className="flex items-center gap-2 ml-3">
-                    <div className="text-xs text-gray-600">Card Size</div>
-                    <select
-                      className="border rounded px-2 py-1 text-sm"
-                      value={cardSize}
-                      onChange={(e) => setCardSize(e.target.value as any)}
-                      title="Canvas card size"
-                    >
-                      <option value="large">Large</option>
-                      <option value="medium">Medium</option>
-                      <option value="small">Small</option>
-                    </select>
-                  </div>
+                  <button
+                    className={`rounded-md border px-3 py-2 text-sm ${tool === "select" ? "bg-gray-100" : "bg-white"}`}
+                    onClick={() => setTool("select")}
+                    title="Select / Move"
+                    type="button"
+                  >
+                    Select
+                  </button>
+                  <button
+                    className={`rounded-md border px-3 py-2 text-sm ${tool === "lane" ? "bg-gray-100" : "bg-white"}`}
+                    onClick={() => setTool("lane")}
+                    title="Add a swim lane (click on board to place)"
+                    type="button"
+                  >
+                    Lane
+                  </button>
+                  <button
+                    className={`rounded-md border px-3 py-2 text-sm ${tool === "text" ? "bg-gray-100" : "bg-white"}`}
+                    onClick={() => setTool("text")}
+                    title="Add a text box (click on board to place)"
+                    type="button"
+                  >
+                    Text
+                  </button>
+                  <button
+                    className={`rounded-md border px-3 py-2 text-sm ${tool === "note" ? "bg-gray-100" : "bg-white"}`}
+                    onClick={() => setTool("note")}
+                    title="Add a sticky note (click on board to place)"
+                    type="button"
+                  >
+                    Note
+                  </button>
+
                 </div>
               </div>
 
@@ -736,12 +756,18 @@ export default function BoardPage() {
                 setPlacedPlayers(next);
                 setDirty(true);
               }}
+              objects={boardObjects}
+              onObjectsChange={(next) => {
+                setBoardObjects(next);
+                setDirty(true);
+              }}
+              tool={tool}
+              onToolChange={(t) => setTool(t)}
               dragMime={PLAYER_DRAG_MIME}
               backgroundUrl={backgroundUrl || undefined}
               onOpenPlayer={(pp) => setPlayerModal(pp)}
               canvasWidth={3000}
               canvasHeight={2000}
-              cardSize={cardSize}
             />
           </section>
         </div>
