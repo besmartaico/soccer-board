@@ -50,6 +50,18 @@ const OBJ_MIN_H = 40;
 
 const RESIZE_HANDLE = 14;
 
+const MEDIUM_CARD = { w: 210, h: 72 };
+const SMALL_CARD = { w: 150, h: 52 };
+
+function getEffectiveCardSize(mode: "large" | "medium" | "small", p: PlacedPlayer) {
+  if (mode === "medium") return MEDIUM_CARD;
+  if (mode === "small") return SMALL_CARD;
+  const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
+  const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
+  return { w, h };
+}
+
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -134,6 +146,9 @@ export function HtmlBoard({
   // new: active tool
   tool = "select",
   onToolChange,
+
+  // new: canvas-level card sizing
+  cardSizeMode = "large",
 }: {
   editMode: boolean;
   placed: PlacedPlayer[];
@@ -149,6 +164,8 @@ export function HtmlBoard({
 
   tool?: BoardTool;
   onToolChange?: (t: BoardTool) => void;
+
+  cardSizeMode?: "large" | "medium" | "small";
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -549,7 +566,10 @@ export function HtmlBoard({
         const h = o.h;
         const x = clamp(o.x + dx, 0, canvasWidth - w);
         const y = clamp(o.y + dy, 0, canvasHeight - h);
-        return { ...p, x, y, w, h };
+        if (cardSizeMode === "large") {
+          return { ...p, x, y, w, h };
+        }
+        return { ...p, x, y };
       });
 
       // objects
@@ -821,8 +841,9 @@ export function HtmlBoard({
 
         {/* placed player cards */}
         {placed.map((p) => {
-          const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
-          const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
+          const effSize = getEffectiveCardSize(cardSizeMode, p);
+          const w = effSize.w;
+          const h = effSize.h;
 
           const showPhoto = w >= 160 && h >= 64;
           const showLine1 = w >= 220 && h >= 76;
@@ -920,7 +941,7 @@ export function HtmlBoard({
               </div>
 
               {/* resize handle */}
-              {editMode ? (
+              {editMode && cardSizeMode === "large" ? (
                 <div
                   className="absolute right-0 bottom-0 rounded-tl bg-black/10"
                   style={{

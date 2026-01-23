@@ -76,6 +76,7 @@ export default function BoardPage() {
   const [placedPlayers, setPlacedPlayers] = useState<PlacedPlayer[]>([]);
   const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
   const [tool, setTool] = useState<BoardTool>("select");
+  const [cardSizeMode, setCardSizeMode] = useState<"large" | "medium" | "small">("large");
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -479,6 +480,54 @@ export default function BoardPage() {
           >
             Share
           </button>
+
+          <div className="w-px h-6 bg-gray-300" />
+
+          <div className="flex items-center gap-2">
+            <button
+              className={`rounded-md border px-3 py-1 text-sm ${tool === "select" ? "bg-gray-100" : "bg-white"}`}
+              onClick={() => setTool("select")}
+              title="Select / Move"
+              type="button"
+            >
+              Select
+            </button>
+            <button
+              className={`rounded-md border px-3 py-1 text-sm ${tool === "lane" ? "bg-gray-100" : "bg-white"}`}
+              onClick={() => setTool("lane")}
+              title="Add a swim lane (click on board to place)"
+              type="button"
+            >
+              Lane
+            </button>
+            <button
+              className={`rounded-md border px-3 py-1 text-sm ${tool === "text" ? "bg-gray-100" : "bg-white"}`}
+              onClick={() => setTool("text")}
+              title="Add a text box (click on board to place)"
+              type="button"
+            >
+              Text
+            </button>
+            <button
+              className={`rounded-md border px-3 py-1 text-sm ${tool === "note" ? "bg-gray-100" : "bg-white"}`}
+              onClick={() => setTool("note")}
+              title="Add a sticky note (click on board to place)"
+              type="button"
+            >
+              Note
+            </button>
+
+            <select
+              className="border rounded px-2 py-1 text-sm bg-white"
+              value={cardSizeMode}
+              onChange={(e) => setCardSizeMode(e.target.value as any)}
+              title="Card size"
+            >
+              <option value="large">Cards: Large</option>
+              <option value="medium">Cards: Medium</option>
+              <option value="small">Cards: Small</option>
+            </select>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -500,59 +549,7 @@ export default function BoardPage() {
           {/* Left sidebar */}
           {!sidebarCollapsed ? (
             <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
-              <div className="flex items-center justify-between mb-2">
-                <div className="font-semibold">Roster</div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => setSidebarCollapsed(true)}
-                  >
-                    Collapse
-                  </button>
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => {
-                      if (googleConfig) loadPlayersFromGoogle(googleConfig);
-                    }}
-                    disabled={!googleConfig || playersLoading}
-                    title={!googleConfig ? "No Google config on this board" : "Refresh roster"}
-                  >
-                    Refresh
-                  </button>
-
-                  <button
-                    className={`rounded-md border px-3 py-2 text-sm ${tool === "select" ? "bg-gray-100" : "bg-white"}`}
-                    onClick={() => setTool("select")}
-                    title="Select / Move"
-                    type="button"
-                  >
-                    Select
-                  </button>
-                  <button
-                    className={`rounded-md border px-3 py-2 text-sm ${tool === "lane" ? "bg-gray-100" : "bg-white"}`}
-                    onClick={() => setTool("lane")}
-                    title="Add a swim lane (click on board to place)"
-                    type="button"
-                  >
-                    Lane
-                  </button>
-                  <button
-                    className={`rounded-md border px-3 py-2 text-sm ${tool === "text" ? "bg-gray-100" : "bg-white"}`}
-                    onClick={() => setTool("text")}
-                    title="Add a text box (click on board to place)"
-                    type="button"
-                  >
-                    Text
-                  </button>
-                  <button
-                    className={`rounded-md border px-3 py-2 text-sm ${tool === "note" ? "bg-gray-100" : "bg-white"}`}
-                    onClick={() => setTool("note")}
-                    title="Add a sticky note (click on board to place)"
-                    type="button"
-                  >
-                    Note
+              <div className="flex items-center justify-             Note
                   </button>
 
                 </div>
@@ -763,6 +760,7 @@ export default function BoardPage() {
               }}
               tool={tool}
               onToolChange={(t) => setTool(t)}
+              cardSizeMode={cardSizeMode}
               dragMime={PLAYER_DRAG_MIME}
               backgroundUrl={backgroundUrl || undefined}
               onOpenPlayer={(pp) => setPlayerModal(pp)}
