@@ -148,6 +148,10 @@ export default function BoardPage() {
     setBoardObjects(Array.isArray(hb.objects) ? hb.objects : []);
     setBackgroundUrl(typeof hb.backgroundUrl === "string" ? hb.backgroundUrl : "");
 
+    const csm = hb?.cardSizeMode;
+    if (csm === "large" || csm === "medium" || csm === "small") setCardSizeMode(csm);
+    else setCardSizeMode("large");
+
     // sharing
     const sh = row?.data?.sharing ?? {};
     setShareEmails(Array.isArray(sh.emails) ? sh.emails : []);
@@ -392,6 +396,7 @@ export default function BoardPage() {
           placedPlayers: placedPlayers,
           objects: boardObjects,
           backgroundUrl: backgroundUrl || "",
+          cardSizeMode: cardSizeMode,
         },
       };
 
@@ -520,7 +525,7 @@ export default function BoardPage() {
             <select
               className="border rounded px-2 py-1 text-sm bg-white"
               value={cardSizeMode}
-              onChange={(e) => setCardSizeMode(e.target.value as any)}
+              onChange={(e) => { setCardSizeMode(e.target.value as any); setDirty(true); }}
               title="Card size"
             >
               <option value="large">Cards: Large</option>

@@ -262,8 +262,9 @@ export function HtmlBoard({
     const pt = clientToBoard(e.clientX, e.clientY);
     const id = `${payload.id || payload.name}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-    const w = DEFAULT_W;
-    const h = DEFAULT_H;
+    const eff = cardSizeMode === "small" ? SMALL_CARD : cardSizeMode === "medium" ? MEDIUM_CARD : LARGE_CARD;
+    const w = eff.w;
+    const h = eff.h;
 
     const nextX = clamp(pt.x - w / 2, 0, canvasWidth - w);
     const nextY = clamp(pt.y - h / 2, 0, canvasHeight - h);
@@ -419,7 +420,6 @@ export function HtmlBoard({
         w: 600,
         h: 200,
         title: "Lane",
-        locked: false,
       };
     } else if (kind === "note") {
       obj = {
@@ -431,7 +431,6 @@ export function HtmlBoard({
         h: 160,
         text: "Sticky note...",
         color: "#fff7b2",
-        locked: false,
       };
     } else {
       obj = {
@@ -442,7 +441,6 @@ export function HtmlBoard({
         w: 260,
         h: 120,
         text: "Text...",
-        locked: false,
       };
     }
 
@@ -576,7 +574,6 @@ export function HtmlBoard({
       const nextObjects = objectsRef.current.map((o) => {
         const oo = d.originObjects[o.id];
         if (!oo) return o;
-        if (o.locked) return o;
         const x = clamp(oo.x + dx, 0, canvasWidth - oo.w);
         const y = clamp(oo.y + dy, 0, canvasHeight - oo.h);
         return { ...o, x, y };
@@ -750,23 +747,10 @@ export function HtmlBoard({
                 onPointerDown={(e) => beginMoveAny(e, o.id)}
               >
                 <div className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between">
-                  <span className="truncate">{o.title || "Lane"}</span>
-                  <button
-                    type="button"
-                    className="text-xs px-2 py-1 border rounded hover:bg-gray-50"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      updateObject(o.id, { locked: !o.locked });
-                    }}
-                    title={o.locked ? "Unlock lane" : "Lock lane"}
-                  >
-                    {o.locked ? "Locked" : "Lock"}
-                  </button>
                 </div>
 
                 {/* resize handle */}
-                {editMode && !o.locked ? (
+                {editMode ? (
                   <div
                     className="absolute right-0 bottom-0 rounded-tl bg-black/10"
                     style={{
@@ -822,7 +806,7 @@ export function HtmlBoard({
                 {o.text || ""}
               </div>
 
-              {editMode && !o.locked ? (
+              {editMode ? (
                 <div
                   className="absolute right-0 bottom-0 rounded-tl bg-black/10"
                   style={{
@@ -845,9 +829,9 @@ export function HtmlBoard({
           const w = effSize.w;
           const h = effSize.h;
 
-          const showPhoto = w >= 160 && h >= 64;
-          const showLine1 = w >= 220 && h >= 76;
-          const showLine2 = w >= 240 && h >= 86;
+          const showPhoto = cardSizeMode !== "small";
+          const showLine1 = cardSizeMode === "large";
+          const showLine2 = cardSizeMode === "large";
 
           const isActive = activeId === p.id;
           const isSelected = selectedIds.has(p.id);
@@ -941,7 +925,7 @@ export function HtmlBoard({
               </div>
 
               {/* resize handle */}
-              {editMode && cardSizeMode === "large" ? (
+              {false ? (
                 <div
                   className="absolute right-0 bottom-0 rounded-tl bg-black/10"
                   style={{
