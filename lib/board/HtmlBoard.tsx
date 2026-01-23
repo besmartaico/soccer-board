@@ -380,7 +380,7 @@ export function HtmlBoard({
     };
 
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    e.preventDefault();
+    // Don't call preventDefault here; it can block dblclick needed for editing text/notes.
     e.stopPropagation();
   }
 
