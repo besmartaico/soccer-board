@@ -50,6 +50,7 @@ const OBJ_MIN_H = 40;
 
 const RESIZE_HANDLE = 14;
 
+const LARGE_CARD = { w: 260, h: 92 };
 const MEDIUM_CARD = { w: 210, h: 72 };
 const SMALL_CARD = { w: 150, h: 52 };
 
