@@ -9,3 +9,21 @@ body {
 body {
   margin: 0;
 }
+
+/* -------- PRINT -------- */
+@media print {
+  aside,
+  button,
+  .toolbar {
+    display: none !important;
+  }
+
+  body {
+    overflow: hidden;
+  }
+
+  main {
+    width: 100vw;
+    height: 100vh;
+  }
+}
