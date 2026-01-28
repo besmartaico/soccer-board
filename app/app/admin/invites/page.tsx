@@ -115,12 +115,15 @@ export default function AdminInvitesPage() {
       <div className="max-w-3xl mx-auto">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Invites</h1>
-          <div className="flex items-center gap-3 text-sm">
+          <div className="flex items-center gap-3 text-sm sb-no-print">
             <Link className="underline" href="/app/teams">
               Teams
             </Link>
-            <Link className="underline" href="/">
-              Home
+            <Link className="underline" href="/app/admin">
+              Admin
+            </Link>
+            <Link className="underline" href="/app/admin/requests">
+              Requests
             </Link>
           </div>
         </div>

@@ -10,20 +10,46 @@ body {
   margin: 0;
 }
 
-/* -------- PRINT -------- */
+/* Utility classes used by the board page */
+.sb-no-print {
+  /* nothing here; print media rule below hides it */
+}
+
+.sb-print-root {
+  /* wrapper for print-specific sizing if needed */
+}
+
+.sb-print-canvas {
+  /* applied to the board scroll/container so print can expand */
+}
+
+/* Print-to-PDF support */
 @media print {
-  aside,
-  button,
-  .toolbar {
+  /* Hide UI chrome */
+  .sb-no-print {
     display: none !important;
   }
 
+  /* Let the board/canvas render without scrollbars cutting it off */
+  html,
   body {
-    overflow: hidden;
+    height: auto !important;
+    overflow: visible !important;
   }
 
-  main {
-    width: 100vw;
-    height: 100vh;
+  .sb-print-root {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .sb-print-canvas {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Avoid weird background color printing */
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

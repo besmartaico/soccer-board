@@ -128,15 +128,17 @@ export default function AdminRequestsPage() {
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-2xl font-bold">Access Requests</h1>
-          <div className="flex items-center gap-3 text-sm">
+
+          {/* ✅ Updated nav: Invites | Teams | Admin (removed Home) */}
+          <div className="flex items-center gap-3 text-sm sb-no-print">
             <Link className="underline" href="/app/admin/invites">
               Invites
             </Link>
             <Link className="underline" href="/app/teams">
               Teams
             </Link>
-            <Link className="underline" href="/">
-              Home
+            <Link className="underline" href="/app/admin">
+              Admin
             </Link>
           </div>
         </div>
