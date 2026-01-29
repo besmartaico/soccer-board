@@ -30,11 +30,7 @@ export default function TeamsPage() {
       return;
     }
 
-    const res = await supabase
-      .from("teams")
-      .select("id,name,created_at")
-      .order("created_at", { ascending: false });
-
+    const res = await supabase.from("teams").select("id,name,created_at").order("created_at", { ascending: false });
     if (res.error) {
       setError(res.error.message);
       setLoading(false);
@@ -77,6 +73,7 @@ export default function TeamsPage() {
 
     setError(null);
 
+    // If you don't have cascade deletes, you must delete boards first:
     const delBoards = await supabase.from("boards").delete().eq("team_id", teamId);
     if (delBoards.error) {
       setError(delBoards.error.message);
@@ -99,8 +96,6 @@ export default function TeamsPage() {
           <div className="text-3xl font-bold">Teams</div>
           <div className="text-gray-600">Create a team or open an existing one.</div>
         </div>
-
-        {/* Top-right nav */}
         <div className="flex items-center gap-4">
           <Link className="underline" href="/app/teams">
             Teams
