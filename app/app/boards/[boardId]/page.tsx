@@ -49,8 +49,7 @@ export default function BoardPage() {
   const params = useParams();
 
   const raw = (params as any)?.boardId;
-  const boardId: string | null =
-    typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
+  const boardId: string | null = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
 
   const [board, setBoard] = useState<BoardRow | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +88,6 @@ export default function BoardPage() {
   const [shareInput, setShareInput] = useState("");
   const [shareSaving, setShareSaving] = useState(false);
 
-
   // Modals
   const [photoModal, setPhotoModal] = useState<{ url: string; name: string } | null>(null);
   const [playerModal, setPlayerModal] = useState<PlacedPlayer | null>(null);
@@ -98,6 +96,12 @@ export default function BoardPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // SAFE boards link (never crashes early-render)
+  const boardsHref = useMemo(() => {
+    const tid = board?.team_id;
+    return tid ? `/app/teams/${tid}` : "/app/boards";
+  }, [board?.team_id]);
 
   // Close dropdowns if user clicks elsewhere
   useEffect(() => {
@@ -157,7 +161,6 @@ export default function BoardPage() {
     setShareEmails(Array.isArray(sh.emails) ? sh.emails : []);
 
     setDirty(false);
-
     setLoading(false);
   }
 
@@ -170,12 +173,8 @@ export default function BoardPage() {
     setPlayersError(null);
     setPlayersLoading(true);
     setPlayers([]);
-
     try {
-      const url = `/api/google/sheet?sheetId=${encodeURIComponent(cfg.sheetId)}&range=${encodeURIComponent(
-        cfg.range
-      )}`;
-
+      const url = `/api/google/sheet?sheetId=${encodeURIComponent(cfg.sheetId)}&range=${encodeURIComponent(cfg.range)}`;
       const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
 
@@ -191,7 +190,6 @@ export default function BoardPage() {
 
       const header = values[0];
       const rows = values.slice(1);
-
       const col = (name: string) => header.findIndex((h) => (h ?? "").trim() === name);
 
       const idxId = col("ID");
@@ -229,7 +227,7 @@ export default function BoardPage() {
 
       setPlayers(parsed);
 
-      // Also refresh any already-placed cards on the canvas
+      // refresh already-placed cards too
       setPlacedPlayers((cur) => {
         if (!Array.isArray(cur) || cur.length === 0) return cur;
         const byId = new Map(parsed.map((p) => [String(p.id), p] as const));
@@ -270,25 +268,13 @@ export default function BoardPage() {
   }, [googleConfig?.sheetId, googleConfig?.range]);
 
   const gradeOptions = useMemo(
-    () =>
-      uniq(players.map((p) => (p.grade ?? "").trim())).sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      ),
+    () => uniq(players.map((p) => (p.grade ?? "").trim())).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
     [players]
   );
-  const returningOptions = useMemo(
-    () => uniq(players.map((p) => (p.returning ?? "").trim())).sort(),
-    [players]
-  );
-  const primaryOptions = useMemo(
-    () => uniq(players.map((p) => (p.potentialPrimary ?? "").trim())).sort(),
-    [players]
-  );
+  const returningOptions = useMemo(() => uniq(players.map((p) => (p.returning ?? "").trim())).sort(), [players]);
+  const primaryOptions = useMemo(() => uniq(players.map((p) => (p.potentialPrimary ?? "").trim())).sort(), [players]);
   const likelihoodOptions = useMemo(
-    () =>
-      uniq(players.map((p) => (p.likelihoodPrimary ?? "").trim())).sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      ),
+    () => uniq(players.map((p) => (p.likelihoodPrimary ?? "").trim())).sort((a, b) => a.localeCompare(b, undefined, { numeric: true })),
     [players]
   );
 
@@ -300,15 +286,9 @@ export default function BoardPage() {
         if (!hay.includes(s)) return false;
       }
       if (filters.grade.length && !filters.grade.includes((p.grade ?? "").trim())) return false;
-      if (filters.returning.length && !filters.returning.includes((p.returning ?? "").trim()))
-        return false;
-      if (filters.primary.length && !filters.primary.includes((p.potentialPrimary ?? "").trim()))
-        return false;
-      if (
-        filters.likelihood.length &&
-        !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim())
-      )
-        return false;
+      if (filters.returning.length && !filters.returning.includes((p.returning ?? "").trim())) return false;
+      if (filters.primary.length && !filters.primary.includes((p.potentialPrimary ?? "").trim())) return false;
+      if (filters.likelihood.length && !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim())) return false;
       return true;
     });
   }, [players, filters]);
@@ -349,13 +329,7 @@ export default function BoardPage() {
     setError(null);
 
     try {
-      const cleaned = Array.from(
-        new Set(
-          shareEmails
-            .map((e) => e.trim().toLowerCase())
-            .filter(Boolean)
-        )
-      );
+      const cleaned = Array.from(new Set(shareEmails.map((e) => e.trim().toLowerCase()).filter(Boolean)));
 
       const prevData = board?.data && typeof board.data === "object" ? board.data : {};
       const nextData = {
@@ -380,23 +354,21 @@ export default function BoardPage() {
   }
 
   async function saveBoard() {
-    if (!boardId) return;
-    if (!board) return;
+    if (!boardId || !board) return;
 
     setSaving(true);
     setError(null);
 
     try {
       const prevData = board?.data && typeof board.data === "object" ? board.data : {};
-
       const nextData = {
         ...prevData,
         google: prevData.google ?? undefined,
         htmlBoard: {
-          placedPlayers: placedPlayers,
+          placedPlayers,
           objects: boardObjects,
           backgroundUrl: backgroundUrl || "",
-          cardSizeMode: cardSizeMode,
+          cardSizeMode,
         },
       };
 
@@ -415,7 +387,6 @@ export default function BoardPage() {
 
   async function onSelectBackgroundFile(file: File) {
     if (!boardId) return;
-
     setError(null);
 
     try {
@@ -428,9 +399,7 @@ export default function BoardPage() {
         contentType: file.type || undefined,
       });
 
-      if (up.error) {
-        throw new Error(`Storage upload failed: ${up.error.message}.`);
-      }
+      if (up.error) throw new Error(`Storage upload failed: ${up.error.message}.`);
 
       const pub = supabase.storage.from(BG_BUCKET).getPublicUrl(path);
       const url = pub.data.publicUrl;
@@ -457,9 +426,7 @@ export default function BoardPage() {
 
           <button
             type="button"
-            className={`border px-3 py-1 rounded text-sm ${
-              dirty ? "bg-gray-900 text-white" : "bg-white text-gray-700"
-            }`}
+            className={`border px-3 py-1 rounded text-sm ${dirty ? "bg-gray-900 text-white" : "bg-white text-gray-700"}`}
             onClick={saveBoard}
             disabled={!dirty || saving}
             title={dirty ? "Save changes" : "No changes to save"}
@@ -467,12 +434,7 @@ export default function BoardPage() {
             {saving ? "Saving..." : dirty ? "Save" : "Saved"}
           </button>
 
-          <button
-            type="button"
-            className="border px-3 py-1 rounded text-sm bg-white"
-            onClick={() => loadBoard()}
-            disabled={saving}
-          >
+          <button type="button" className="border px-3 py-1 rounded text-sm bg-white" onClick={() => loadBoard()} disabled={saving}>
             Reload
           </button>
 
@@ -525,7 +487,10 @@ export default function BoardPage() {
             <select
               className="border rounded px-2 py-1 text-sm bg-white"
               value={cardSizeMode}
-              onChange={(e) => { setCardSizeMode(e.target.value as any); setDirty(true); }}
+              onChange={(e) => {
+                setCardSizeMode(e.target.value as any);
+                setDirty(true);
+              }}
               title="Card size"
             >
               <option value="large">Cards: Large</option>
@@ -535,14 +500,12 @@ export default function BoardPage() {
           </div>
         </div>
 
+        {/* Top-right nav */}
         <div className="flex items-center gap-3">
           <Link className="underline" href="/app/teams">
             Teams
           </Link>
-          <Link
-            className="underline"
-            href={board?.team_id ? `/app/teams/${board.team_id}` : "/app/boards"}
-          >
+          <Link className="underline" href={boardsHref}>
             Boards
           </Link>
         </div>
@@ -560,11 +523,7 @@ export default function BoardPage() {
               <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-semibold">Roster</div>
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => setSidebarCollapsed(true)}
-                  >
+                  <button type="button" className="border px-3 py-1 rounded text-sm bg-white" onClick={() => setSidebarCollapsed(true)}>
                     Collapse
                   </button>
                   <button
@@ -580,15 +539,10 @@ export default function BoardPage() {
                 </div>
               </div>
 
-              {/* Background upload */}
               <div className="border rounded p-3 mb-3 bg-white">
                 <div className="text-xs font-semibold mb-2">Background</div>
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
+                  <button type="button" className="border px-3 py-1 rounded text-sm bg-white" onClick={() => fileInputRef.current?.click()}>
                     Upload image
                   </button>
                   <button
@@ -617,7 +571,6 @@ export default function BoardPage() {
                 />
               </div>
 
-              {/* Filters */}
               <div className="border rounded p-3 mb-3 bg-white relative z-30">
                 <div className="text-xs font-semibold mb-2">Filters</div>
 
@@ -679,9 +632,7 @@ export default function BoardPage() {
                 <button
                   type="button"
                   className="text-xs underline text-gray-600 mt-2"
-                  onClick={() =>
-                    setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
-                  }
+                  onClick={() => setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })}
                 >
                   Clear filters
                 </button>
@@ -713,9 +664,7 @@ export default function BoardPage() {
                             onClick={(e) => {
                               e.stopPropagation();
                               if (p.pictureProxyUrl) {
-                                const u = `${p.pictureProxyUrl}${
-                                  p.pictureProxyUrl.includes("?") ? "&" : "?"
-                                }ts=${Date.now()}`;
+                                const u = `${p.pictureProxyUrl}${p.pictureProxyUrl.includes("?") ? "&" : "?"}ts=${Date.now()}`;
                                 setPhotoModal({ url: u, name: p.name });
                               }
                             }}
@@ -739,12 +688,10 @@ export default function BoardPage() {
                             <div className="font-medium truncate">{p.name}</div>
                             <div className="text-xs text-gray-700">
                               Grade: {p.grade || "?"} • Pos: {p.position || "?"}
-                              {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
-                              {p.returning || "?"}
+                              {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning: {p.returning || "?"}
                             </div>
                             <div className="text-xs text-gray-700">
-                              Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
-                              {p.likelihoodPrimary || "?"}
+                              Primary: {p.potentialPrimary || "?"} • Likelihood: {p.likelihoodPrimary || "?"}
                             </div>
                           </div>
                         </div>
@@ -769,7 +716,6 @@ export default function BoardPage() {
             </aside>
           )}
 
-          {/* Board */}
           <section className="flex-1 relative z-0 overflow-hidden">
             <HtmlBoard
               editMode={true}
@@ -796,20 +742,13 @@ export default function BoardPage() {
         </div>
       )}
 
-      {/* Photo modal (roster thumbnail) */}
+      {/* Photo modal */}
       {photoModal ? (
-        <div
-          className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setPhotoModal(null)}
-        >
+        <div className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4" onClick={() => setPhotoModal(null)}>
           <div className="w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <div className="text-white font-semibold truncate">{photoModal.name}</div>
-              <button
-                type="button"
-                className="text-white underline text-sm"
-                onClick={() => setPhotoModal(null)}
-              >
+              <button type="button" className="text-white underline text-sm" onClick={() => setPhotoModal(null)}>
                 Close
               </button>
             </div>
@@ -823,16 +762,10 @@ export default function BoardPage() {
         </div>
       ) : null}
 
-      {/* Player modal (clicked on canvas) */}
+      {/* Player modal */}
       {playerModal ? (
-        <div
-          className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setPlayerModal(null)}
-        >
-          <div
-            className="w-full max-w-5xl bg-white rounded-xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4" onClick={() => setPlayerModal(null)}>
+          <div className="w-full max-w-5xl bg-white rounded-xl overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-4 py-3 border-b">
               <div className="font-semibold truncate">{playerModal.player.name}</div>
               <div className="flex items-center gap-3">
@@ -846,11 +779,7 @@ export default function BoardPage() {
                 >
                   Remove from board
                 </button>
-                <button
-                  type="button"
-                  className="underline text-sm"
-                  onClick={() => setPlayerModal(null)}
-                >
+                <button type="button" className="underline text-sm" onClick={() => setPlayerModal(null)}>
                   Close
                 </button>
               </div>
@@ -867,9 +796,7 @@ export default function BoardPage() {
                     draggable={false}
                   />
                 ) : (
-                  <div className="text-3xl font-bold text-gray-800">
-                    {(playerModal.player.name || "?").slice(0, 2).toUpperCase()}
-                  </div>
+                  <div className="text-3xl font-bold text-gray-800">{(playerModal.player.name || "?").slice(0, 2).toUpperCase()}</div>
                 )}
               </div>
 
@@ -878,44 +805,40 @@ export default function BoardPage() {
                   <span className="font-semibold">Grade:</span> {playerModal.player.grade || "?"}
                 </div>
                 <div className="text-sm text-gray-800 mb-1">
-                  <span className="font-semibold">Position:</span>{" "}
-                  {playerModal.player.pos1 || "?"}
+                  <span className="font-semibold">Position:</span> {playerModal.player.pos1 || "?"}
                   {playerModal.player.pos2 ? ` / ${playerModal.player.pos2}` : ""}
                 </div>
                 <div className="text-sm text-gray-800 mb-1">
-                  <span className="font-semibold">Returning:</span>{" "}
-                  {playerModal.player.returning || "?"}
+                  <span className="font-semibold">Returning:</span> {playerModal.player.returning || "?"}
                 </div>
                 <div className="text-sm text-gray-800 mb-1">
-                  <span className="font-semibold">Primary:</span>{" "}
-                  {playerModal.player.primary || "?"}
+                  <span className="font-semibold">Primary:</span> {playerModal.player.primary || "?"}
                 </div>
                 <div className="text-sm text-gray-800 mb-1">
-                  <span className="font-semibold">Likelihood:</span>{" "}
-                  {playerModal.player.likelihood || "?"}
+                  <span className="font-semibold">Likelihood:</span> {playerModal.player.likelihood || "?"}
                 </div>
 
                 {playerModal.player.notes ? (
                   <div className="mt-3">
                     <div className="text-xs font-semibold text-gray-700 mb-1">Notes</div>
-                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
-                      {playerModal.player.notes}
-                    </div>
+                    <div className="text-sm text-gray-800 whitespace-pre-wrap">{playerModal.player.notes}</div>
                   </div>
                 ) : null}
 
-                <div className="mt-4 text-xs text-gray-500">
-                  Tip: resize the card using the bottom-right handle on the card.
-                </div>
+                <div className="mt-4 text-xs text-gray-500">Tip: resize the card using the bottom-right handle on the card.</div>
               </div>
             </div>
           </div>
         </div>
       ) : null}
-          {/* Share modal */}
+
+      {/* Share modal (clicking backdrop closes so it can’t “trap” clicks) */}
       {shareOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-lg border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={() => setShareOpen(false)}>
+          <div
+            className="w-full max-w-xl rounded-2xl bg-white shadow-lg border"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <div>
                 <div className="text-lg font-semibold">Share Board</div>
@@ -973,10 +896,7 @@ export default function BoardPage() {
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {shareEmails.map((em) => (
-                      <span
-                        key={em}
-                        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-gray-50"
-                      >
+                      <span key={em} className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-gray-50">
                         <span className="max-w-[320px] truncate">{em}</span>
                         <button
                           type="button"
@@ -1009,7 +929,6 @@ export default function BoardPage() {
           </div>
         </div>
       ) : null}
-
     </main>
   );
 }
@@ -1059,11 +978,7 @@ function DropdownMultiSelect({
             <div className="space-y-1">
               {options.map((o) => (
                 <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(o.value)}
-                    onChange={() => onToggle(o.value)}
-                  />
+                  <input type="checkbox" checked={selected.includes(o.value)} onChange={() => onToggle(o.value)} />
                   <span>{o.label}</span>
                 </label>
               ))}
@@ -1088,9 +1003,6 @@ function uniq(arr: string[]) {
   return out;
 }
 
-/**
- * Normalize Google Drive links into a "direct-ish" image URL.
- */
 function normalizePictureUrl(raw: string) {
   const s = (raw ?? "").trim();
   if (!s) return "";
@@ -1098,23 +1010,18 @@ function normalizePictureUrl(raw: string) {
   try {
     const u = new URL(s);
 
-    // /file/d/<id>/
     const m = u.pathname.match(/\/file\/d\/([^/]+)/);
     if (m && m[1]) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
 
-    // /thumbnail?id=...
     if (u.hostname === "drive.google.com" && u.pathname === "/thumbnail") {
       let id = u.searchParams.get("id") ?? "";
-      if (id.includes("=") && !id.includes("%3D")) {
-        id = id.split("=")[0];
-      }
+      if (id.includes("=") && !id.includes("%3D")) id = id.split("=")[0];
       if (id) {
         const sz = u.searchParams.get("sz") || "w1000";
         return `https://drive.google.com/thumbnail?id=${id}&sz=${encodeURIComponent(sz)}`;
       }
     }
 
-    // ?id=<id>
     const idParam = u.searchParams.get("id");
     if (idParam) {
       const id = idParam.includes("=") ? idParam.split("=")[0] : idParam;

@@ -23,15 +23,12 @@ type BoardRow = {
 function extractSheetId(input: string) {
   const s = (input || "").trim();
   if (!s) return "";
-  // allow pasting raw ID
   if (/^[a-zA-Z0-9-_]{20,}$/.test(s) && !s.includes("/") && !s.includes("?")) return s;
 
   try {
     const u = new URL(s);
-    // .../spreadsheets/d/<ID>/...
     const m = u.pathname.match(/\/spreadsheets\/d\/([^/]+)/);
     if (m && m[1]) return m[1];
-    // ?id=<ID>
     const id = u.searchParams.get("id");
     if (id) return id;
   } catch {
@@ -52,8 +49,9 @@ export default function TeamBoardsPage() {
   const router = useRouter();
   const params = useParams();
   const raw = (params as any)?.teamId;
-  const teamId: string | null =
-    typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
+  const teamId: string | null = typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
+
+  const boardsHref = teamId ? `/app/teams/${teamId}` : "/app/boards";
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,15 +59,16 @@ export default function TeamBoardsPage() {
   const [team, setTeam] = useState<TeamRow | null>(null);
   const [boards, setBoards] = useState<BoardRow[]>([]);
 
-  // roster inputs (friendly)
   const [sheetLink, setSheetLink] = useState("");
   const [sheetTab, setSheetTab] = useState("Player Detail");
   const [startCol, setStartCol] = useState("A");
   const [endCol, setEndCol] = useState("P");
   const detectedSheetId = useMemo(() => extractSheetId(sheetLink), [sheetLink]);
-  const computedRange = useMemo(() => buildRange(sheetTab, startCol, endCol), [sheetTab, startCol, endCol]);
+  const computedRange = useMemo(
+    () => buildRange(sheetTab, startCol, endCol),
+    [sheetTab, startCol, endCol]
+  );
 
-  // create board
   const [newBoardName, setNewBoardName] = useState("");
   const [savingRoster, setSavingRoster] = useState(false);
   const [creatingBoard, setCreatingBoard] = useState(false);
@@ -96,6 +95,7 @@ export default function TeamBoardsPage() {
       setLoading(false);
       return;
     }
+
     const teamRow = t.data as TeamRow;
     setTeam(teamRow);
 
@@ -112,11 +112,9 @@ export default function TeamBoardsPage() {
     }
     setBoards((b.data ?? []) as BoardRow[]);
 
-    // hydrate roster inputs from team.data.google if present
     const g = teamRow?.data?.google;
-    if (g?.sheetId) setSheetLink(g.sheetId); // if stored as id, we still show it
+    if (g?.sheetId) setSheetLink(g.sheetId);
     if (g?.range) {
-      // try parse "Tab!A:P"
       const m = String(g.range).match(/^(.+)!([A-Z]+):([A-Z]+)$/i);
       if (m) {
         setSheetTab(m[1]);
@@ -172,7 +170,6 @@ export default function TeamBoardsPage() {
       const name = newBoardName.trim();
       if (!name) throw new Error("Enter a board name.");
 
-      // New boards should inherit roster config
       const g = team?.data?.google;
       const data = g?.sheetId && g?.range ? { google: g } : {};
 
@@ -208,14 +205,13 @@ export default function TeamBoardsPage() {
           <div className="text-3xl font-bold truncate">{team?.name || "Team"}</div>
           <div className="text-gray-600">Boards</div>
         </div>
+
+        {/* Top-right nav */}
         <div className="flex items-center gap-4">
           <Link className="underline" href="/app/teams">
             Teams
           </Link>
-          <Link
-            className="underline"
-            href={teamId ? `/app/teams/${teamId}` : "/app/boards"}
-          >
+          <Link className="underline" href={boardsHref}>
             Boards
           </Link>
         </div>
@@ -227,7 +223,6 @@ export default function TeamBoardsPage() {
         <div className="p-8">Loading...</div>
       ) : (
         <div className="p-8 max-w-5xl mx-auto space-y-6">
-          {/* Existing boards FIRST */}
           <div className="border rounded-2xl p-6">
             <div className="text-xl font-semibold mb-1">Team Boards</div>
             <div className="text-gray-600 mb-4">Open an existing board or delete one.</div>
@@ -268,7 +263,6 @@ export default function TeamBoardsPage() {
             )}
           </div>
 
-          {/* Roster + Create board */}
           <div className="border rounded-2xl p-6">
             <div className="text-xl font-semibold mb-1">Roster + Create a Board</div>
             <div className="text-gray-600 mb-4">
@@ -354,9 +348,7 @@ export default function TeamBoardsPage() {
                   {creatingBoard ? "Creating..." : "Create"}
                 </button>
               </div>
-              <div className="text-gray-600 text-sm mt-2">
-                New boards will automatically load the roster.
-              </div>
+              <div className="text-gray-600 text-sm mt-2">New boards will automatically load the roster.</div>
             </div>
           </div>
         </div>
