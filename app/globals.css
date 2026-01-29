@@ -10,46 +10,58 @@ body {
   margin: 0;
 }
 
-/* Utility classes used by the board page */
+/* Print helpers */
 .sb-no-print {
-  /* nothing here; print media rule below hides it */
+  display: block;
 }
-
 .sb-print-root {
-  /* wrapper for print-specific sizing if needed */
+  background: white;
 }
-
-.sb-print-canvas {
-  /* applied to the board scroll/container so print can expand */
-}
-
-/* Print-to-PDF support */
 @media print {
-  /* Hide UI chrome */
   .sb-no-print {
     display: none !important;
   }
-
-  /* Let the board/canvas render without scrollbars cutting it off */
-  html,
-  body {
-    height: auto !important;
-    overflow: visible !important;
-  }
-
   .sb-print-root {
     height: auto !important;
     overflow: visible !important;
   }
-
   .sb-print-canvas {
-    height: auto !important;
     overflow: visible !important;
   }
+}
 
-  /* Avoid weird background color printing */
-  body {
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+/* Board toolbar: keep nav visible, allow tool row to scroll on small screens */
+.sb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sb-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.sb-toolbar-left::-webkit-scrollbar {
+  display: none;
+}
+
+/* Truncate long button/label text on small screens */
+.sb-chip {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .sb-chip {
+    max-width: 90px;
   }
 }

@@ -51,8 +51,11 @@ export default function AdminInvitesPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/admin/invites", { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to load invites.");
+      const ct = res.headers.get("content-type") || "";
+      const text = await res.text();
+      const json = ct.includes("application/json") ? JSON.parse(text || "{}") : null;
+
+      if (!res.ok) throw new Error(json?.error ?? text?.slice(0, 200) ?? "Failed to load invites.");
       setInvites(json?.invites ?? []);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to load invites.");
@@ -79,8 +82,13 @@ export default function AdminInvitesPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: e1 }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to add invite.");
+
+      const ct = res.headers.get("content-type") || "";
+      const text = await res.text();
+      const json = ct.includes("application/json") ? JSON.parse(text || "{}") : null;
+
+      if (!res.ok) throw new Error(json?.error ?? text?.slice(0, 200) ?? "Failed to add invite.");
+
       setNewEmail("");
       await refresh();
     } catch (e: any) {
@@ -100,8 +108,14 @@ export default function AdminInvitesPage() {
       const res = await fetch(`/api/admin/invites?email=${encodeURIComponent(email)}`, {
         method: "DELETE",
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to remove invite.");
+
+      const ct = res.headers.get("content-type") || "";
+      const text = await res.text();
+      const json = ct.includes("application/json") ? JSON.parse(text || "{}") : null;
+
+      if (!res.ok)
+        throw new Error(json?.error ?? text?.slice(0, 200) ?? "Failed to remove invite.");
+
       await refresh();
     } catch (e: any) {
       setErr(e?.message ?? "Failed to remove invite.");

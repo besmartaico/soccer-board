@@ -202,6 +202,18 @@ export function HtmlBoard({
 
   const dragRef = useRef<DragState | null>(null);
 
+  // If switching to view mode, hard-cancel any in-progress drag/box/edit selection state.
+  useEffect(() => {
+    if (!editMode) {
+      dragRef.current = null;
+      twoFingerRef.current = null;
+      pointersRef.current.clear();
+      setBox(null);
+      setEditingId(null);
+      activeEditElRef.current = null;
+    }
+  }, [editMode]);
+
   // ---------- coordinate helpers ----------
   function clientToBoard(clientX: number, clientY: number) {
     const canvas = canvasRef.current;
@@ -823,6 +835,14 @@ export function HtmlBoard({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [editMode]);
 
+  // In view mode, make all canvas children non-interactive so scrolling always works
+  const viewModeChildStyle: React.CSSProperties | undefined = !editMode
+    ? {
+        pointerEvents: "none",
+        touchAction: "pan-x pan-y",
+      }
+    : undefined;
+
   // ---------- rendering ----------
   return (
     <div
@@ -884,8 +904,7 @@ export function HtmlBoard({
                   height: o.h,
                   zIndex: 1,
                   backdropFilter: "blur(2px)",
-                  // ✅ View mode should not block scrolling
-                  touchAction: editMode ? "none" : "pan-x pan-y",
+                  ...(viewModeChildStyle ?? {}),
                 }}
                 onPointerDown={editMode ? (e) => beginMoveAny(e, o.id) : undefined}
               >
@@ -949,8 +968,7 @@ export function HtmlBoard({
                 height: o.h,
                 zIndex: 2,
                 background: bg,
-                // ✅ View mode should not block scrolling
-                touchAction: editMode ? "none" : "pan-x pan-y",
+                ...(viewModeChildStyle ?? {}),
               }}
               onPointerDown={
                 editMode
@@ -1084,10 +1102,9 @@ export function HtmlBoard({
                 width: w,
                 height: h,
                 userSelect: "none",
-                // ✅ View mode should allow scroll gestures to pass through
-                touchAction: editMode ? "none" : "pan-x pan-y",
                 zIndex: 5,
                 borderColor: gCol,
+                ...(viewModeChildStyle ?? {}),
               }}
               onPointerDown={editMode ? (e) => beginMoveAny(e, p.id) : undefined}
             >
@@ -1099,14 +1116,15 @@ export function HtmlBoard({
                   <div
                     className="w-[88px] h-full bg-gray-100 border-r rounded-bl-xl overflow-hidden flex items-center justify-center relative"
                     onPointerDown={(e) => {
+                      if (!editMode) return;
                       // photo click opens details; do not drag
                       e.preventDefault();
                       e.stopPropagation();
                       ensureSelectionOnPointerDown(p.id, e);
                       onOpenPlayer?.(p);
                     }}
-                    title="Open details"
-                    style={{ cursor: "pointer" }}
+                    title={editMode ? "Open details" : undefined}
+                    style={{ cursor: editMode ? "pointer" : "default" }}
                   >
                     {p.player.pictureUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element

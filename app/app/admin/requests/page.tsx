@@ -56,8 +56,11 @@ export default function AdminRequestsPage() {
     setLoading(true);
     try {
       const res = await fetch("/api/admin/requests", { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to load requests.");
+      const ct = res.headers.get("content-type") || "";
+      const text = await res.text();
+      const json = ct.includes("application/json") ? JSON.parse(text || "{}") : null;
+
+      if (!res.ok) throw new Error(json?.error ?? text?.slice(0, 200) ?? "Failed to load requests.");
       setRequests(json?.requests ?? []);
     } catch (e: any) {
       setErr(e?.message ?? "Failed to load requests.");
@@ -83,8 +86,13 @@ export default function AdminRequestsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, expiresInDays: 7 }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to generate invite.");
+
+      const ct = res.headers.get("content-type") || "";
+      const text = await res.text();
+      const json = ct.includes("application/json") ? JSON.parse(text || "{}") : null;
+
+      if (!res.ok)
+        throw new Error(json?.error ?? text?.slice(0, 200) ?? "Failed to generate invite.");
 
       const link = json?.link as string;
       await navigator.clipboard.writeText(link);
@@ -110,8 +118,12 @@ export default function AdminRequestsPage() {
       const res = await fetch(`/api/admin/requests?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to delete request.");
+
+      const ct = res.headers.get("content-type") || "";
+      const text = await res.text();
+      const json = ct.includes("application/json") ? JSON.parse(text || "{}") : null;
+
+      if (!res.ok) throw new Error(json?.error ?? text?.slice(0, 200) ?? "Failed to delete request.");
 
       setRequests((prev) => prev.filter((r) => r.id !== id));
       setToast("Request deleted");
@@ -128,17 +140,15 @@ export default function AdminRequestsPage() {
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-2xl font-bold">Access Requests</h1>
-
-          {/* ✅ Updated nav: Invites | Teams | Admin (removed Home) */}
           <div className="flex items-center gap-3 text-sm sb-no-print">
-            <Link className="underline" href="/app/admin/invites">
-              Invites
-            </Link>
             <Link className="underline" href="/app/teams">
               Teams
             </Link>
             <Link className="underline" href="/app/admin">
               Admin
+            </Link>
+            <Link className="underline" href="/app/admin/invites">
+              Invites
             </Link>
           </div>
         </div>
@@ -201,7 +211,7 @@ export default function AdminRequestsPage() {
                           disabled={isBusy}
                           title="Generates a single-use invite link and copies it"
                         >
-                          {busyId === r.email ? "Generating..." : "Generate invite link"}
+                          {busyId === r.email ? "Working..." : "Generate invite"}
                         </button>
 
                         <button
@@ -210,7 +220,7 @@ export default function AdminRequestsPage() {
                           onClick={() => deleteRequest(r.id)}
                           disabled={isBusy}
                         >
-                          {busyId === r.id ? "Deleting..." : "Delete request"}
+                          {busyId === r.id ? "Deleting..." : "Delete"}
                         </button>
                       </div>
                     </div>
@@ -218,13 +228,6 @@ export default function AdminRequestsPage() {
                 })}
               </div>
             )}
-          </div>
-
-          <div className="mt-4 text-xs text-gray-500">
-            “Generate invite link” copies a link like:
-            <div className="mt-1 font-mono break-all">
-              https://lpsoccer.besmartai.co/signup?email=...&token=...
-            </div>
           </div>
         </div>
       </div>
