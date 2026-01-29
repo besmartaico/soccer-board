@@ -10,6 +10,160 @@ body {
   margin: 0;
 }
 
+/* -------------------------------------------------
+   Soccer Board UI helpers (non-tailwind components)
+   ------------------------------------------------- */
+
+/* Top bar */
+.sb-topbar {
+  position: relative;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  background: #ffffff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.sb-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.sb-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.sb-title {
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1.25;
+  color: #111827;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Toolbar: allow long rows to scroll horizontally on smaller widths */
+.sb-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.sb-toolbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Buttons */
+.sb-btn {
+  appearance: none;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #111827;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.sb-btn:hover {
+  background: #f9fafb;
+}
+
+.sb-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.sb-btn-primary {
+  background: #111827;
+  color: #ffffff;
+  border-color: #111827;
+}
+
+.sb-btn-primary:hover {
+  background: #0b1220;
+}
+
+.sb-btn-active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* Select */
+.sb-select {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #111827;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 14px;
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.sb-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Links in top right */
+.sb-link {
+  color: #111827;
+  text-decoration: none;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.sb-link:hover {
+  background: #f3f4f6;
+}
+
+.sb-sep {
+  width: 1px;
+  height: 22px;
+  background: #e5e7eb;
+  margin: 0 2px;
+  flex: 0 0 auto;
+}
+
+/* Truncate long button/label text on small screens */
+.sb-chip {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .sb-title {
+    max-width: 160px;
+  }
+
+  .sb-chip {
+    max-width: 90px;
+  }
+}
+
 /* Print helpers */
 .sb-no-print {
   display: block;
@@ -27,41 +181,5 @@ body {
   }
   .sb-print-canvas {
     overflow: visible !important;
-  }
-}
-
-/* Board toolbar: keep nav visible, allow tool row to scroll on small screens */
-.sb-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.sb-toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-}
-
-.sb-toolbar-left::-webkit-scrollbar {
-  display: none;
-}
-
-/* Truncate long button/label text on small screens */
-.sb-chip {
-  max-width: 140px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (max-width: 480px) {
-  .sb-chip {
-    max-width: 90px;
   }
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -52,7 +52,6 @@ export default function BoardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [board, setBoard] = useState<BoardRow | null>(null);
-
   const [googleConfig, setGoogleConfig] = useState<GoogleConfig | null>(null);
 
   const [playersLoading, setPlayersLoading] = useState(false);
@@ -161,7 +160,9 @@ export default function BoardPage() {
     setPlayers([]);
 
     try {
-      const url = `/api/google/sheet?sheetId=${encodeURIComponent(cfg.sheetId)}&range=${encodeURIComponent(cfg.range)}`;
+      const url = `/api/google/sheet?sheetId=${encodeURIComponent(cfg.sheetId)}&range=${encodeURIComponent(
+        cfg.range
+      )}`;
       const res = await fetch(url, { cache: "no-store" });
       const json = await res.json();
 
@@ -176,11 +177,16 @@ export default function BoardPage() {
 
       const header = rows[0] as string[];
       const idx = (name: string) => header.findIndex((h) => String(h).trim() === name);
+      const cell = (r: any[], i: number) => (i >= 0 ? r?.[i] : undefined);
 
       const iId = idx("ID");
       const iName = idx("Student Name");
       const iGrade = idx("Grade");
+
+      // ✅ FIX: use Thumb if present, else fall back to Picture
       const iThumb = idx("Thumb");
+      const iPicture = idx("Picture");
+
       const iReturning = idx("Returning Player");
       const iPos = idx("Position");
       const iPos2 = idx("Secondary Position");
@@ -188,18 +194,23 @@ export default function BoardPage() {
       const iLikely = idx("Likelihood Primary");
       const iNotes = idx("Jeff's Notes");
 
-      const parsed: PlayerRow[] = rows.slice(1).map((r: any[]) => ({
-        id: String(r[iId] ?? "").trim(),
-        name: String(r[iName] ?? "").trim(),
-        grade: String(r[iGrade] ?? "").trim(),
-        pictureProxyUrl: String(r[iThumb] ?? "").trim(),
-        returning: String(r[iReturning] ?? "").trim(),
-        position: String(r[iPos] ?? "").trim(),
-        secondaryPosition: String(r[iPos2] ?? "").trim(),
-        potentialPrimary: String(r[iPrimary] ?? "").trim(),
-        likelihoodPrimary: String(r[iLikely] ?? "").trim(),
-        notes: String(r[iNotes] ?? "").trim(),
-      }));
+      const parsed: PlayerRow[] = rows.slice(1).map((r: any[]) => {
+        const thumb = String(cell(r, iThumb) ?? "").trim();
+        const picture = String(cell(r, iPicture) ?? "").trim();
+
+        return {
+          id: String(cell(r, iId) ?? "").trim(),
+          name: String(cell(r, iName) ?? "").trim(),
+          grade: String(cell(r, iGrade) ?? "").trim(),
+          pictureProxyUrl: (thumb || picture || "").trim(),
+          returning: String(cell(r, iReturning) ?? "").trim(),
+          position: String(cell(r, iPos) ?? "").trim(),
+          secondaryPosition: String(cell(r, iPos2) ?? "").trim(),
+          potentialPrimary: String(cell(r, iPrimary) ?? "").trim(),
+          likelihoodPrimary: String(cell(r, iLikely) ?? "").trim(),
+          notes: String(cell(r, iNotes) ?? "").trim(),
+        };
+      });
 
       setPlayers(parsed.filter((p) => p.name));
     } catch (e: any) {
@@ -291,17 +302,25 @@ export default function BoardPage() {
     });
   }, [players, search, gradeFilter]);
 
+  const btnBase =
+    "appearance-none border border-gray-300 bg-white text-gray-900 rounded-lg px-2.5 py-1.5 text-sm leading-none cursor-pointer select-none hover:bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed whitespace-nowrap";
+  const btnPrimary = "bg-gray-900 text-white border-gray-900 hover:bg-gray-950";
+  const btnActive = "border-blue-600 shadow-[0_0_0_2px_rgba(37,99,235,0.15)]";
+  const linkBase = "text-gray-900 no-underline px-2 py-1.5 rounded-lg text-sm hover:bg-gray-100";
+
   return (
     <main className="h-screen overflow-hidden">
       {/* Top bar */}
-      <div className="sb-topbar">
-        <div className="sb-topbar-left">
-          <div className="sb-title">{board ? board.name : "Board"}</div>
+      <div className="relative z-40 flex items-center justify-between gap-3 px-4 py-2 bg-white border-b border-gray-200">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="font-bold text-base text-gray-900 max-w-[260px] truncate">
+            {board ? board.name : "Board"}
+          </div>
 
-          <div className="sb-toolbar">
+          <div className="flex items-center gap-2 min-w-0 overflow-x-auto [-webkit-overflow-scrolling:touch] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <button
               type="button"
-              className={`sb-btn ${dirty ? "sb-btn-primary" : "sb-btn"}`}
+              className={`${btnBase} ${dirty ? btnPrimary : ""}`}
               onClick={saveBoard}
               disabled={!dirty || saving}
               title={dirty ? "Save changes" : "No changes to save"}
@@ -309,13 +328,13 @@ export default function BoardPage() {
               {saving ? "Saving..." : dirty ? "Save" : "Saved"}
             </button>
 
-            <button type="button" className="sb-btn" onClick={() => loadBoard()} disabled={saving}>
+            <button type="button" className={btnBase} onClick={() => loadBoard()} disabled={saving}>
               Reload
             </button>
 
             <button
               type="button"
-              className="sb-btn"
+              className={btnBase}
               onClick={() => setShareOpen(true)}
               disabled={!board}
               title="Share this board"
@@ -323,15 +342,21 @@ export default function BoardPage() {
               Share
             </button>
 
-            <button type="button" className="sb-btn" onClick={printToPdf} disabled={!board} title="Print (Save to PDF)">
+            <button
+              type="button"
+              className={btnBase}
+              onClick={printToPdf}
+              disabled={!board}
+              title="Print (Save to PDF)"
+            >
               Print
             </button>
 
-            <div className="sb-sep" />
+            <div className="w-px h-5 bg-gray-200 mx-1 shrink-0" />
 
             <button
               type="button"
-              className={`sb-btn ${!editMode ? "sb-btn-primary" : ""}`}
+              className={`${btnBase} ${!editMode ? btnPrimary : ""}`}
               onClick={() => {
                 commitInlineEdits();
                 setEditMode(false);
@@ -345,17 +370,17 @@ export default function BoardPage() {
 
             <button
               type="button"
-              className={`sb-btn ${editMode ? "sb-btn-primary" : ""}`}
+              className={`${btnBase} ${editMode ? btnPrimary : ""}`}
               onClick={() => setEditMode(true)}
               title="Edit mode (move and edit items)"
             >
               Edit
             </button>
 
-            <div className="sb-sep" />
+            <div className="w-px h-5 bg-gray-200 mx-1 shrink-0" />
 
             <button
-              className={`sb-btn ${tool === "select" ? "sb-btn-active" : ""}`}
+              className={`${btnBase} ${tool === "select" ? btnActive : ""}`}
               onClick={() => setTool("select")}
               title="Select / Move"
               type="button"
@@ -364,7 +389,7 @@ export default function BoardPage() {
               Select
             </button>
             <button
-              className={`sb-btn ${tool === "lane" ? "sb-btn-active" : ""}`}
+              className={`${btnBase} ${tool === "lane" ? btnActive : ""}`}
               onClick={() => setTool("lane")}
               title="Add a swim lane (click on board to place)"
               type="button"
@@ -373,7 +398,7 @@ export default function BoardPage() {
               Lane
             </button>
             <button
-              className={`sb-btn ${tool === "text" ? "sb-btn-active" : ""}`}
+              className={`${btnBase} ${tool === "text" ? btnActive : ""}`}
               onClick={() => setTool("text")}
               title="Add a text box (click on board to place)"
               type="button"
@@ -382,7 +407,7 @@ export default function BoardPage() {
               Text
             </button>
             <button
-              className={`sb-btn ${tool === "note" ? "sb-btn-active" : ""}`}
+              className={`${btnBase} ${tool === "note" ? btnActive : ""}`}
               onClick={() => setTool("note")}
               title="Add a sticky note (click on board to place)"
               type="button"
@@ -392,7 +417,7 @@ export default function BoardPage() {
             </button>
 
             <select
-              className="sb-select"
+              className="border border-gray-300 bg-white text-gray-900 rounded-lg px-2.5 py-1.5 text-sm leading-none cursor-pointer whitespace-nowrap disabled:opacity-60 disabled:cursor-not-allowed"
               value={cardSizeMode}
               onChange={(e) => {
                 setCardSizeMode(e.target.value as any);
@@ -408,16 +433,16 @@ export default function BoardPage() {
           </div>
         </div>
 
-        <div className="sb-topbar-right">
-          <Link className="sb-link" href="/app/teams">
+        <div className="flex items-center gap-1 shrink-0">
+          <Link className={linkBase} href="/app/teams">
             Teams
           </Link>
           {board?.team_id ? (
-            <Link className="sb-link" href={`/app/teams/${board.team_id}/boards`}>
+            <Link className={linkBase} href={`/app/teams/${board.team_id}/boards`}>
               Boards
             </Link>
           ) : null}
-          <Link className="sb-link" href="/app/admin">
+          <Link className={linkBase} href="/app/admin">
             Admin
           </Link>
         </div>
@@ -468,7 +493,9 @@ export default function BoardPage() {
                 {filteredPlayers.map((p, idx) => (
                   <div
                     key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-                    className={`border rounded bg-white ${editMode ? "cursor-grab active:cursor-grabbing" : "opacity-60"}`}
+                    className={`border rounded bg-white ${
+                      editMode ? "cursor-grab active:cursor-grabbing" : "opacity-60"
+                    }`}
                     draggable={editMode}
                     onDragStart={(e) => onPlayerDragStart(e, p)}
                     onPointerDown={(e) => {
@@ -491,7 +518,11 @@ export default function BoardPage() {
                         });
                       }
                     }}
-                    title={editMode ? "Drag onto board (desktop) or tap then tap board (touch)" : "Switch to Edit mode to place"}
+                    title={
+                      editMode
+                        ? "Drag onto board (desktop) or tap then tap board (touch)"
+                        : "Switch to Edit mode to place"
+                    }
                   >
                     <div className="p-2">
                       <div className="flex gap-2">
@@ -612,9 +643,12 @@ export default function BoardPage() {
                 {playerModal.player.pos2 ? ` / ${playerModal.player.pos2}` : ""}
               </div>
               <div>
-                Primary: {playerModal.player.primary || "?"} • Likelihood: {playerModal.player.likelihood || "?"}
+                Primary: {playerModal.player.primary || "?"} • Likelihood:{" "}
+                {playerModal.player.likelihood || "?"}
               </div>
-              {playerModal.player.notes ? <div className="pt-2 whitespace-pre-wrap">{playerModal.player.notes}</div> : null}
+              {playerModal.player.notes ? (
+                <div className="pt-2 whitespace-pre-wrap">{playerModal.player.notes}</div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -635,9 +669,7 @@ export default function BoardPage() {
               (Your existing sharing UI/logic continues below – unchanged)
             </div>
 
-            {/* Keep your existing share modal body here if you had more logic.
-                If your current file had additional share controls below this point,
-                paste them back in — I didn’t remove your state, only kept the shell. */}
+            {/* Keep your existing share modal body here if you had more logic. */}
           </div>
         </div>
       ) : null}
