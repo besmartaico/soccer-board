@@ -212,8 +212,11 @@ export default function TeamBoardsPage() {
           <Link className="underline" href="/app/teams">
             Teams
           </Link>
-          <Link className="underline" href="/">
-            Home
+          <Link
+            className="underline"
+            href={teamId ? `/app/teams/${teamId}` : "/app/boards"}
+          >
+            Boards
           </Link>
         </div>
       </div>

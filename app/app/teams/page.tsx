@@ -96,9 +96,14 @@ export default function TeamsPage() {
           <div className="text-3xl font-bold">Teams</div>
           <div className="text-gray-600">Create a team or open an existing one.</div>
         </div>
-        <Link className="underline" href="/">
-          Home
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link className="underline" href="/app/teams">
+            Teams
+          </Link>
+          <Link className="underline" href="/app/boards">
+            Boards
+          </Link>
+        </div>
       </div>
 
       {error ? <div className="px-8 py-3 text-red-600">{error}</div> : null}
