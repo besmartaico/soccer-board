@@ -77,6 +77,7 @@ export default function BoardPage() {
   const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
   const [tool, setTool] = useState<BoardTool>("select");
   const [cardSizeMode, setCardSizeMode] = useState<"large" | "medium" | "small">("large");
+  const [editMode, setEditMode] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -105,6 +106,11 @@ export default function BoardPage() {
     window.addEventListener("mousedown", onDown);
     return () => window.removeEventListener("mousedown", onDown);
   }, []);
+
+  // If we leave edit mode, force tool back to "select"
+  useEffect(() => {
+    if (!editMode && tool !== "select") setTool("select");
+  }, [editMode, tool]);
 
   async function loadBoard() {
     setLoading(true);
@@ -457,6 +463,15 @@ export default function BoardPage() {
 
           <button
             type="button"
+            className={`border px-3 py-1 rounded text-sm ${editMode ? "bg-gray-900 text-white" : "bg-white text-gray-700"}`}
+            onClick={() => setEditMode((v) => !v)}
+            title={editMode ? "Switch to View mode (lock canvas)" : "Switch to Edit mode"}
+          >
+            {editMode ? "Edit" : "View"}
+          </button>
+
+          <button
+            type="button"
             className={`border px-3 py-1 rounded text-sm ${
               dirty ? "bg-gray-900 text-white" : "bg-white text-gray-700"
             }`}
@@ -499,25 +514,28 @@ export default function BoardPage() {
             </button>
             <button
               className={`rounded-md border px-3 py-1 text-sm ${tool === "lane" ? "bg-gray-100" : "bg-white"}`}
-              onClick={() => setTool("lane")}
+              onClick={() => editMode && setTool("lane")}
               title="Add a swim lane (click on board to place)"
               type="button"
+              disabled={!editMode}
             >
               Lane
             </button>
             <button
               className={`rounded-md border px-3 py-1 text-sm ${tool === "text" ? "bg-gray-100" : "bg-white"}`}
-              onClick={() => setTool("text")}
+              onClick={() => editMode && setTool("text")}
               title="Add a text box (click on board to place)"
               type="button"
+              disabled={!editMode}
             >
               Text
             </button>
             <button
               className={`rounded-md border px-3 py-1 text-sm ${tool === "note" ? "bg-gray-100" : "bg-white"}`}
-              onClick={() => setTool("note")}
+              onClick={() => editMode && setTool("note")}
               title="Add a sticky note (click on board to place)"
               type="button"
+              disabled={!editMode}
             >
               Note
             </button>
@@ -539,12 +557,9 @@ export default function BoardPage() {
           <Link className="underline" href="/app/teams">
             Teams
           </Link>
-          <Link
-            className="underline"
-            href={board?.team_id ? `/app/teams/${board.team_id}` : "/app/boards"}
-          >
-            Boards
-          </Link>
+	          <Link className="underline" href={board?.team_id ? `/app/teams/${board.team_id}` : "/app/teams"}>
+	            Boards
+	          </Link>
         </div>
       </div>
 
@@ -701,9 +716,9 @@ export default function BoardPage() {
                   {filteredPlayers.map((p, idx) => (
                     <div
                       key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-                      className="border rounded bg-white cursor-grab active:cursor-grabbing"
-                      draggable
-                      onDragStart={(e) => onPlayerDragStart(e, p)}
+	                      className={`border rounded bg-white ${editMode ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
+	                      draggable={editMode}
+	                      onDragStart={(e) => editMode && onPlayerDragStart(e, p)}
                     >
                       <div className="p-2">
                         <div className="flex gap-2">
@@ -771,8 +786,8 @@ export default function BoardPage() {
 
           {/* Board */}
           <section className="flex-1 relative z-0 overflow-hidden">
-            <HtmlBoard
-              editMode={true}
+	            <HtmlBoard
+	              editMode={editMode}
               placed={placedPlayers}
               onPlacedChange={(next) => {
                 setPlacedPlayers(next);
