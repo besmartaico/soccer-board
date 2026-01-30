@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import { getMyRole } from "@/lib/roles";
 
 type TeamRow = {
   id: string;
@@ -57,6 +58,7 @@ export default function TeamBoardsPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [team, setTeam] = useState<TeamRow | null>(null);
   const [boards, setBoards] = useState<BoardRow[]>([]);
@@ -89,6 +91,9 @@ export default function TeamBoardsPage() {
       router.push("/login");
       return;
     }
+
+    const myRole = await getMyRole();
+    setIsAdmin(myRole === "admin");
 
     const t = await supabase.from("teams").select("id,name,data,created_at").eq("id", teamId).single();
     if (t.error) {
@@ -212,9 +217,9 @@ export default function TeamBoardsPage() {
           <Link className="underline" href="/app/teams">
             Teams
           </Link>
-	          <Link className="underline" href={teamId ? `/app/teams/${teamId}` : "/app/teams"}>
-	            Boards
-	          </Link>
+          {isAdmin ? (
+            <Link className="underline" href="/app/admin/users">Admin</Link>
+          ) : null}
         </div>
       </div>
 

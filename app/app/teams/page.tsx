@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
+import { getMyRole } from "@/lib/roles";
 
 type TeamRow = {
   id: string;
@@ -16,6 +17,7 @@ export default function TeamsPage() {
   const [teams, setTeams] = useState<TeamRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [newTeamName, setNewTeamName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -29,6 +31,9 @@ export default function TeamsPage() {
       router.push("/login");
       return;
     }
+
+    const role = await getMyRole();
+    setIsAdmin(role === "admin");
 
     const res = await supabase.from("teams").select("id,name,created_at").order("created_at", { ascending: false });
     if (res.error) {
@@ -96,9 +101,12 @@ export default function TeamsPage() {
           <div className="text-3xl font-bold">Teams</div>
           <div className="text-gray-600">Create a team or open an existing one.</div>
         </div>
-	    	<Link className="underline" href="/app/teams">
-	    	  Boards
-	    	</Link>
+        <div className="flex items-center gap-4">
+          <Link className="underline" href="/app/teams">Boards</Link>
+          {isAdmin ? (
+            <Link className="underline" href="/app/admin/users">Admin</Link>
+          ) : null}
+        </div>
       </div>
 
       {error ? <div className="px-8 py-3 text-red-600">{error}</div> : null}

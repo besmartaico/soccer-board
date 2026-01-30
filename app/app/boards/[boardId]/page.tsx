@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
+import { getMyRole, type UserRole } from "@/lib/roles";
 import { HtmlBoard, type PlacedPlayer, type BoardObject, type BoardTool } from "@/lib/board/HtmlBoard";
 
 type BoardRow = {
@@ -52,9 +53,16 @@ export default function BoardPage() {
   const boardId: string | null =
     typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
 
+
   const [board, setBoard] = useState<BoardRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const [myRole, setMyRole] = useState<UserRole>("viewer");
+  const [editMode, setEditMode] = useState<boolean>(false);
+
+  const canEdit = myRole === "admin" || myRole === "editor";
+  const isAdmin = myRole === "admin";
 
   // Google player data
   const [googleConfig, setGoogleConfig] = useState<GoogleConfig | null>(null);
@@ -77,7 +85,6 @@ export default function BoardPage() {
   const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
   const [tool, setTool] = useState<BoardTool>("select");
   const [cardSizeMode, setCardSizeMode] = useState<"large" | "medium" | "small">("large");
-  const [editMode, setEditMode] = useState(true);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -107,11 +114,6 @@ export default function BoardPage() {
     return () => window.removeEventListener("mousedown", onDown);
   }, []);
 
-  // If we leave edit mode, force tool back to "select"
-  useEffect(() => {
-    if (!editMode && tool !== "select") setTool("select");
-  }, [editMode, tool]);
-
   async function loadBoard() {
     setLoading(true);
     setError(null);
@@ -127,6 +129,10 @@ export default function BoardPage() {
       router.push("/login");
       return;
     }
+
+    const role = await getMyRole();
+    setMyRole(role);
+    setEditMode(role === "admin" || role === "editor");
 
     const { data, error } = await supabase
       .from("boards")
@@ -329,6 +335,11 @@ export default function BoardPage() {
   }
 
   function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
+    if (!canEdit || !editMode) {
+      e.preventDefault();
+      return;
+    }
+
     const payload = {
       id: p.id,
       name: p.name,
@@ -463,15 +474,6 @@ export default function BoardPage() {
 
           <button
             type="button"
-            className={`border px-3 py-1 rounded text-sm ${editMode ? "bg-gray-900 text-white" : "bg-white text-gray-700"}`}
-            onClick={() => setEditMode((v) => !v)}
-            title={editMode ? "Switch to View mode (lock canvas)" : "Switch to Edit mode"}
-          >
-            {editMode ? "Edit" : "View"}
-          </button>
-
-          <button
-            type="button"
             className={`border px-3 py-1 rounded text-sm ${
               dirty ? "bg-gray-900 text-white" : "bg-white text-gray-700"
             }`}
@@ -490,6 +492,27 @@ export default function BoardPage() {
           >
             Reload
           </button>
+
+{canEdit ? (
+  <button
+    type="button"
+    className={`border px-3 py-1 rounded text-sm ${
+      editMode ? "bg-gray-900 text-white" : "bg-white text-gray-700"
+    }`}
+    onClick={() => {
+      setEditMode((v) => {
+        const next = !v;
+        if (!next) setTool("select");
+        return next;
+      });
+    }}
+    title={editMode ? "Switch to View mode (lock the canvas)" : "Switch to Edit mode"}
+  >
+    {editMode ? "Edit" : "View"}
+  </button>
+) : (
+  <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">View only</span>
+)}
 
           <button
             type="button"
@@ -514,7 +537,7 @@ export default function BoardPage() {
             </button>
             <button
               className={`rounded-md border px-3 py-1 text-sm ${tool === "lane" ? "bg-gray-100" : "bg-white"}`}
-              onClick={() => editMode && setTool("lane")}
+              onClick={() => { if (!editMode) return; setTool("lane"); } }
               title="Add a swim lane (click on board to place)"
               type="button"
               disabled={!editMode}
@@ -523,7 +546,7 @@ export default function BoardPage() {
             </button>
             <button
               className={`rounded-md border px-3 py-1 text-sm ${tool === "text" ? "bg-gray-100" : "bg-white"}`}
-              onClick={() => editMode && setTool("text")}
+              onClick={() => { if (!editMode) return; setTool("text"); } }
               title="Add a text box (click on board to place)"
               type="button"
               disabled={!editMode}
@@ -532,7 +555,7 @@ export default function BoardPage() {
             </button>
             <button
               className={`rounded-md border px-3 py-1 text-sm ${tool === "note" ? "bg-gray-100" : "bg-white"}`}
-              onClick={() => editMode && setTool("note")}
+              onClick={() => { if (!editMode) return; setTool("note"); } }
               title="Add a sticky note (click on board to place)"
               type="button"
               disabled={!editMode}
@@ -557,9 +580,14 @@ export default function BoardPage() {
           <Link className="underline" href="/app/teams">
             Teams
           </Link>
-	          <Link className="underline" href={board?.team_id ? `/app/teams/${board.team_id}` : "/app/teams"}>
-	            Boards
-	          </Link>
+          {board ? (
+            <Link className="underline" href={`/app/teams/${board.team_id}`}>Boards</Link>
+          ) : (
+            <Link className="underline" href="/app/teams">Boards</Link>
+          )}
+          {isAdmin ? (
+            <Link className="underline" href="/app/admin/users">Admin</Link>
+          ) : null}
         </div>
       </div>
 
@@ -716,9 +744,9 @@ export default function BoardPage() {
                   {filteredPlayers.map((p, idx) => (
                     <div
                       key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-	                      className={`border rounded bg-white ${editMode ? "cursor-grab active:cursor-grabbing" : "cursor-default"}`}
-	                      draggable={editMode}
-	                      onDragStart={(e) => editMode && onPlayerDragStart(e, p)}
+                      className="border rounded bg-white cursor-grab active:cursor-grabbing"
+                      draggable
+                      onDragStart={(e) => onPlayerDragStart(e, p)}
                     >
                       <div className="p-2">
                         <div className="flex gap-2">
@@ -786,8 +814,8 @@ export default function BoardPage() {
 
           {/* Board */}
           <section className="flex-1 relative z-0 overflow-hidden">
-	            <HtmlBoard
-	              editMode={editMode}
+            <HtmlBoard
+              editMode={editMode}
               placed={placedPlayers}
               onPlacedChange={(next) => {
                 setPlacedPlayers(next);
