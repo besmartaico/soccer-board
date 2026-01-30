@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getMyRole } from "@/lib/roles";
@@ -27,7 +26,8 @@ export default function TeamsPage() {
     setError(null);
 
     const { data: userResp } = await supabase.auth.getUser();
-    if (!userResp.user) {
+    const user = userResp.user;
+    if (!user) {
       router.push("/login");
       return;
     }
@@ -35,7 +35,32 @@ export default function TeamsPage() {
     const role = await getMyRole();
     setIsAdmin(role === "admin");
 
-    const res = await supabase.from("teams").select("id,name,created_at").order("created_at", { ascending: false });
+    // Invite-only teams:
+    // Only show teams where the user has a row in public.team_members
+    const mem = await supabase
+      .from("team_members")
+      .select("team_id")
+      .eq("user_id", user.id);
+
+    if (mem.error) {
+      setError(mem.error.message);
+      setLoading(false);
+      return;
+    }
+
+    const teamIds = (mem.data ?? []).map((r: any) => r.team_id).filter(Boolean);
+    if (teamIds.length === 0) {
+      setTeams([]);
+      setLoading(false);
+      return;
+    }
+
+    const res = await supabase
+      .from("teams")
+      .select("id,name,created_at")
+      .in("id", teamIds)
+      .order("created_at", { ascending: false });
+
     if (res.error) {
       setError(res.error.message);
       setLoading(false);
@@ -58,16 +83,39 @@ export default function TeamsPage() {
     setCreating(true);
     setError(null);
 
-    const ins = await supabase.from("teams").insert([{ name }]).select().single();
-    if (ins.error) {
-      setError(ins.error.message);
-      setCreating(false);
-      return;
-    }
+    try {
+      const { data: userResp } = await supabase.auth.getUser();
+      const user = userResp.user;
+      if (!user) throw new Error("You must be logged in.");
 
-    setNewTeamName("");
-    setTeams((cur) => [ins.data as any, ...cur]);
-    setCreating(false);
+      const ins = await supabase.from("teams").insert([{ name }]).select().single();
+      if (ins.error) throw new Error(ins.error.message);
+
+      // Ensure the creator can see the team (add membership row for themselves)
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Missing session token.");
+
+      const api = await fetch("/api/teams/members", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ teamId: ins.data.id, role: "admin" }),
+      });
+      const apiJson = await api.json();
+      if (!api.ok || !apiJson?.success) {
+        throw new Error(apiJson?.error ?? "Failed to create membership.");
+      }
+
+      setNewTeamName("");
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to create team.");
+    } finally {
+      setCreating(false);
+    }
   }
 
   async function deleteTeam(teamId: string, teamName: string) {
@@ -91,22 +139,20 @@ export default function TeamsPage() {
       return;
     }
 
+    // Also remove membership rows (safe even if cascade exists)
+    await supabase.from("team_members").delete().eq("team_id", teamId);
+
     setTeams((cur) => cur.filter((t) => t.id !== teamId));
   }
 
   return (
     <main className="min-h-screen bg-white">
-      <div className="flex items-center justify-between px-8 py-6 border-b">
-        <div>
-          <div className="text-3xl font-bold">Teams</div>
-          <div className="text-gray-600">Create a team or open an existing one.</div>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link className="underline" href="/app/teams">Boards</Link>
-          {isAdmin ? (
-            <Link className="underline" href="/app/admin/users">Admin</Link>
-          ) : null}
-        </div>
+      <div className="px-8 py-6 border-b">
+        <div className="text-3xl font-bold">Teams</div>
+        <div className="text-gray-600">Invite-only: you only see teams you’ve been added to.</div>
+        {isAdmin ? (
+          <div className="text-sm text-gray-600 mt-1">Admin: use the Admin page to manage who can access the app.</div>
+        ) : null}
       </div>
 
       {error ? <div className="px-8 py-3 text-red-600">{error}</div> : null}
@@ -137,7 +183,7 @@ export default function TeamsPage() {
           {loading ? (
             <div>Loading...</div>
           ) : teams.length === 0 ? (
-            <div className="text-gray-600">No teams yet.</div>
+            <div className="text-gray-600">No teams yet (or you haven’t been invited).</div>
           ) : (
             <div className="space-y-3">
               {teams.map((t) => (

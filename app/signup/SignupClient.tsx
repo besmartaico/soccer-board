@@ -94,9 +94,14 @@ export default function SignupClient() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to consume invite.");
 
-      setMsg(
-        "Account created. If email confirmation is enabled, check your email to confirm, then log in."
-      );
+      // This app does not use email confirmation right now.
+      // Make it explicit that the user can log in immediately.
+      setMsg("Account created. You can now log in.");
+
+      // Send them to login so they can sign in right away.
+      setTimeout(() => {
+        router.push("/login");
+      }, 900);
     } catch (e: any) {
       setErr(e?.message ?? "Signup failed.");
     } finally {

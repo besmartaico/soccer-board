@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
 import { getMyRole } from "@/lib/roles";
 
@@ -59,6 +58,7 @@ export default function TeamBoardsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [memberRole, setMemberRole] = useState<"viewer" | "editor" | "admin" | null>(null);
 
   const [team, setTeam] = useState<TeamRow | null>(null);
   const [boards, setBoards] = useState<BoardRow[]>([]);
@@ -91,6 +91,29 @@ export default function TeamBoardsPage() {
       router.push("/login");
       return;
     }
+
+    // Team access is invite-only. User must have a row in public.team_members.
+    const mem = await supabase
+      .from("team_members")
+      .select("role")
+      .eq("team_id", teamId)
+      .eq("user_id", userResp.user.id)
+      .maybeSingle();
+
+    if (mem.error) {
+      setError(mem.error.message);
+      setLoading(false);
+      return;
+    }
+
+    if (!mem.data) {
+      setMemberRole(null);
+      setError("You do not have access to this team. Ask a team admin to invite you.");
+      setLoading(false);
+      return;
+    }
+
+    setMemberRole(mem.data.role as any);
 
     const myRole = await getMyRole();
     setIsAdmin(myRole === "admin");
@@ -208,18 +231,12 @@ export default function TeamBoardsPage() {
 
   return (
     <main className="min-h-screen bg-white">
-      <div className="flex items-center justify-between px-8 py-6 border-b">
+      <div className="px-8 py-6 border-b">
         <div className="min-w-0">
           <div className="text-3xl font-bold truncate">{team?.name || "Team"}</div>
-          <div className="text-gray-600">Boards</div>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link className="underline" href="/app/teams">
-            Teams
-          </Link>
-          {isAdmin ? (
-            <Link className="underline" href="/app/admin/users">Admin</Link>
-          ) : null}
+          <div className="text-gray-600">
+            Boards{memberRole ? ` • Your access: ${memberRole}` : ""}
+          </div>
         </div>
       </div>
 
