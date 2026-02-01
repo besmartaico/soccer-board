@@ -116,12 +116,17 @@ type PointerInfo = { x: number; y: number; pointerType: string };
 type DragState = {
   pointerId: number;
   ids: string[];
-  mode: "move" | "resize" | "box";
+  mode: "move" | "resize" | "box" | "pan";
   startX: number;
   startY: number;
   moved: boolean;
   lastClientX: number;
   lastClientY: number;
+  // pan-only (mouse/pen drag on background)
+  panStartClientX?: number;
+  panStartClientY?: number;
+  scrollStartLeft?: number;
+  scrollStartTop?: number;
   originPlayers: Record<string, { x: number; y: number; w: number; h: number }>;
   originObjects: Record<string, { x: number; y: number; w: number; h: number }>;
 };
@@ -525,6 +530,32 @@ export function HtmlBoard({
       return;
     }
 
+
+
+    // in view mode, allow click+drag on empty canvas to pan (like two-finger touch)
+    if (!editMode && e.pointerType !== "touch") {
+      const sc = scrollRef.current;
+      dragRef.current = {
+        pointerId: e.pointerId,
+        ids: [],
+        mode: "pan",
+        startX: 0,
+        startY: 0,
+        moved: false,
+        lastClientX: e.clientX,
+        lastClientY: e.clientY,
+        originPlayers: {},
+        originObjects: {},
+        panStartClientX: e.clientX,
+        panStartClientY: e.clientY,
+        scrollStartLeft: sc?.scrollLeft ?? 0,
+        scrollStartTop: sc?.scrollTop ?? 0,
+      };
+
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      e.preventDefault();
+      return;
+    }
     // clicking blank clears selection
     setActiveId(null);
     setSelectedIds(new Set());
@@ -562,6 +593,23 @@ export function HtmlBoard({
     const d = dragRef.current;
     if (!d) return;
     if (e.pointerId !== d.pointerId) return;
+
+
+    if (d.mode === "pan") {
+      const sc = scrollRef.current;
+      const dx = e.clientX - (d.panStartClientX ?? e.clientX);
+      const dy = e.clientY - (d.panStartClientY ?? e.clientY);
+
+      if (Math.hypot(dx, dy) > 2) d.moved = true;
+
+      if (sc) {
+        sc.scrollLeft = (d.scrollStartLeft ?? sc.scrollLeft) - dx;
+        sc.scrollTop = (d.scrollStartTop ?? sc.scrollTop) - dy;
+      }
+
+      e.preventDefault();
+      return;
+    }
 
     const pt = clientToBoard(e.clientX, e.clientY);
 
@@ -649,6 +697,16 @@ export function HtmlBoard({
     const d = dragRef.current;
     if (!d) return;
     if (e.pointerId !== d.pointerId) return;
+
+    if (d.mode === "pan") {
+      dragRef.current = null;
+      if (!d.moved) {
+        setActiveId(null);
+        setSelectedIds(new Set());
+      }
+      return;
+    }
+
 
     if (d.mode === "box") {
       const bx = box;

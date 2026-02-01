@@ -813,7 +813,7 @@ export default function BoardPage() {
           )}
 
           {/* Board */}
-          <section className="flex-1 relative z-0 overflow-hidden">
+          <section className="flex-1 relative z-0">
             <HtmlBoard
               editMode={editMode}
               placed={placedPlayers}
