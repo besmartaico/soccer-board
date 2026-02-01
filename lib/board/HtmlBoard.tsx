@@ -1,474 +1,250 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { cn } from "@/lib/utils";
 
-export type PlayerPayload = {
+type Player = {
   id: string;
-  name: string;
-  grade?: string;
-  returning?: string;
-  primary?: string;
-  likelihood?: string;
-  pos1?: string;
-  pos2?: string;
-  notes?: string;
-  pictureUrl?: string;
+  team_id: string;
+  name: string | null;
+  number: number | null;
+  position: string | null;
+  group: string | null;
+  image_url: string | null;
+  created_at: string;
 };
 
-export type PlacedPlayer = {
+type PlacedPlayer = {
   id: string;
+  player_id: string;
   x: number;
   y: number;
   w?: number;
   h?: number;
-  player: PlayerPayload;
+  meta?: Record<string, any> | null;
 };
 
-export type BoardTool = "select" | "lane" | "text" | "note";
-
-export type BoardObject = {
+type BoardObject = {
   id: string;
-  kind: "lane" | "text" | "note";
+  type: "lane" | "note" | "text";
   x: number;
   y: number;
   w: number;
   h: number;
-  title?: string; // lane
-  text?: string; // text/note
-  color?: string; // note bg
+  text?: string;
+  fill?: string;
+  stroke?: string;
+  locked?: boolean;
 };
 
-const DEFAULT_W = 260;
-const DEFAULT_H = 92;
+type Tool = "select" | "lane" | "note" | "text";
 
-const MIN_W = 110;
-const MIN_H = 48;
-
-const OBJ_MIN_W = 80;
-const OBJ_MIN_H = 40;
-
-const RESIZE_HANDLE = 14;
-
-const LARGE_CARD = { w: 260, h: 92 };
-const MEDIUM_CARD = { w: 210, h: 72 };
-const SMALL_CARD = { w: 150, h: 52 };
-
-function getEffectiveCardSize(mode: "large" | "medium" | "small", p: PlacedPlayer) {
-  if (mode === "medium") return MEDIUM_CARD;
-  if (mode === "small") return SMALL_CARD;
-  const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
-  const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
-  return { w, h };
-}
+const DEFAULT_W = 180;
+const DEFAULT_H = 250;
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
 
-function getInitials(name?: string) {
-  const s = (name || "").trim();
-  if (!s) return "?";
-  const parts = s.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+function rectNorm(x1: number, y1: number, x2: number, y2: number) {
+  const left = Math.min(x1, x2);
+  const right = Math.max(x1, x2);
+  const top = Math.min(y1, y2);
+  const bottom = Math.max(y1, y2);
+  return { left, top, right, bottom, w: right - left, h: bottom - top };
 }
 
-function normalizeGrade(g?: string) {
-  const n = Number(String(g ?? "").trim());
-  if (!Number.isFinite(n)) return null;
-  return n;
+function rectIntersects(a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }) {
+  return !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
 }
 
-function gradeColor(grade?: string) {
-  const g = normalizeGrade(grade);
-  if (g === 12) return "#74213c";
-  if (g === 11) return "#c7b782";
-  if (g === 10) return "#808080";
-  if (g === 9) return "#000000";
-  return "#d1d5db";
-}
-
-function isDark(hex: string) {
-  const h = hex.replace("#", "");
-  if (h.length !== 6) return false;
-  const r = parseInt(h.slice(0, 2), 16);
-  const g = parseInt(h.slice(2, 4), 16);
-  const b = parseInt(h.slice(4, 6), 16);
-  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-  return lum < 140;
-}
-
-function buildLine1(p: PlayerPayload) {
-  const grade = p.grade ? `Grade: ${p.grade}` : "Grade: ?";
-  const pos = p.pos1 ? `Pos: ${p.pos1}${p.pos2 ? ` / ${p.pos2}` : ""}` : "Pos: ?";
-  const returning = p.returning ? `Returning: ${p.returning}` : "Returning: ?";
-  return `${grade} • ${pos} • ${returning}`;
-}
-
-function buildLine2(p: PlayerPayload) {
-  const primary = p.primary ? `Primary: ${p.primary}` : "Primary: ?";
-  const like = p.likelihood ? `Likelihood: ${p.likelihood}` : "Likelihood: ?";
-  return `${primary} • ${like}`;
-}
-
-type PointerInfo = { x: number; y: number; pointerType: string };
+type DragMode = "move" | "resize" | "box";
 
 type DragState = {
   pointerId: number;
   ids: string[];
-  mode: "move" | "resize" | "box" | "pan";
+  mode: DragMode;
   startX: number;
   startY: number;
   moved: boolean;
   lastClientX: number;
   lastClientY: number;
-  // pan-only (mouse/pen drag on background)
-  panStartClientX?: number;
-  panStartClientY?: number;
-  scrollStartLeft?: number;
-  scrollStartTop?: number;
   originPlayers: Record<string, { x: number; y: number; w: number; h: number }>;
   originObjects: Record<string, { x: number; y: number; w: number; h: number }>;
+  resizeHandle?: "nw" | "ne" | "sw" | "se";
 };
 
-export function HtmlBoard({
-  editMode,
-  placed,
-  onPlacedChange,
-  dragMime,
-  backgroundUrl,
-  onOpenPlayer,
-  canvasWidth = 3000,
-  canvasHeight = 2000,
-  objects = [],
-  onObjectsChange,
-  tool = "select",
-  onToolChange,
-  cardSizeMode = "large",
-}: {
+type TwoFingerState = {
+  active: boolean;
+  lastCx: number;
+  lastCy: number;
+};
+
+export function HtmlBoard(props: {
+  boardId: string;
+  teamId: string;
   editMode: boolean;
+  players: Player[];
   placed: PlacedPlayer[];
   onPlacedChange: (next: PlacedPlayer[]) => void;
-  dragMime: string;
-  backgroundUrl?: string;
-  onOpenPlayer?: (p: PlacedPlayer) => void;
-  canvasWidth?: number;
-  canvasHeight?: number;
-  objects?: BoardObject[];
+  objects: BoardObject[];
   onObjectsChange?: (next: BoardObject[]) => void;
-  tool?: BoardTool;
-  onToolChange?: (t: BoardTool) => void;
-  cardSizeMode?: "large" | "medium" | "small";
+  onSave?: (next: any) => Promise<void> | void;
+  canvasWidth: number;
+  canvasHeight: number;
+  backgroundUrl?: string;
+  backgroundW?: number;
+  backgroundH?: number;
 }) {
+  const {
+    editMode,
+    players,
+    placed,
+    onPlacedChange,
+    objects,
+    onObjectsChange,
+    canvasWidth,
+    canvasHeight,
+    backgroundUrl,
+    backgroundW,
+    backgroundH,
+  } = props;
+
+  const [tool, setTool] = useState<Tool>("select");
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [box, setBox] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
+
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const editingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    editingIdRef.current = editingId;
+  }, [editingId]);
+
+  // card size mode
+  const [cardSizeMode] = useState<"small" | "large">("small");
+
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
-  // latest state refs for pointer handlers
   const placedRef = useRef<PlacedPlayer[]>(placed);
-  useEffect(() => void (placedRef.current = placed), [placed]);
-
   const objectsRef = useRef<BoardObject[]>(objects);
-  useEffect(() => void (objectsRef.current = objects), [objects]);
+  const selectedRef = useRef<Set<string>>(selectedIds);
 
-  const onPlacedChangeRef = useRef(onPlacedChange);
-  useEffect(() => void (onPlacedChangeRef.current = onPlacedChange), [onPlacedChange]);
-
-  const onObjectsChangeRef = useRef(onObjectsChange);
-  useEffect(() => void (onObjectsChangeRef.current = onObjectsChange), [onObjectsChange]);
-
-  const [isDragOver, setIsDragOver] = useState(false);
-
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const selectedIdsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    selectedIdsRef.current = selectedIds;
+    placedRef.current = placed;
+  }, [placed]);
+  useEffect(() => {
+    objectsRef.current = objects;
+  }, [objects]);
+  useEffect(() => {
+    selectedRef.current = selectedIds;
   }, [selectedIds]);
 
-  // inline editing id for note/text objects
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const editingIdRef = useRef<string | null>(null);
-  useEffect(() => void (editingIdRef.current = editingId), [editingId]);
+  const onPlacedChangeRef = useRef(onPlacedChange);
+  useEffect(() => {
+    onPlacedChangeRef.current = onPlacedChange;
+  }, [onPlacedChange]);
 
-  // Touch pointers for two-finger scroll
-  const pointersRef = useRef<Map<number, PointerInfo>>(new Map());
-  const twoFingerRef = useRef<{ active: boolean; lastCx: number; lastCy: number } | null>(null);
+  const onObjectsChangeRef = useRef(onObjectsChange);
+  useEffect(() => {
+    onObjectsChangeRef.current = onObjectsChange;
+  }, [onObjectsChange]);
 
-  // Selection box
-  const [box, setBox] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
+  // pointer tracking for two-finger scroll
+  const pointersRef = useRef<Map<number, { x: number; y: number; pointerType: string }>>(new Map());
+  const twoFingerRef = useRef<TwoFingerState | null>(null);
 
+  // drag state
   const dragRef = useRef<DragState | null>(null);
 
-  // ---------- coordinate helpers ----------
-  function clientToBoard(clientX: number, clientY: number) {
+  // Mouse/pen click-drag panning in View mode (background only)
+  const panRef = useRef<null | {
+    pointerId: number;
+    startClientX: number;
+    startClientY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
+  }>(null);
+
+  // Helpers
+  const getPlayerById = useCallback(
+    (playerId: string) => players.find((p) => p.id === playerId),
+    [players]
+  );
+
+  const clientToBoard = useCallback((clientX: number, clientY: number) => {
+    const sc = scrollRef.current;
     const canvas = canvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
+    if (!sc || !canvas) return { x: clientX, y: clientY };
+
+    const canvasRect = canvas.getBoundingClientRect();
+    const x = clientX - canvasRect.left + sc.scrollLeft;
+    const y = clientY - canvasRect.top + sc.scrollTop;
+
+    return { x, y };
+  }, []);
+
+  function uuid() {
+    return Math.random().toString(16).slice(2) + "-" + Math.random().toString(16).slice(2);
+  }
+
+  function createObject(type: BoardObject["type"], x: number, y: number) {
+    const base: BoardObject = {
+      id: uuid(),
+      type,
+      x: clamp(x, 0, canvasWidth - 300),
+      y: clamp(y, 0, canvasHeight - 120),
+      w: type === "lane" ? 900 : 300,
+      h: type === "lane" ? 260 : 140,
+      text: type === "lane" ? "Lane" : type === "note" ? "Note" : "Text",
+      fill: type === "note" ? "#fff7cc" : "#ffffff",
+      stroke: "#111827",
+      locked: false,
     };
-  }
-
-  function rectNorm(x1: number, y1: number, x2: number, y2: number) {
-    const left = Math.min(x1, x2);
-    const top = Math.min(y1, y2);
-    const right = Math.max(x1, x2);
-    const bottom = Math.max(y1, y2);
-    return { left, top, right, bottom, w: right - left, h: bottom - top };
-  }
-
-  function rectIntersects(a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }) {
-    return !(b.left > a.right || b.right < a.left || b.top > a.bottom || b.bottom < a.top);
-  }
-
-  // ---------- drag from roster drop ----------
-  function parseDragPayload(e: React.DragEvent) {
-    const raw =
-      e.dataTransfer.getData(dragMime) ||
-      e.dataTransfer.getData("application/json") ||
-      e.dataTransfer.getData("text/plain");
-    if (!raw) return null;
-
-    try {
-      const p = JSON.parse(raw);
-      return p as PlayerPayload;
-    } catch {
-      return null;
-    }
-  }
-
-  function onDragOver(e: React.DragEvent) {
-    if (!editMode) return;
-    e.preventDefault();
-    setIsDragOver(true);
-    e.dataTransfer.dropEffect = "copy";
-  }
-
-  function onDragLeave() {
-    setIsDragOver(false);
-  }
-
-  function onDrop(e: React.DragEvent) {
-    if (!editMode) return;
-    e.preventDefault();
-    setIsDragOver(false);
-
-    const payload = parseDragPayload(e);
-    if (!payload) return;
-
-    const pt = clientToBoard(e.clientX, e.clientY);
-    const id = `${payload.id || payload.name}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-    const eff = cardSizeMode === "small" ? SMALL_CARD : cardSizeMode === "medium" ? MEDIUM_CARD : LARGE_CARD;
-    const w = eff.w;
-    const h = eff.h;
-
-    const nextX = clamp(pt.x - w / 2, 0, canvasWidth - w);
-    const nextY = clamp(pt.y - h / 2, 0, canvasHeight - h);
-
-    const next: PlacedPlayer[] = [
-      ...placedRef.current,
-      {
-        id,
-        x: nextX,
-        y: nextY,
-        w,
-        h,
-        player: payload,
-      },
-    ];
-
-    onPlacedChangeRef.current(next);
-
-    setActiveId(id);
-    setSelectedIds(new Set([id]));
-  }
-
-  // ---------- selection helpers ----------
-  function ensureSelectionOnPointerDown(id: string, e: React.PointerEvent) {
-    const isMeta = (e as any).metaKey || (e as any).ctrlKey;
-    const isShift = (e as any).shiftKey;
-
-    if (isMeta) {
-      setSelectedIds((cur) => {
-        const next = new Set(cur);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next.size ? next : new Set([id]);
-      });
-      setActiveId(id);
-      return;
-    }
-
-    if (isShift) {
-      setSelectedIds((cur) => new Set([...Array.from(cur), id]));
-      setActiveId(id);
-      return;
-    }
-
-    setSelectedIds(new Set([id]));
-    setActiveId(id);
-  }
-
-  function getMoveIds(id: string) {
-    if (selectedIds.has(id)) return Array.from(selectedIds);
-    return [id];
-  }
-
-  function snapshotOrigins(ids: string[]) {
-    const originPlayers: DragState["originPlayers"] = {};
-    const originObjects: DragState["originObjects"] = {};
-
-    for (const pid of ids) {
-      const p = placedRef.current.find((x) => x.id === pid);
-      if (p) {
-        originPlayers[pid] = {
-          x: p.x,
-          y: p.y,
-          w: Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W,
-          h: Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H,
-        };
-        continue;
-      }
-
-      const o = objectsRef.current.find((x) => x.id === pid);
-      if (o) {
-        originObjects[pid] = { x: o.x, y: o.y, w: o.w, h: o.h };
-      }
-    }
-
-    return { originPlayers, originObjects };
-  }
-
-  // ---------- moving / resizing ----------
-  function beginMoveAny(e: React.PointerEvent, id: string) {
-    if (!editMode) return;
-    if (e.button !== 0) return;
-
-    // if currently editing this object, do not start a drag
-    if (editingIdRef.current && editingIdRef.current === id) return;
-
-    // if touch and already 2 fingers down, ignore (two-finger scroll)
-    if (e.pointerType === "touch") {
-      if (pointersRef.current.size >= 2) return;
-    }
-
-    // allow dblclick to work by not starting drag on 2nd click
-    if ((e as any).detail && (e as any).detail >= 2) return;
-
-    ensureSelectionOnPointerDown(id, e);
-
-    const ids = getMoveIds(id);
-    const { originPlayers, originObjects } = snapshotOrigins(ids);
-
-    const pt = clientToBoard(e.clientX, e.clientY);
-
-    dragRef.current = {
-      pointerId: e.pointerId,
-      ids,
-      mode: "move",
-      startX: pt.x,
-      startY: pt.y,
-      moved: false,
-      lastClientX: e.clientX,
-      lastClientY: e.clientY,
-      originPlayers,
-      originObjects,
-    };
-
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    e.stopPropagation();
-  }
-
-  function beginResizeAny(e: React.PointerEvent, id: string) {
-    if (!editMode) return;
-    if (e.button !== 0) return;
-
-    // if editing, don't resize
-    if (editingIdRef.current && editingIdRef.current === id) return;
-
-    setActiveId(id);
-    setSelectedIds(new Set([id]));
-
-    const { originPlayers, originObjects } = snapshotOrigins([id]);
-    const pt = clientToBoard(e.clientX, e.clientY);
-
-    dragRef.current = {
-      pointerId: e.pointerId,
-      ids: [id],
-      mode: "resize",
-      startX: pt.x,
-      startY: pt.y,
-      moved: false,
-      lastClientX: e.clientX,
-      lastClientY: e.clientY,
-      originPlayers,
-      originObjects,
-    };
-
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    e.preventDefault();
-    e.stopPropagation();
-  }
-
-  // ---------- tools (create objects) ----------
-  function createObject(kind: BoardObject["kind"], x: number, y: number) {
-    const id = `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-
-    let obj: BoardObject;
-    if (kind === "lane") {
-      obj = {
-        id,
-        kind,
-        x: clamp(x, 0, canvasWidth - 600),
-        y: clamp(y, 0, canvasHeight - 200),
-        w: 600,
-        h: 200,
-        title: "",
-      };
-    } else if (kind === "note") {
-      obj = {
-        id,
-        kind,
-        x: clamp(x, 0, canvasWidth - 220),
-        y: clamp(y, 0, canvasHeight - 160),
-        w: 220,
-        h: 160,
-        text: "",
-        color: "#fff7b2",
-      };
-    } else {
-      obj = {
-        id,
-        kind: "text",
-        x: clamp(x, 0, canvasWidth - 260),
-        y: clamp(y, 0, canvasHeight - 120),
-        w: 260,
-        h: 120,
-        text: "",
-      };
-    }
-
-    const next = [...objectsRef.current, obj];
+    const next = [...objectsRef.current, base];
     onObjectsChangeRef.current?.(next);
-
-    setActiveId(id);
-    setSelectedIds(new Set([id]));
-
-    // auto-return to select tool
-    onToolChange?.("select");
-
-    // if placing text/note, immediately enter edit mode
-    if (kind === "note" || kind === "text") {
-      setEditingId(id);
-      // focus after render
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`obj-edit-${id}`);
-        (el as HTMLElement | null)?.focus();
-      });
-    }
+    setSelectedIds(new Set([base.id]));
+    setActiveId(base.id);
+    setTool("select");
   }
+
+  // Delete selected objects (not players)
+  function deleteSelectedObjects() {
+    const sel = selectedRef.current;
+    if (!sel.size) return;
+
+    const objIds = new Set(objectsRef.current.map((o) => o.id));
+    const toDelete = [...sel].filter((id) => objIds.has(id));
+    if (!toDelete.length) return;
+
+    const next = objectsRef.current.filter((o) => !toDelete.includes(o.id));
+    onObjectsChangeRef.current?.(next);
+    setSelectedIds(new Set());
+    setActiveId(null);
+  }
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!editMode) return;
+
+      if (e.key === "Escape") {
+        setTool("select");
+        setBox(null);
+        dragRef.current = null;
+        setEditingId(null);
+      }
+
+      if (e.key === "Delete" || e.key === "Backspace") {
+        if (editingIdRef.current) return;
+        deleteSelectedObjects();
+      }
+    };
+
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editMode]);
 
   // ---------- pointer handlers ----------
   function onPointerDownCanvas(e: React.PointerEvent) {
@@ -492,6 +268,25 @@ export function HtmlBoard({
     // if inline editing, click-away should just end editing (blur will persist)
     if (editingIdRef.current) {
       setEditingId(null);
+    }
+
+    // View mode: click-drag the empty canvas to pan/scroll (mouse/pen)
+    if (!editMode && e.pointerType !== "touch") {
+      const sc = scrollRef.current;
+      if (sc) {
+        panRef.current = {
+          pointerId: e.pointerId,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          startScrollLeft: sc.scrollLeft,
+          startScrollTop: sc.scrollTop,
+        };
+
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+        sc.style.cursor = "grabbing";
+        e.preventDefault();
+        return;
+      }
     }
 
     const pt = clientToBoard(e.clientX, e.clientY);
@@ -530,32 +325,6 @@ export function HtmlBoard({
       return;
     }
 
-
-
-    // in view mode, allow click+drag on empty canvas to pan (like two-finger touch)
-    if (!editMode && e.pointerType !== "touch") {
-      const sc = scrollRef.current;
-      dragRef.current = {
-        pointerId: e.pointerId,
-        ids: [],
-        mode: "pan",
-        startX: 0,
-        startY: 0,
-        moved: false,
-        lastClientX: e.clientX,
-        lastClientY: e.clientY,
-        originPlayers: {},
-        originObjects: {},
-        panStartClientX: e.clientX,
-        panStartClientY: e.clientY,
-        scrollStartLeft: sc?.scrollLeft ?? 0,
-        scrollStartTop: sc?.scrollTop ?? 0,
-      };
-
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      e.preventDefault();
-      return;
-    }
     // clicking blank clears selection
     setActiveId(null);
     setSelectedIds(new Set());
@@ -590,26 +359,23 @@ export function HtmlBoard({
       }
     }
 
+    // View mode pan (mouse/pen)
+    const pan = panRef.current;
+    if (pan && e.pointerId === pan.pointerId) {
+      const sc = scrollRef.current;
+      if (sc) {
+        const dx = e.clientX - pan.startClientX;
+        const dy = e.clientY - pan.startClientY;
+        sc.scrollLeft = pan.startScrollLeft - dx;
+        sc.scrollTop = pan.startScrollTop - dy;
+        e.preventDefault();
+        return;
+      }
+    }
+
     const d = dragRef.current;
     if (!d) return;
     if (e.pointerId !== d.pointerId) return;
-
-
-    if (d.mode === "pan") {
-      const sc = scrollRef.current;
-      const dx = e.clientX - (d.panStartClientX ?? e.clientX);
-      const dy = e.clientY - (d.panStartClientY ?? e.clientY);
-
-      if (Math.hypot(dx, dy) > 2) d.moved = true;
-
-      if (sc) {
-        sc.scrollLeft = (d.scrollStartLeft ?? sc.scrollLeft) - dx;
-        sc.scrollTop = (d.scrollStartTop ?? sc.scrollTop) - dy;
-      }
-
-      e.preventDefault();
-      return;
-    }
 
     const pt = clientToBoard(e.clientX, e.clientY);
 
@@ -654,33 +420,39 @@ export function HtmlBoard({
       onObjectsChangeRef.current?.(nextObjects);
     } else if (d.mode === "resize") {
       const id = d.ids[0];
+      if (!id) return;
 
-      // resize player if exists
-      const op = d.originPlayers[id];
-      if (op) {
-        const newW = clamp(op.w + (pt.x - d.startX), MIN_W, canvasWidth - op.x);
-        const newH = clamp(op.h + (pt.y - d.startY), MIN_H, canvasHeight - op.y);
-        const nextPlayers = placedRef.current.map((p) => (p.id === id ? { ...p, w: newW, h: newH } : p));
-        onPlacedChangeRef.current(nextPlayers);
-        e.preventDefault();
-        return;
-      }
-
-      // resize object
       const oo = d.originObjects[id];
-      if (oo) {
-        const newW = clamp(oo.w + (pt.x - d.startX), OBJ_MIN_W, canvasWidth - oo.x);
-        const newH = clamp(oo.h + (pt.y - d.startY), OBJ_MIN_H, canvasHeight - oo.y);
-        const nextObjects = objectsRef.current.map((o) => (o.id === id ? { ...o, w: newW, h: newH } : o));
-        onObjectsChangeRef.current?.(nextObjects);
-        e.preventDefault();
-        return;
-      }
-    }
+      if (!oo) return;
 
-    d.lastClientX = e.clientX;
-    d.lastClientY = e.clientY;
-    e.preventDefault();
+      const dx = pt.x - d.startX;
+      const dy = pt.y - d.startY;
+
+      let x = oo.x;
+      let y = oo.y;
+      let w = oo.w;
+      let h = oo.h;
+
+      const handle = d.resizeHandle ?? "se";
+
+      if (handle.includes("e")) w = clamp(oo.w + dx, 80, canvasWidth - oo.x);
+      if (handle.includes("s")) h = clamp(oo.h + dy, 60, canvasHeight - oo.y);
+
+      if (handle.includes("w")) {
+        const nx = clamp(oo.x + dx, 0, oo.x + oo.w - 80);
+        w = clamp(oo.w - (nx - oo.x), 80, oo.x + oo.w);
+        x = nx;
+      }
+
+      if (handle.includes("n")) {
+        const ny = clamp(oo.y + dy, 0, oo.y + oo.h - 60);
+        h = clamp(oo.h - (ny - oo.y), 60, oo.y + oo.h);
+        y = ny;
+      }
+
+      const nextObjects = objectsRef.current.map((o) => (o.id === id ? { ...o, x, y, w, h } : o));
+      onObjectsChangeRef.current?.(nextObjects);
+    }
   }
 
   function onPointerUp(e: React.PointerEvent) {
@@ -694,19 +466,18 @@ export function HtmlBoard({
       }
     }
 
-    const d = dragRef.current;
-    if (!d) return;
-    if (e.pointerId !== d.pointerId) return;
-
-    if (d.mode === "pan") {
-      dragRef.current = null;
-      if (!d.moved) {
-        setActiveId(null);
-        setSelectedIds(new Set());
-      }
+    // finish view-mode panning
+    const pan = panRef.current;
+    if (pan && e.pointerId === pan.pointerId) {
+      panRef.current = null;
+      const sc = scrollRef.current;
+      if (sc) sc.style.cursor = "default";
       return;
     }
 
+    const d = dragRef.current;
+    if (!d) return;
+    if (e.pointerId !== d.pointerId) return;
 
     if (d.mode === "box") {
       const bx = box;
@@ -761,358 +532,141 @@ export function HtmlBoard({
     onObjectsChangeRef.current?.(next);
   }
 
-  function deleteSelectedObjects(ids: string[]) {
-    if (!ids.length) return;
-    const set = new Set(ids);
-    const next = objectsRef.current.filter((o) => !set.has(o.id));
-    onObjectsChangeRef.current?.(next);
-
-    setSelectedIds((cur) => {
-      const n = new Set(cur);
-      ids.forEach((id) => n.delete(id));
-      return n;
-    });
-    setActiveId((cur) => (cur && set.has(cur) ? null : cur));
-  }
-
-  // Keyboard delete/backspace to remove selected board objects (lanes/text/notes)
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (!editMode) return;
-
-      // while editing inline, don't treat keys as delete-object
-      if (editingIdRef.current) return;
-
-      if (e.key !== "Delete" && e.key !== "Backspace") return;
-
-      const objIds = new Set(objectsRef.current.map((o) => o.id));
-      const toDelete = Array.from(selectedIdsRef.current).filter((id) => objIds.has(id));
-      if (!toDelete.length) return;
-
-      e.preventDefault();
-      deleteSelectedObjects(toDelete);
-    }
-
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editMode]);
-
-  // ---------- rendering ----------
+  // ---------- render ----------
   return (
-    <div
-      ref={scrollRef}
-      className="w-full h-full overflow-auto bg-white"
-      style={{
-        WebkitOverflowScrolling: "touch",
-      }}
-    >
-      <div
-        ref={canvasRef}
-        className="relative"
-        style={{
-          width: canvasWidth,
-          height: canvasHeight,
-          ...bgStyle,
-          touchAction: "none",
-        }}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        onPointerDown={onPointerDownCanvas}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-      >
-        {editMode && isDragOver ? <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" /> : null}
+    <div className="w-full h-full flex flex-col">
+      {/* toolbar */}
+      <div className="flex items-center gap-2 p-2 border-b bg-white">
+        <button
+          className={cn("px-2 py-1 rounded border text-xs", tool === "select" ? "bg-gray-900 text-white border-gray-900" : "bg-white")}
+          onClick={() => setTool("select")}
+          disabled={!editMode}
+          title={!editMode ? "Enable edit mode to use tools" : "Select"}
+        >
+          Select
+        </button>
+        <button
+          className={cn("px-2 py-1 rounded border text-xs", tool === "lane" ? "bg-gray-900 text-white border-gray-900" : "bg-white")}
+          onClick={() => setTool("lane")}
+          disabled={!editMode}
+          title={!editMode ? "Enable edit mode to use tools" : "Add lane"}
+        >
+          Lane
+        </button>
+        <button
+          className={cn("px-2 py-1 rounded border text-xs", tool === "note" ? "bg-gray-900 text-white border-gray-900" : "bg-white")}
+          onClick={() => setTool("note")}
+          disabled={!editMode}
+          title={!editMode ? "Enable edit mode to use tools" : "Add note"}
+        >
+          Note
+        </button>
+        <button
+          className={cn("px-2 py-1 rounded border text-xs", tool === "text" ? "bg-gray-900 text-white border-gray-900" : "bg-white")}
+          onClick={() => setTool("text")}
+          disabled={!editMode}
+          title={!editMode ? "Enable edit mode to use tools" : "Add text"}
+        >
+          Text
+        </button>
 
-        {/* Selection box */}
-        {box ? (
-          (() => {
-            const r = rectNorm(box.x1, box.y1, box.x2, box.y2);
-            return (
-              <div
-                className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/15"
-                style={{ left: r.left, top: r.top, width: r.w, height: r.h }}
-              />
-            );
-          })()
-        ) : null}
+        <div className="ml-auto text-xs text-gray-500">
+          {editMode ? "Edit mode" : "View mode"} • {players.length} players
+        </div>
+      </div>
 
-        {/* Board Objects - render behind players */}
-        {objects.map((o) => {
-          const isSelected = selectedIds.has(o.id);
-          const isActive = activeId === o.id;
-          const isEditing = editingId === o.id;
-
-          if (o.kind === "lane") {
-            return (
-              <div
-                key={o.id}
-                className={`absolute rounded-xl border bg-white/60 ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
-                style={{
-                  left: o.x,
-                  top: o.y,
-                  width: o.w,
-                  height: o.h,
-                  zIndex: 1,
-                  backdropFilter: "blur(2px)",
-                }}
-                onPointerDown={(e) => beginMoveAny(e, o.id)}
-              >
-                <div
-                  className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none"
-                  title={editMode ? "Double-click to rename lane" : undefined}
-                  onDoubleClick={(e) => {
-                    if (!editMode) return;
-                    e.stopPropagation();
-                    const next = window.prompt("Lane title:", o.title || "");
-                    if (next === null) return;
-                    updateObject(o.id, { title: next.trim() });
-                  }}
-                >
-                  <div className="min-w-0 truncate">{o.title || ""}</div>
-
-                  {editMode && isSelected ? (
-                    <button
-                      type="button"
-                      className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
-                      title="Delete"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteSelectedObjects([o.id]);
-                      }}
-                    >
-                      ×
-                    </button>
-                  ) : null}
-                </div>
-
-                {editMode ? (
-                  <div
-                    className="absolute right-0 bottom-0 rounded-tl bg-black/10"
-                    style={{
-                      width: RESIZE_HANDLE,
-                      height: RESIZE_HANDLE,
-                      cursor: "nwse-resize",
-                      touchAction: "none",
-                    }}
-                    onPointerDown={(e) => beginResizeAny(e, o.id)}
-                    title="Resize"
-                  />
-                ) : null}
-              </div>
-            );
-          }
-
-          const isNote = o.kind === "note";
-          const bg = isNote ? o.color || "#fff7b2" : "transparent";
-
-          return (
+      {/* scroll container */}
+      <div ref={scrollRef} className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white">
+        {/* canvas */}
+        <div
+          ref={canvasRef}
+          className="relative select-none"
+          style={{
+            width: canvasWidth,
+            height: canvasHeight,
+            ...bgStyle,
+          }}
+          onPointerDown={onPointerDownCanvas}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+        >
+          {/* objects */}
+          {objects.map((o) => (
             <div
               key={o.id}
-              className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+              className="absolute rounded border"
               style={{
                 left: o.x,
                 top: o.y,
                 width: o.w,
                 height: o.h,
-                zIndex: 2,
-                background: bg,
+                background: o.fill ?? "#fff",
+                borderColor: o.stroke ?? "#111827",
               }}
-              onPointerDown={(e) => {
-                // If editing, don't initiate a drag
-                if (isEditing) return;
-                beginMoveAny(e, o.id);
-              }}
-              onDoubleClick={(e) => {
-                if (!editMode) return;
-                e.stopPropagation();
-                setEditingId(o.id);
-                // focus after render
-                requestAnimationFrame(() => {
-                  const el = document.getElementById(`obj-edit-${o.id}`);
-                  (el as HTMLElement | null)?.focus();
-                });
-              }}
-              title={editMode ? "Double-click to edit" : undefined}
             >
-              {/* Inline editable content */}
-              {isEditing ? (
-                <div
-                  id={`obj-edit-${o.id}`}
-                  contentEditable
-                  suppressContentEditableWarning
-                  className="w-full h-full outline-none"
-                  style={{
-                    whiteSpace: "pre-wrap",
-                    overflow: "auto",
-                    padding: isNote ? 10 : 6,
-                    border: "none",
-                    background: "transparent",
-                    cursor: "text",
-                  }}
-                  onPointerDown={(e) => {
-                    // allow caret placement; don't drag
-                    e.stopPropagation();
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") {
-                      (e.currentTarget as HTMLDivElement).blur();
-                    }
-                  }}
-                  onBlur={(e) => {
-                    const nextText = e.currentTarget.innerText ?? "";
-                    updateObject(o.id, { text: nextText });
-                    setEditingId(null);
-                  }}
-                >
-                  {o.text || ""}
-                </div>
-              ) : (
-                <div
-                  className="w-full h-full text-sm"
-                  style={{
-                    whiteSpace: "pre-wrap",
-                    overflow: "hidden",
-                    padding: isNote ? 10 : 6,
-                    pointerEvents: "none",
-                  }}
-                >
-                  {o.text || ""}
-                </div>
-              )}
-
-              {/* Delete button */}
-              {editMode && isSelected ? (
-                <button
-                  type="button"
-                  className="absolute top-1 right-1 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
-                  title="Delete"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteSelectedObjects([o.id]);
-                  }}
-                >
-                  ×
-                </button>
-              ) : null}
-
-              {/* Resize handle */}
-              {editMode ? (
-                <div
-                  className="absolute right-0 bottom-0 rounded-tl bg-black/10"
-                  style={{
-                    width: RESIZE_HANDLE,
-                    height: RESIZE_HANDLE,
-                    cursor: "nwse-resize",
-                    touchAction: "none",
-                  }}
-                  onPointerDown={(e) => beginResizeAny(e, o.id)}
-                  title="Resize"
-                />
-              ) : null}
-            </div>
-          );
-        })}
-
-        {/* placed player cards */}
-        {placed.map((p) => {
-          const effSize = getEffectiveCardSize(cardSizeMode, p);
-          const w = effSize.w;
-          const h = effSize.h;
-
-          const showPhoto = cardSizeMode !== "small";
-          const showLine1 = cardSizeMode === "large";
-          const showLine2 = cardSizeMode === "large";
-
-          const isActive = activeId === p.id;
-          const isSelected = selectedIds.has(p.id);
-
-          const gCol = gradeColor(p.player.grade);
-          const onDark = isDark(gCol);
-
-          return (
-            <div
-              key={p.id}
-              className={`absolute rounded-xl border shadow-sm bg-white select-none ${
-                editMode ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-              } ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
-              style={{
-                left: p.x,
-                top: p.y,
-                width: w,
-                height: h,
-                userSelect: "none",
-                touchAction: "none",
-                zIndex: 5,
-                borderColor: gCol,
-              }}
-              onPointerDown={(e) => beginMoveAny(e, p.id)}
-            >
-              {/* grade bar */}
-              <div className="absolute left-0 top-0 w-full rounded-t-xl" style={{ height: 6, background: gCol }} />
-
-              <div className="flex h-full pt-[6px]">
-                {showPhoto ? (
-                  <div
-                    className="w-[88px] h-full bg-gray-100 border-r rounded-bl-xl overflow-hidden flex items-center justify-center relative"
-                    onPointerDown={(e) => {
-                      // photo click opens details; do not drag
-                      e.preventDefault();
-                      e.stopPropagation();
-                      ensureSelectionOnPointerDown(p.id, e);
-                      onOpenPlayer?.(p);
+              <div className="w-full h-full p-2 text-sm">
+                {editingId === o.id ? (
+                  <textarea
+                    className="w-full h-full outline-none bg-transparent resize-none"
+                    autoFocus
+                    defaultValue={o.text ?? ""}
+                    onBlur={(e) => {
+                      updateObject(o.id, { text: e.target.value });
+                      setEditingId(null);
                     }}
-                    title="Open details"
-                    style={{ cursor: "pointer" }}
-                  >
-                    {p.player.pictureUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={p.player.pictureUrl}
-                        alt={`${p.player.name} photo`}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        draggable={false}
-                      />
-                    ) : (
-                      <div className="text-lg font-bold" style={{ color: onDark ? "#ffffff" : "#111827" }}>
-                        {getInitials(p.player.name)}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-
-                <div className="flex-1 p-2 overflow-hidden">
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setEditingId(null);
+                      }
+                    }}
+                  />
+                ) : (
                   <div
-                    className="font-semibold text-sm text-gray-900 break-words whitespace-normal leading-tight"
-                    style={{
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
+                    className="w-full h-full"
+                    onDoubleClick={() => {
+                      if (!editMode) return;
+                      setEditingId(o.id);
                     }}
                   >
-                    {p.player.name || "Player"}
+                    {o.text ?? ""}
                   </div>
-
-                  {showLine1 ? (
-                    <div className="text-[12px] text-gray-700 mt-1 overflow-hidden whitespace-nowrap text-ellipsis">
-                      {buildLine1(p.player)}
-                    </div>
-                  ) : null}
-
-                  {showLine2 ? (
-                    <div className="text-[12px] text-gray-700 mt-1 overflow-hidden whitespace-nowrap text-ellipsis">
-                      {buildLine2(p.player)}
-                    </div>
-                  ) : null}
-                </div>
+                )}
               </div>
             </div>
-          );
-        })}
+          ))}
+
+          {/* placed players */}
+          {placed.map((pp) => {
+            const p = getPlayerById(pp.player_id);
+            if (!p) return null;
+
+            const w = Number.isFinite(pp.w) ? (pp.w as number) : DEFAULT_W;
+            const h = Number.isFinite(pp.h) ? (pp.h as number) : DEFAULT_H;
+
+            return (
+              <div
+                key={pp.id}
+                className="absolute rounded-xl border bg-white shadow-sm overflow-hidden"
+                style={{ left: pp.x, top: pp.y, width: w, height: h }}
+              >
+                <div className="p-2 text-xs font-semibold truncate">{p.name ?? "Player"}</div>
+              </div>
+            );
+          })}
+
+          {/* box select */}
+          {box ? (
+            <div
+              className="absolute border border-blue-500 bg-blue-200/20 pointer-events-none"
+              style={{
+                left: Math.min(box.x1, box.x2),
+                top: Math.min(box.y1, box.y2),
+                width: Math.abs(box.x2 - box.x1),
+                height: Math.abs(box.y2 - box.y1),
+              }}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );
