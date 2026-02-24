@@ -88,7 +88,12 @@ export default function TeamsPage() {
       const user = userResp.user;
       if (!user) throw new Error("You must be logged in.");
 
-      const ins = await supabase.from("teams").insert([{ name }]).select().single();
+      // teams.created_by is NOT NULL in the DB, so we must set it.
+      const ins = await supabase
+        .from("teams")
+        .insert([{ name, created_by: user.id }])
+        .select()
+        .single();
       if (ins.error) throw new Error(ins.error.message);
 
       // Ensure the creator can see the team (add membership row for themselves)

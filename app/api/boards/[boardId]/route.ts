@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import type { NextRequest } from "next/server";
 
 function getSupabaseAdmin() {
   const url =
@@ -17,15 +18,25 @@ function getSupabaseAdmin() {
   });
 }
 
-// NOTE: Next.js 16 route handlers type `context.params` as a Promise.
+/**
+ * GET /api/boards/[boardId]
+ *
+ * Returns board if:
+ *  - requester is a member of the board's team (team_members), OR
+ *  - requester's email is listed in board.data.sharing.emails
+ *
+ * If access is granted via board share (email), we ALSO upsert the requester into
+ * team_members as viewer. This ensures the TEAM becomes visible after the share,
+ * matching the "board share implies team share" requirement.
+ */
 export async function GET(
   req: NextRequest,
   context: { params: Promise<{ boardId: string }> }
 ) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
-
     const { boardId } = await context.params;
+
     const id = String(boardId || "").trim();
     if (!id) {
       return NextResponse.json(
@@ -46,9 +57,7 @@ export async function GET(
       );
     }
 
-    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(
-      token
-    );
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
     if (userErr || !userData?.user) {
       return NextResponse.json(
         { success: false, error: "Invalid session" },
@@ -72,7 +81,7 @@ export async function GET(
       );
     }
 
-    // 1) Team membership role (admin/editor/viewer)
+    // 1) Team membership access
     const { data: tm, error: tmErr } = await supabaseAdmin
       .from("team_members")
       .select("role")
@@ -94,16 +103,37 @@ export async function GET(
       );
     }
 
-    // 2) Shared email access (viewer only)
-    const sharedEmails: string[] =
-      (board as any)?.data?.sharing?.emails &&
-      Array.isArray((board as any).data.sharing.emails)
-        ? ((board as any).data.sharing.emails as any[])
-            .map((e) => String(e || "").toLowerCase())
-            .filter(Boolean)
-        : [];
+    // 2) Shared email access
+    const sharedEmails: string[] = Array.isArray((board as any)?.data?.sharing?.emails)
+      ? ((board as any).data.sharing.emails as any[])
+          .map((e) => String(e || "").trim().toLowerCase())
+          .filter(Boolean)
+      : [];
 
     if (userEmail && sharedEmails.includes(userEmail)) {
+      // IMPORTANT: board share implies team share
+      // Add the user to the team as viewer so it shows up in Teams / Boards lists.
+      const { error: upErr } = await supabaseAdmin
+        .from("team_members")
+        .upsert(
+          { team_id: board.team_id, user_id: userId, role: "viewer" },
+          { onConflict: "team_id,user_id" }
+        );
+
+      if (upErr) {
+        // still allow board view, but report that membership sync failed
+        return NextResponse.json(
+          {
+            success: true,
+            access: "shared",
+            role: "viewer",
+            board,
+            warning: `Shared access granted, but team membership upsert failed: ${upErr.message}`,
+          },
+          { status: 200 }
+        );
+      }
+
       return NextResponse.json(
         { success: true, access: "shared", role: "viewer", board },
         { status: 200 }
