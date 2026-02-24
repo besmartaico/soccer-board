@@ -11,365 +11,187 @@ type BoardRow = {
   id: string;
   team_id: string;
   name: string;
-  data: any;
+  data?: any;
   created_at: string;
 };
 
-type GoogleConfig = {
-  sheetId: string;
-  range: string;
-};
-
-type PlayerRow = {
-  id: string;
-  name: string;
-  grade: string;
-  position: string;
-  secondaryPosition: string;
-  returning: string;
-  likelihoodPrimary: string;
-  potentialPrimary: string;
-  notes: string;
-  picture: string;
-  pictureProxyUrl?: string;
-};
-
-type Filters = {
-  search: string;
-  grade: string[];
-  returning: string[];
-  primary: string[];
-  likelihood: string[];
-};
-
-const PLAYER_DRAG_MIME = "application/x-soccerboard-player";
-const BG_BUCKET = "board-backgrounds";
+type GoogleConfig = { sheetId: string; range: string };
 
 export default function BoardPage() {
-  const router = useRouter();
   const params = useParams();
-
-  const raw = (params as any)?.boardId;
-  const boardId: string | null =
-    typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
-
+  const router = useRouter();
+  const boardId = String(params?.boardId || "");
 
   const [board, setBoard] = useState<BoardRow | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [myRole, setMyRole] = useState<UserRole>("viewer");
-  const [editMode, setEditMode] = useState<boolean>(false);
+  const [editMode, setEditMode] = useState(false);
 
-  const canEdit = myRole === "admin" || myRole === "editor";
-  const isAdmin = myRole === "admin";
-
-  // Google player data
-  const [googleConfig, setGoogleConfig] = useState<GoogleConfig | null>(null);
-  const [playersLoading, setPlayersLoading] = useState(false);
-  const [playersError, setPlayersError] = useState<string | null>(null);
-  const [players, setPlayers] = useState<PlayerRow[]>([]);
-
-  // Filters
-  const [filters, setFilters] = useState<Filters>({
-    search: "",
-    grade: [],
-    returning: [],
-    primary: [],
-    likelihood: [],
-  });
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
-
-  // Board state (manual save)
   const [placedPlayers, setPlacedPlayers] = useState<PlacedPlayer[]>([]);
   const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
   const [tool, setTool] = useState<BoardTool>("select");
-  const [cardSizeMode, setCardSizeMode] = useState<"large" | "medium" | "small">("large");
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
 
-  // Background
   const [backgroundUrl, setBackgroundUrl] = useState<string>("");
 
-  // Sharing
+  // Card size
+  const [cardSizeMode, setCardSizeMode] = useState<"large" | "medium" | "small">("large");
+
+  // Roster (Google)
+  const [googleConfig, setGoogleConfig] = useState<GoogleConfig | null>(null);
+  const [rosterLoading, setRosterLoading] = useState(false);
+  const [rosterError, setRosterError] = useState<string | null>(null);
+  const [rosterPlayers, setRosterPlayers] = useState<any[]>([]);
+
+  // Sharing UI (emails array stored in board.data.sharing.emails)
   const [shareOpen, setShareOpen] = useState(false);
+  const [shareEmailsText, setShareEmailsText] = useState("");
   const [shareEmails, setShareEmails] = useState<string[]>([]);
-  const [shareInput, setShareInput] = useState("");
   const [shareSaving, setShareSaving] = useState(false);
 
+  // DnD mime for roster card payloads
+  const dragMime = "application/x-lpsb-player";
 
-  // Modals
-  const [photoModal, setPhotoModal] = useState<{ url: string; name: string } | null>(null);
-  const [playerModal, setPlayerModal] = useState<PlacedPlayer | null>(null);
-
-  // UI
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Close dropdowns if user clicks elsewhere
-  useEffect(() => {
-    const onDown = () => setOpenDropdown(null);
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, []);
-
-  async function loadBoard() {
-    setLoading(true);
-    setError(null);
-
-    if (!boardId) {
-      setError("Missing board id in URL.");
-      setLoading(false);
-      return;
-    }
-
-    const { data: userResp } = await supabase.auth.getUser();
-    if (!userResp.user) {
-      router.push("/login");
-      return;
-    }
-
-    const role = await getMyRole();
-    setMyRole(role);
-    setEditMode(role === "admin" || role === "editor");
-
-    const { data, error } = await supabase
-      .from("boards")
-      .select("id,team_id,name,data,created_at")
-      .eq("id", boardId)
-      .single();
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
-
-    const row = data as BoardRow;
-    setBoard(row);
-
-    // Google config
-    const gc = row?.data?.google;
-    if (gc?.sheetId && gc?.range) setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
-    else setGoogleConfig(null);
-
-    // placed + background
-    const hb = row?.data?.htmlBoard ?? {};
-    setPlacedPlayers(Array.isArray(hb.placedPlayers) ? hb.placedPlayers : []);
-    setBoardObjects(Array.isArray(hb.objects) ? hb.objects : []);
-    setBackgroundUrl(typeof hb.backgroundUrl === "string" ? hb.backgroundUrl : "");
-
-    const csm = hb?.cardSizeMode;
-    if (csm === "large" || csm === "medium" || csm === "small") setCardSizeMode(csm);
-    else setCardSizeMode("large");
-
-    // sharing
-    const sh = row?.data?.sharing ?? {};
-    setShareEmails(Array.isArray(sh.emails) ? sh.emails : []);
-
-    setDirty(false);
-
-    setLoading(false);
-  }
+  const initialLoadDoneRef = useRef(false);
 
   useEffect(() => {
-    loadBoard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardId]);
+    let mounted = true;
 
-  async function loadPlayersFromGoogle(cfg: GoogleConfig) {
-    setPlayersError(null);
-    setPlayersLoading(true);
-    setPlayers([]);
+    async function load() {
+      if (!boardId) return;
 
-    try {
-      const url = `/api/google/sheet?sheetId=${encodeURIComponent(cfg.sheetId)}&range=${encodeURIComponent(
-        cfg.range
-      )}`;
+      setLoading(true);
+      setError(null);
 
-      const res = await fetch(url, { cache: "no-store" });
-      const json = await res.json();
-
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.error ?? "Failed to load player sheet");
-      }
-
-      const values: string[][] = json.values ?? [];
-      if (values.length === 0) {
-        setPlayers([]);
+      // must be logged in
+      const { data: userResp } = await supabase.auth.getUser();
+      if (!userResp.user) {
+        router.push("/login");
         return;
       }
 
-      const header = values[0];
-      const rows = values.slice(1);
-
-      const col = (name: string) => header.findIndex((h) => (h ?? "").trim() === name);
-
-      const idxId = col("ID");
-      const idxName = col("Student Name");
-      const idxGrade = col("Grade");
-      const idxPicture = col("Picture");
-      const idxReturning = col("Returning Player");
-      const idxPos = col("Position");
-      const idxSecPos = col("Secondary Position");
-      const idxPotentialPrimary = col("Potential Team Primary");
-      const idxLikelihoodPrimary = col("Likelihood Primary");
-      const idxNotes = col("Jeff's Notes");
-
-      const parsed: PlayerRow[] = rows
-        .filter((r) => r && r.length > 0 && (r[idxName] ?? "").trim() !== "")
-        .map((r) => {
-          const rawPic = (r[idxPicture] ?? "").toString();
-          const normalized = normalizePictureUrl(rawPic);
-          const proxy = normalized ? `/api/image-proxy?url=${encodeURIComponent(normalized)}` : "";
-
-          return {
-            id: (r[idxId] ?? "").toString(),
-            name: (r[idxName] ?? "").toString(),
-            grade: (r[idxGrade] ?? "").toString(),
-            picture: rawPic,
-            pictureProxyUrl: proxy || undefined,
-            returning: (r[idxReturning] ?? "").toString(),
-            position: (r[idxPos] ?? "").toString(),
-            secondaryPosition: (r[idxSecPos] ?? "").toString(),
-            potentialPrimary: (r[idxPotentialPrimary] ?? "").toString(),
-            likelihoodPrimary: (r[idxLikelihoodPrimary] ?? "").toString(),
-            notes: (r[idxNotes] ?? "").toString(),
-          };
-        });
-
-      setPlayers(parsed);
-
-      // Also refresh any already-placed cards on the canvas
-      setPlacedPlayers((cur) => {
-        if (!Array.isArray(cur) || cur.length === 0) return cur;
-        const byId = new Map(parsed.map((p) => [String(p.id), p] as const));
-        return cur.map((pp) => {
-          const pid = String((pp as any)?.player?.id ?? "");
-          const hit = byId.get(pid);
-          if (!hit) return pp;
-          return {
-            ...pp,
-            player: {
-              ...(pp as any).player,
-              id: hit.id,
-              name: hit.name,
-              grade: hit.grade,
-              returning: hit.returning,
-              primary: hit.potentialPrimary,
-              likelihood: hit.likelihoodPrimary,
-              pos1: hit.position,
-              pos2: hit.secondaryPosition,
-              notes: hit.notes,
-              pictureUrl: hit.pictureProxyUrl || "",
-            },
-          } as any;
-        });
-      });
-    } catch (e: any) {
-      console.error(e);
-      setPlayersError(e?.message ?? "Failed to load players");
-    } finally {
-      setPlayersLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    if (!googleConfig) return;
-    loadPlayersFromGoogle(googleConfig);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [googleConfig?.sheetId, googleConfig?.range]);
-
-  const gradeOptions = useMemo(
-    () =>
-      uniq(players.map((p) => (p.grade ?? "").trim())).sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      ),
-    [players]
-  );
-  const returningOptions = useMemo(
-    () => uniq(players.map((p) => (p.returning ?? "").trim())).sort(),
-    [players]
-  );
-  const primaryOptions = useMemo(
-    () => uniq(players.map((p) => (p.potentialPrimary ?? "").trim())).sort(),
-    [players]
-  );
-  const likelihoodOptions = useMemo(
-    () =>
-      uniq(players.map((p) => (p.likelihoodPrimary ?? "").trim())).sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      ),
-    [players]
-  );
-
-  const filteredPlayers = useMemo(() => {
-    const s = filters.search.trim().toLowerCase();
-    return players.filter((p) => {
-      if (s) {
-        const hay = `${p.name} ${p.position} ${p.secondaryPosition} ${p.notes}`.toLowerCase();
-        if (!hay.includes(s)) return false;
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) {
+        setError("Missing session token.");
+        setLoading(false);
+        return;
       }
-      if (filters.grade.length && !filters.grade.includes((p.grade ?? "").trim())) return false;
-      if (filters.returning.length && !filters.returning.includes((p.returning ?? "").trim()))
-        return false;
-      if (filters.primary.length && !filters.primary.includes((p.potentialPrimary ?? "").trim()))
-        return false;
-      if (
-        filters.likelihood.length &&
-        !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim())
-      )
-        return false;
-      return true;
-    });
-  }, [players, filters]);
 
-  function toggleMulti(key: keyof Omit<Filters, "search">, value: string) {
-    setFilters((f) => {
-      const set = new Set(f[key]);
-      if (set.has(value)) set.delete(value);
-      else set.add(value);
-      return { ...f, [key]: Array.from(set) as any };
-    });
-  }
+      const resp = await fetch(`/api/boards/${boardId}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-  function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
-    if (!canEdit || !editMode) {
-      e.preventDefault();
-      return;
+      const json = await resp.json();
+      if (!resp.ok || !json?.success) {
+        setError(json?.error || "Failed to load board.");
+        setLoading(false);
+        return;
+      }
+
+      const row = json.board as BoardRow;
+      const roleFromApi = (json.role || "viewer") as UserRole;
+      setMyRole(roleFromApi);
+      setEditMode(roleFromApi === "admin" || roleFromApi === "editor");
+
+      setBoard(row);
+
+      // Google config
+      const gc = row?.data?.google;
+      if (gc?.sheetId && gc?.range) setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
+
+      // htmlBoard payload in data
+      const hb = row?.data?.htmlBoard;
+      if (hb?.placedPlayers && Array.isArray(hb.placedPlayers)) setPlacedPlayers(hb.placedPlayers);
+      if (hb?.objects && Array.isArray(hb.objects)) setBoardObjects(hb.objects);
+      if (hb?.backgroundUrl) setBackgroundUrl(String(hb.backgroundUrl));
+      if (hb?.cardSizeMode) setCardSizeMode(hb.cardSizeMode);
+
+      // sharing
+      const emails = row?.data?.sharing?.emails;
+      if (Array.isArray(emails)) {
+        const cleaned = emails.map((e: any) => String(e || "").trim()).filter(Boolean);
+        setShareEmails(cleaned);
+        setShareEmailsText(cleaned.join(", "));
+      }
+
+      if (!mounted) return;
+      setLoading(false);
+      initialLoadDoneRef.current = true;
     }
 
-    const payload = {
-      id: p.id,
-      name: p.name,
-      grade: p.grade,
-      returning: p.returning,
-      primary: p.potentialPrimary,
-      likelihood: p.likelihoodPrimary,
-      pos1: p.position,
-      pos2: p.secondaryPosition,
-      notes: p.notes,
-      pictureUrl: p.pictureProxyUrl || "",
+    load();
+    return () => {
+      mounted = false;
     };
+  }, [boardId, router]);
 
-    const json = JSON.stringify(payload);
-    e.dataTransfer.setData(PLAYER_DRAG_MIME, json);
-    e.dataTransfer.setData("application/json", json);
-    e.dataTransfer.setData("text/plain", json);
-    e.dataTransfer.effectAllowed = "copy";
+  // mark dirty when user edits board
+  useEffect(() => {
+    if (!initialLoadDoneRef.current) return;
+    setDirty(true);
+  }, [placedPlayers, boardObjects, backgroundUrl, cardSizeMode]);
+
+  async function loadRoster() {
+    if (!googleConfig || !boardId) return;
+
+    setRosterLoading(true);
+    setRosterError(null);
+
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Missing session token.");
+
+      const qs = new URLSearchParams({
+        sheetId: googleConfig.sheetId,
+        range: googleConfig.range,
+      }).toString();
+
+      const resp = await fetch(`/api/boards/${boardId}/google?${qs}`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const json = await resp.json();
+      if (!resp.ok || !json?.success) throw new Error(json?.error || "Failed to load roster.");
+
+      setRosterPlayers(Array.isArray(json.players) ? json.players : []);
+    } catch (e: any) {
+      setRosterError(e?.message ?? "Failed to load roster.");
+    } finally {
+      setRosterLoading(false);
+    }
+  }
+
+  function openSharing() {
+    setShareOpen(true);
+    setShareEmailsText(shareEmails.join(", "));
+  }
+
+  function closeSharing() {
+    setShareOpen(false);
   }
 
   async function saveSharing() {
-    if (!boardId || !board) return;
+    if (!boardId) return;
+    if (!board) return;
+
     setShareSaving(true);
     setError(null);
 
     try {
       const cleaned = Array.from(
         new Set(
-          shareEmails
-            .map((e) => e.trim().toLowerCase())
+          shareEmailsText
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .map((s) => s.toLowerCase())
             .filter(Boolean)
         )
       );
@@ -405,10 +227,8 @@ export default function BoardPage() {
 
     try {
       const prevData = board?.data && typeof board.data === "object" ? board.data : {};
-
       const nextData = {
         ...prevData,
-        google: prevData.google ?? undefined,
         htmlBoard: {
           placedPlayers: placedPlayers,
           objects: boardObjects,
@@ -432,740 +252,249 @@ export default function BoardPage() {
 
   async function onSelectBackgroundFile(file: File) {
     if (!boardId) return;
+    if (!editMode) return;
 
     setError(null);
-
     try {
       const ext = file.name.split(".").pop() || "png";
-      const path = `boards/${boardId}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
+      const key = `board-backgrounds/${boardId}/${Date.now()}.${ext}`;
 
-      const up = await supabase.storage.from(BG_BUCKET).upload(path, file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type || undefined,
-      });
+      const up = await supabase.storage.from("board_assets").upload(key, file, { upsert: true });
+      if (up.error) throw new Error(up.error.message);
 
-      if (up.error) {
-        throw new Error(`Storage upload failed: ${up.error.message}.`);
-      }
-
-      const pub = supabase.storage.from(BG_BUCKET).getPublicUrl(path);
+      const pub = supabase.storage.from("board_assets").getPublicUrl(key);
       const url = pub.data.publicUrl;
 
       setBackgroundUrl(url);
-      setDirty(true);
     } catch (e: any) {
-      console.error(e);
-      setError(e?.message ?? "Failed to upload background.");
+      setError(e?.message ?? "Failed to upload background image.");
     }
   }
 
-  function removePlacedCard(id: string) {
-    setPlacedPlayers((cur) => cur.filter((p) => p.id !== id));
-    setDirty(true);
+  if (loading) {
+    return <div className="p-8 text-sm text-gray-500">Loading...</div>;
   }
 
+  if (!board) {
+    return (
+      <div className="p-8">
+        <div className="text-red-600 text-sm">{error || "Board not found."}</div>
+        <div className="mt-2">
+          <Link className="underline" href="/teams">
+            Back to Teams
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const canEdit = editMode;
+
   return (
-    <main className="h-screen overflow-hidden">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-6 py-4 border-b bg-white relative z-40">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="text-2xl font-bold truncate">{board ? board.name : "Board"}</div>
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="text-xs text-gray-500">
+            <Link className="underline" href={`/teams/${board.team_id}`}>
+              Back to Team
+            </Link>
+          </div>
+          <h1 className="text-2xl font-bold">{board.name}</h1>
+          <div className="text-xs text-gray-500 mt-1">
+            Role: <span className="font-semibold">{myRole}</span>
+          </div>
+        </div>
 
-          <button
-            type="button"
-            className={`border px-3 py-1 rounded text-sm ${
-              dirty ? "bg-gray-900 text-white" : "bg-white text-gray-700"
-            }`}
-            onClick={saveBoard}
-            disabled={!dirty || saving}
-            title={dirty ? "Save changes" : "No changes to save"}
-          >
-            {saving ? "Saving..." : dirty ? "Save" : "Saved"}
-          </button>
-
-          <button
-            type="button"
-            className="border px-3 py-1 rounded text-sm bg-white"
-            onClick={() => loadBoard()}
-            disabled={saving}
-          >
-            Reload
-          </button>
-
-{canEdit ? (
-  <button
-    type="button"
-    className={`border px-3 py-1 rounded text-sm ${
-      editMode ? "bg-gray-900 text-white" : "bg-white text-gray-700"
-    }`}
-    onClick={() => {
-      setEditMode((v) => {
-        const next = !v;
-        if (!next) setTool("select");
-        return next;
-      });
-    }}
-    title={editMode ? "Switch to View mode (lock the canvas)" : "Switch to Edit mode"}
-  >
-    {editMode ? "Edit" : "View"}
-  </button>
-) : (
-  <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">View only</span>
-)}
-
-          <button
-            type="button"
-            className="border px-3 py-1 rounded text-sm bg-white"
-            onClick={() => setShareOpen(true)}
-            disabled={!board}
-            title="Share this board"
-          >
+        <div className="flex items-center gap-2">
+          <button className="border rounded px-3 py-2 text-sm" onClick={openSharing}>
             Share
           </button>
 
-          <div className="w-px h-6 bg-gray-300" />
+          <select
+            className="border rounded px-2 py-2 text-sm"
+            value={cardSizeMode}
+            onChange={(e) => setCardSizeMode(e.target.value as any)}
+          >
+            <option value="large">Large</option>
+            <option value="medium">Medium</option>
+            <option value="small">Small</option>
+          </select>
 
-          <div className="flex items-center gap-2">
+          <button
+            className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-60"
+            onClick={saveBoard}
+            disabled={!canEdit || saving || !dirty}
+            title={!canEdit ? "You have view-only access" : ""}
+          >
+            {saving ? "Saving..." : dirty ? "Save" : "Saved"}
+          </button>
+        </div>
+      </div>
+
+      {error ? <div className="text-red-600 text-sm mb-3">{error}</div> : null}
+
+      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4">
+        <div className="border rounded-xl p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="font-semibold">Roster</div>
             <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "select" ? "bg-gray-100" : "bg-white"}`}
+              className="text-xs border rounded px-2 py-1"
+              onClick={loadRoster}
+              disabled={rosterLoading || !googleConfig}
+              title={!googleConfig ? "Set Google Sheet on Team first" : ""}
+            >
+              {rosterLoading ? "Loading..." : "Load"}
+            </button>
+          </div>
+
+          {!googleConfig ? (
+            <div className="text-xs text-gray-500">
+              No Google Sheet configured on this team. Go to the team page to set one.
+            </div>
+          ) : null}
+
+          {rosterError ? <div className="text-xs text-red-600 mb-2">{rosterError}</div> : null}
+
+          <div className="space-y-2 max-h-[calc(100vh-220px)] overflow-auto pr-1">
+            {rosterPlayers.map((p) => (
+              <div
+                key={p.id || p.name}
+                className="border rounded-lg p-2 bg-white cursor-grab active:cursor-grabbing"
+                draggable={canEdit}
+                onDragStart={(e) => {
+                  if (!canEdit) return;
+                  e.dataTransfer.setData(
+                    dragMime,
+                    JSON.stringify({
+                      id: p.id || "",
+                      name: p.name || "",
+                      grade: p.grade || "",
+                      returning: p.returning || "",
+                      primary: p.primary || "",
+                      likelihood: p.likelihood || "",
+                      pos1: p.pos1 || "",
+                      pos2: p.pos2 || "",
+                      notes: p.notes || "",
+                      pictureUrl: p.pictureUrl || "",
+                    })
+                  );
+                }}
+                title={!canEdit ? "View-only access" : "Drag to board"}
+              >
+                <div className="font-semibold text-sm">{p.name}</div>
+                <div className="text-xs text-gray-500">Grade: {p.grade || "?"}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="border rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 p-2 border-b bg-white">
+            <button
+              className={`text-sm border rounded px-3 py-1 ${tool === "select" ? "bg-black text-white" : ""}`}
               onClick={() => setTool("select")}
-              title="Select / Move"
-              type="button"
+              disabled={!canEdit}
             >
               Select
             </button>
             <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "lane" ? "bg-gray-100" : "bg-white"}`}
-              onClick={() => { if (!editMode) return; setTool("lane"); } }
-              title="Add a swim lane (click on board to place)"
-              type="button"
-              disabled={!editMode}
+              className={`text-sm border rounded px-3 py-1 ${tool === "lane" ? "bg-black text-white" : ""}`}
+              onClick={() => setTool("lane")}
+              disabled={!canEdit}
             >
               Lane
             </button>
             <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "text" ? "bg-gray-100" : "bg-white"}`}
-              onClick={() => { if (!editMode) return; setTool("text"); } }
-              title="Add a text box (click on board to place)"
-              type="button"
-              disabled={!editMode}
+              className={`text-sm border rounded px-3 py-1 ${tool === "text" ? "bg-black text-white" : ""}`}
+              onClick={() => setTool("text")}
+              disabled={!canEdit}
             >
               Text
             </button>
             <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "note" ? "bg-gray-100" : "bg-white"}`}
-              onClick={() => { if (!editMode) return; setTool("note"); } }
-              title="Add a sticky note (click on board to place)"
-              type="button"
-              disabled={!editMode}
+              className={`text-sm border rounded px-3 py-1 ${tool === "note" ? "bg-black text-white" : ""}`}
+              onClick={() => setTool("note")}
+              disabled={!canEdit}
             >
               Note
             </button>
 
-            <select
-              className="border rounded px-2 py-1 text-sm bg-white"
-              value={cardSizeMode}
-              onChange={(e) => { setCardSizeMode(e.target.value as any); setDirty(true); }}
-              title="Card size"
-            >
-              <option value="large">Cards: Large</option>
-              <option value="medium">Cards: Medium</option>
-              <option value="small">Cards: Small</option>
-            </select>
-          </div>
-        </div>
+            <div className="flex-1" />
 
-        <div className="flex items-center gap-3">
-          <Link className="underline" href="/app/teams">
-            Teams
-          </Link>
-          {board ? (
-            <Link className="underline" href={`/app/teams/${board.team_id}`}>Boards</Link>
-          ) : (
-            <Link className="underline" href="/app/teams">Boards</Link>
-          )}
-          {isAdmin ? (
-            <Link className="underline" href="/app/admin/users">Admin</Link>
-          ) : null}
+            <label className={`text-xs border rounded px-3 py-2 ${!canEdit ? "opacity-50" : "cursor-pointer"}`}>
+              Background
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                disabled={!canEdit}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onSelectBackgroundFile(f);
+                  e.currentTarget.value = "";
+                }}
+              />
+            </label>
+          </div>
+
+          <HtmlBoard
+            editMode={canEdit}
+            placed={placedPlayers}
+            onPlacedChange={setPlacedPlayers}
+            dragMime={dragMime}
+            backgroundUrl={backgroundUrl || undefined}
+            objects={boardObjects}
+            onObjectsChange={setBoardObjects}
+            tool={tool}
+            onToolChange={setTool}
+            cardSizeMode={cardSizeMode}
+          />
         </div>
       </div>
 
-      {error && <div className="px-6 py-3 text-red-600 border-b relative z-40">{error}</div>}
-
-      {loading ? (
-        <div className="p-6">Loading...</div>
-      ) : (
-        <div className="flex h-[calc(100vh-73px)] min-w-0">
-          {/* Left sidebar */}
-          {!sidebarCollapsed ? (
-            <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-semibold">Roster</div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => setSidebarCollapsed(true)}
-                  >
-                    Collapse
-                  </button>
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => {
-                      if (googleConfig) loadPlayersFromGoogle(googleConfig);
-                    }}
-                    disabled={!googleConfig}
-                  >
-                    Refresh
-                  </button>
-                </div>
-              </div>
-
-              {/* Background upload */}
-              <div className="border rounded p-3 mb-3 bg-white">
-                <div className="text-xs font-semibold mb-2">Background</div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Upload image
-                  </button>
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
-                    onClick={() => {
-                      setBackgroundUrl("");
-                      setDirty(true);
-                    }}
-                    disabled={!backgroundUrl}
-                  >
-                    Clear
-                  </button>
-                </div>
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) onSelectBackgroundFile(f);
-                    e.currentTarget.value = "";
-                  }}
-                />
-              </div>
-
-              {/* Filters */}
-              <div className="border rounded p-3 mb-3 bg-white relative z-30">
-                <div className="text-xs font-semibold mb-2">Filters</div>
-
-                <input
-                  className="w-full border rounded px-2 py-1 text-sm mb-2"
-                  placeholder="Search name / notes / position"
-                  value={filters.search}
-                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                />
-
-                <DropdownMultiSelect
-                  label="Grade"
-                  options={gradeOptions.map((g) => ({ value: g, label: `Grade ${g}` }))}
-                  selected={filters.grade}
-                  open={openDropdown === "grade"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "grade" ? null : "grade"));
-                  }}
-                  onToggle={(v) => toggleMulti("grade", v)}
-                />
-
-                <DropdownMultiSelect
-                  label="Returning"
-                  options={returningOptions.map((r) => ({ value: r, label: r }))}
-                  selected={filters.returning}
-                  open={openDropdown === "returning"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "returning" ? null : "returning"));
-                  }}
-                  onToggle={(v) => toggleMulti("returning", v)}
-                />
-
-                <DropdownMultiSelect
-                  label="Primary"
-                  options={primaryOptions.map((p) => ({ value: p, label: p }))}
-                  selected={filters.primary}
-                  open={openDropdown === "primary"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "primary" ? null : "primary"));
-                  }}
-                  onToggle={(v) => toggleMulti("primary", v)}
-                />
-
-                <DropdownMultiSelect
-                  label="Likelihood"
-                  options={likelihoodOptions.map((l) => ({ value: l, label: l }))}
-                  selected={filters.likelihood}
-                  open={openDropdown === "likelihood"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"));
-                  }}
-                  onToggle={(v) => toggleMulti("likelihood", v)}
-                />
-
-                <button
-                  type="button"
-                  className="text-xs underline text-gray-600 mt-2"
-                  onClick={() =>
-                    setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
-                  }
-                >
-                  Clear filters
-                </button>
-              </div>
-
-              {playersLoading && <div className="text-sm">Loading players…</div>}
-              {playersError && <div className="text-sm text-red-600">{playersError}</div>}
-
-              {!playersLoading && !playersError && players.length > 0 && (
-                <div className="text-xs text-gray-600 mb-2">
-                  Showing {filteredPlayers.length} of {players.length}
-                </div>
-              )}
-
-              {!playersLoading && !playersError && filteredPlayers.length > 0 && (
-                <div className="space-y-2">
-                  {filteredPlayers.map((p, idx) => (
-                    <div
-                      key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-                      className="border rounded bg-white cursor-grab active:cursor-grabbing"
-                      draggable
-                      onDragStart={(e) => onPlayerDragStart(e, p)}
-                    >
-                      <div className="p-2">
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (p.pictureProxyUrl) {
-                                const u = `${p.pictureProxyUrl}${
-                                  p.pictureProxyUrl.includes("?") ? "&" : "?"
-                                }ts=${Date.now()}`;
-                                setPhotoModal({ url: u, name: p.name });
-                              }
-                            }}
-                            draggable={false}
-                            title="Click to enlarge"
-                          >
-                            {p.pictureProxyUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={p.pictureProxyUrl}
-                                alt={`${p.name} photo`}
-                                width={48}
-                                height={48}
-                                style={{ width: 48, height: 48, objectFit: "cover" }}
-                                draggable={false}
-                              />
-                            ) : null}
-                          </button>
-
-                          <div className="min-w-0">
-                            <div className="font-medium truncate">{p.name}</div>
-                            <div className="text-xs text-gray-700">
-                              Grade: {p.grade || "?"} • Pos: {p.position || "?"}
-                              {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
-                              {p.returning || "?"}
-                            </div>
-                            <div className="text-xs text-gray-700">
-                              Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
-                              {p.likelihoodPrimary || "?"}
-                            </div>
-                          </div>
-                        </div>
-
-                        {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </aside>
-          ) : (
-            <aside className="w-12 shrink-0 border-r bg-gray-50 relative z-30 flex flex-col items-center py-3">
-              <button
-                type="button"
-                className="border px-2 py-1 rounded text-xs bg-white rotate-90"
-                onClick={() => setSidebarCollapsed(false)}
-                title="Show roster"
-              >
-                Show
-              </button>
-            </aside>
-          )}
-
-          {/* Board */}
-          <section className="flex-1 min-w-0 relative z-0">
-            <HtmlBoard
-              editMode={editMode}
-              placed={placedPlayers}
-              onPlacedChange={(next) => {
-                setPlacedPlayers(next);
-                setDirty(true);
-              }}
-              objects={boardObjects}
-              onObjectsChange={(next) => {
-                setBoardObjects(next);
-                setDirty(true);
-              }}
-              tool={tool}
-              onToolChange={(t) => setTool(t)}
-              cardSizeMode={cardSizeMode}
-              dragMime={PLAYER_DRAG_MIME}
-              backgroundUrl={backgroundUrl || undefined}
-              onOpenPlayer={(pp) => setPlayerModal(pp)}
-              canvasWidth={3000}
-              canvasHeight={2000}
-            />
-          </section>
-        </div>
-      )}
-
-      {/* Photo modal (roster thumbnail) */}
-      {photoModal ? (
-        <div
-          className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setPhotoModal(null)}
-        >
-          <div className="w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
+      {/* Share modal */}
+      {shareOpen ? (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50" onClick={closeSharing}>
+          <div
+            className="bg-white w-full max-w-xl rounded-xl p-6"
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+          >
             <div className="flex items-center justify-between mb-3">
-              <div className="text-white font-semibold truncate">{photoModal.name}</div>
-              <button
-                type="button"
-                className="text-white underline text-sm"
-                onClick={() => setPhotoModal(null)}
-              >
+              <div className="font-semibold text-lg">Share Board</div>
+              <button className="text-sm underline" onClick={closeSharing}>
                 Close
               </button>
             </div>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={photoModal.url}
-              alt={`${photoModal.name} large`}
-              className="w-full max-h-[80vh] object-contain rounded-lg bg-black"
+
+            <div className="text-sm text-gray-600 mb-2">
+              Add comma-separated emails to grant view access.
+            </div>
+
+            <textarea
+              className="border rounded-md w-full px-3 py-2 text-sm h-24"
+              value={shareEmailsText}
+              onChange={(e) => setShareEmailsText(e.target.value)}
+              placeholder="email1@example.com, email2@example.com"
             />
-          </div>
-        </div>
-      ) : null}
 
-      {/* Player modal (clicked on canvas) */}
-      {playerModal ? (
-        <div
-          className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setPlayerModal(null)}
-        >
-          <div
-            className="w-full max-w-5xl bg-white rounded-xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b">
-              <div className="font-semibold truncate">{playerModal.player.name}</div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  className="border px-3 py-1 rounded text-sm bg-white"
-                  onClick={() => {
-                    removePlacedCard(playerModal.id);
-                    setPlayerModal(null);
-                  }}
-                >
-                  Remove from board
-                </button>
-                <button
-                  type="button"
-                  className="underline text-sm"
-                  onClick={() => setPlayerModal(null)}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 flex gap-4">
-              <div className="w-48 h-48 bg-gray-100 rounded overflow-hidden flex items-center justify-center shrink-0">
-                {playerModal.player.pictureUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={playerModal.player.pictureUrl}
-                    alt={`${playerModal.player.name} photo`}
-                    className="w-full h-full object-cover"
-                    draggable={false}
-                  />
-                ) : (
-                  <div className="text-3xl font-bold text-gray-800">
-                    {(playerModal.player.name || "?").slice(0, 2).toUpperCase()}
-                  </div>
-                )}
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="text-sm text-gray-800 mb-1">
-                  <span className="font-semibold">Grade:</span> {playerModal.player.grade || "?"}
-                </div>
-                <div className="text-sm text-gray-800 mb-1">
-                  <span className="font-semibold">Position:</span>{" "}
-                  {playerModal.player.pos1 || "?"}
-                  {playerModal.player.pos2 ? ` / ${playerModal.player.pos2}` : ""}
-                </div>
-                <div className="text-sm text-gray-800 mb-1">
-                  <span className="font-semibold">Returning:</span>{" "}
-                  {playerModal.player.returning || "?"}
-                </div>
-                <div className="text-sm text-gray-800 mb-1">
-                  <span className="font-semibold">Primary:</span>{" "}
-                  {playerModal.player.primary || "?"}
-                </div>
-                <div className="text-sm text-gray-800 mb-1">
-                  <span className="font-semibold">Likelihood:</span>{" "}
-                  {playerModal.player.likelihood || "?"}
-                </div>
-
-                {playerModal.player.notes ? (
-                  <div className="mt-3">
-                    <div className="text-xs font-semibold text-gray-700 mb-1">Notes</div>
-                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
-                      {playerModal.player.notes}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="mt-4 text-xs text-gray-500">
-                  Tip: resize the card using the bottom-right handle on the card.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-          {/* Share modal */}
-      {shareOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-lg border">
-            <div className="flex items-center justify-between px-5 py-4 border-b">
-              <div>
-                <div className="text-lg font-semibold">Share Board</div>
-                <div className="text-sm text-gray-600">Add email addresses who should have access to this board.</div>
-              </div>
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button className="border rounded px-4 py-2 text-sm" onClick={closeSharing}>
+                Cancel
+              </button>
               <button
-                type="button"
-                className="w-8 h-8 rounded-full border hover:bg-gray-50"
-                onClick={() => setShareOpen(false)}
-                title="Close"
+                className="bg-black text-white rounded px-4 py-2 text-sm disabled:opacity-60"
+                onClick={saveSharing}
+                disabled={!canEdit || shareSaving}
+                title={!canEdit ? "View-only access" : ""}
               >
-                ×
+                {shareSaving ? "Saving..." : "Save"}
               </button>
             </div>
-
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Email address</label>
-                <div className="flex gap-2">
-                  <input
-                    className="flex-1 border rounded px-3 py-2"
-                    value={shareInput}
-                    onChange={(e) => setShareInput(e.target.value)}
-                    placeholder="ex: coach@example.com"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const val = shareInput.trim();
-                        if (!val) return;
-                        setShareEmails((cur) => Array.from(new Set([...cur, val])));
-                        setShareInput("");
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="border px-3 py-2 rounded bg-white"
-                    onClick={() => {
-                      const val = shareInput.trim();
-                      if (!val) return;
-                      setShareEmails((cur) => Array.from(new Set([...cur, val])));
-                      setShareInput("");
-                    }}
-                  >
-                    Add
-                  </button>
-                </div>
-                <div className="text-xs text-gray-500 mt-1">Tip: press Enter to add.</div>
-              </div>
-
-              <div>
-                <div className="text-sm font-medium mb-2">Shared with</div>
-                {shareEmails.length === 0 ? (
-                  <div className="text-sm text-gray-600">No one yet.</div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {shareEmails.map((em) => (
-                      <span
-                        key={em}
-                        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-gray-50"
-                      >
-                        <span className="max-w-[320px] truncate">{em}</span>
-                        <button
-                          type="button"
-                          className="w-6 h-6 rounded-full border hover:bg-white"
-                          title="Remove"
-                          onClick={() => setShareEmails((cur) => cur.filter((x) => x !== em))}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" className="border px-4 py-2 rounded bg-white" onClick={() => setShareOpen(false)}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="rounded bg-black text-white px-4 py-2 disabled:opacity-60"
-                  onClick={saveSharing}
-                  disabled={shareSaving}
-                >
-                  {shareSaving ? "Saving..." : "Save"}
-                </button>
-              </div>
-            </div>
           </div>
-        </div>
-      ) : null}
-
-    </main>
-  );
-}
-
-/** Dropdown multi-select */
-function DropdownMultiSelect({
-  label,
-  options,
-  selected,
-  open,
-  onOpen,
-  onToggle,
-}: {
-  label: string;
-  options: { value: string; label: string }[];
-  selected: string[];
-  open: boolean;
-  onOpen: (e: React.MouseEvent) => void;
-  onToggle: (value: string) => void;
-}) {
-  const selectedCount = selected.length;
-
-  return (
-    <div className="mb-2 relative">
-      <button
-        type="button"
-        className="w-full border rounded px-2 py-1 text-sm flex items-center justify-between bg-white"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={onOpen}
-      >
-        <span>
-          {label}
-          {selectedCount ? ` (${selectedCount})` : ""}
-        </span>
-        <span className="text-gray-500">{open ? "▲" : "▼"}</span>
-      </button>
-
-      {open ? (
-        <div
-          className="mt-1 w-full bg-white border rounded shadow p-2 max-h-56 overflow-auto relative z-40"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {options.length === 0 ? (
-            <div className="text-xs text-gray-500">No options</div>
-          ) : (
-            <div className="space-y-1">
-              {options.map((o) => (
-                <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(o.value)}
-                    onChange={() => onToggle(o.value)}
-                  />
-                  <span>{o.label}</span>
-                </label>
-              ))}
-            </div>
-          )}
         </div>
       ) : null}
     </div>
   );
-}
-
-function uniq(arr: string[]) {
-  const out: string[] = [];
-  const set = new Set<string>();
-  for (const a of arr) {
-    const v = (a ?? "").trim();
-    if (!v) continue;
-    if (set.has(v)) continue;
-    set.add(v);
-    out.push(v);
-  }
-  return out;
-}
-
-/**
- * Normalize Google Drive links into a "direct-ish" image URL.
- */
-function normalizePictureUrl(raw: string) {
-  const s = (raw ?? "").trim();
-  if (!s) return "";
-
-  try {
-    const u = new URL(s);
-
-    // /file/d/<id>/
-    const m = u.pathname.match(/\/file\/d\/([^/]+)/);
-    if (m && m[1]) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
-
-    // /thumbnail?id=...
-    if (u.hostname === "drive.google.com" && u.pathname === "/thumbnail") {
-      let id = u.searchParams.get("id") ?? "";
-      if (id.includes("=") && !id.includes("%3D")) {
-        id = id.split("=")[0];
-      }
-      if (id) {
-        const sz = u.searchParams.get("sz") || "w1000";
-        return `https://drive.google.com/thumbnail?id=${id}&sz=${encodeURIComponent(sz)}`;
-      }
-    }
-
-    // ?id=<id>
-    const idParam = u.searchParams.get("id");
-    if (idParam) {
-      const id = idParam.includes("=") ? idParam.split("=")[0] : idParam;
-      return `https://drive.google.com/uc?export=view&id=${id}`;
-    }
-
-    return u.toString();
-  } catch {
-    return "";
-  }
 }
