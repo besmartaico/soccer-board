@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 function getSupabaseAdmin() {
@@ -17,23 +17,43 @@ function getSupabaseAdmin() {
   });
 }
 
-export async function GET(req: Request, ctx: { params: { boardId: string } }) {
+// NOTE: Next.js 16 route handlers type `context.params` as a Promise.
+export async function GET(
+  req: NextRequest,
+  context: { params: Promise<{ boardId: string }> }
+) {
   try {
     const supabaseAdmin = getSupabaseAdmin();
-    const boardId = String(ctx?.params?.boardId || "").trim();
-    if (!boardId) {
-      return NextResponse.json({ success: false, error: "Missing boardId" }, { status: 400 });
+
+    const { boardId } = await context.params;
+    const id = String(boardId || "").trim();
+    if (!id) {
+      return NextResponse.json(
+        { success: false, error: "Missing boardId" },
+        { status: 400 }
+      );
     }
 
     const authHeader = req.headers.get("authorization") || "";
-    const token = authHeader.toLowerCase().startsWith("bearer ") ? authHeader.slice(7) : "";
+    const token = authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(7)
+      : "";
+
     if (!token) {
-      return NextResponse.json({ success: false, error: "Missing Authorization token" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: "Missing Authorization token" },
+        { status: 401 }
+      );
     }
 
-    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(
+      token
+    );
     if (userErr || !userData?.user) {
-      return NextResponse.json({ success: false, error: "Invalid session" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: "Invalid session" },
+        { status: 401 }
+      );
     }
 
     const userId = userData.user.id;
@@ -42,7 +62,7 @@ export async function GET(req: Request, ctx: { params: { boardId: string } }) {
     const { data: board, error: boardErr } = await supabaseAdmin
       .from("boards")
       .select("id,team_id,name,data,created_at")
-      .eq("id", boardId)
+      .eq("id", id)
       .single();
 
     if (boardErr || !board) {
@@ -61,27 +81,43 @@ export async function GET(req: Request, ctx: { params: { boardId: string } }) {
       .maybeSingle();
 
     if (tmErr) {
-      return NextResponse.json({ success: false, error: tmErr.message }, { status: 500 });
+      return NextResponse.json(
+        { success: false, error: tmErr.message },
+        { status: 500 }
+      );
     }
 
     if (tm?.role) {
-      return NextResponse.json({ success: true, access: "team", role: tm.role, board }, { status: 200 });
+      return NextResponse.json(
+        { success: true, access: "team", role: tm.role, board },
+        { status: 200 }
+      );
     }
 
     // 2) Shared email access (viewer only)
     const sharedEmails: string[] =
-      (board as any)?.data?.sharing?.emails && Array.isArray((board as any).data.sharing.emails)
+      (board as any)?.data?.sharing?.emails &&
+      Array.isArray((board as any).data.sharing.emails)
         ? ((board as any).data.sharing.emails as any[])
             .map((e) => String(e || "").toLowerCase())
             .filter(Boolean)
         : [];
 
     if (userEmail && sharedEmails.includes(userEmail)) {
-      return NextResponse.json({ success: true, access: "shared", role: "viewer", board }, { status: 200 });
+      return NextResponse.json(
+        { success: true, access: "shared", role: "viewer", board },
+        { status: 200 }
+      );
     }
 
-    return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    return NextResponse.json(
+      { success: false, error: "Forbidden" },
+      { status: 403 }
+    );
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: e?.message ?? "Server error" },
+      { status: 500 }
+    );
   }
 }
