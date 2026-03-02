@@ -43,6 +43,7 @@ type Filters = {
 };
 
 const PLAYER_DRAG_MIME = "application/x-soccerboard-player";
+const OBJECT_DRAG_MIME = "application/x-soccerboard-object";
 const BG_BUCKET = "board-backgrounds";
 
 export default function BoardPage() {
@@ -104,6 +105,7 @@ export default function BoardPage() {
 
   // UI
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState<"players" | "objects">("players");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -373,6 +375,29 @@ export default function BoardPage() {
     e.dataTransfer.effectAllowed = "copy";
   }
 
+  function onTokenDragStart(
+    e: React.DragEvent,
+    token: { tokenType: "circle" | "ball"; tokenColor?: string; tokenLabel?: string }
+  ) {
+    if (!canEdit || !editMode) {
+      e.preventDefault();
+      return;
+    }
+
+    const payload = {
+      __type: "token",
+      tokenType: token.tokenType,
+      tokenColor: token.tokenColor,
+      tokenLabel: token.tokenLabel,
+    };
+
+    const json = JSON.stringify(payload);
+    e.dataTransfer.setData(OBJECT_DRAG_MIME, json);
+    e.dataTransfer.setData("application/json", json);
+    e.dataTransfer.setData("text/plain", json);
+    e.dataTransfer.effectAllowed = "copy";
+  }
+
   async function saveSharing() {
     if (!boardId || !board) return;
     setShareSaving(true);
@@ -387,20 +412,41 @@ export default function BoardPage() {
         )
       );
 
-      const prevData = board?.data && typeof board.data === "object" ? board.data : {};
-      const nextData = {
-        ...prevData,
-        sharing: {
-          ...(prevData as any).sharing,
-          emails: cleaned,
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Missing session token.");
+
+      const res = await fetch(`/api/boards/${boardId}/share`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      };
+        body: JSON.stringify({ emails: cleaned }),
+      });
 
-      const u = await supabase.from("boards").update({ data: nextData }).eq("id", boardId);
-      if (u.error) throw new Error(u.error.message);
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.success) {
+        throw new Error(json?.error || "Failed to save sharing settings.");
+      }
 
-      setBoard({ ...board, data: nextData });
-      setShareEmails(cleaned);
+      if (Array.isArray(json?.notFound) && json.notFound.length) {
+        // Not fatal: sharing list is saved; these users simply don't exist yet.
+        console.warn("Share emails not found in auth:", json.notFound);
+      }
+
+      if (json?.warning) {
+        console.warn(json.warning);
+      }
+
+      if (json?.board) {
+        setBoard(json.board);
+        const emails = (json.board?.data?.sharing?.emails ?? cleaned) as string[];
+        setShareEmails(Array.isArray(emails) ? emails : cleaned);
+      } else {
+        setShareEmails(cleaned);
+      }
+
       setShareOpen(false);
     } catch (e: any) {
       setError(e?.message ?? "Failed to save sharing settings.");
@@ -614,8 +660,28 @@ export default function BoardPage() {
           {!sidebarCollapsed ? (
             <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
               <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-semibold">Roster</div>
+                <div className="text-sm font-semibold">
+                  {sidebarMode === "players" ? "Roster" : "Objects"}
+                </div>
                 <div className="flex items-center gap-2">
+                  <div className="flex items-center border rounded overflow-hidden bg-white">
+                    <button
+                      type="button"
+                      className={`px-2 py-1 text-xs ${sidebarMode === "players" ? "bg-gray-100 font-semibold" : ""}`}
+                      onClick={() => setSidebarMode("players")}
+                      title="Show players"
+                    >
+                      Players
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-2 py-1 text-xs ${sidebarMode === "objects" ? "bg-gray-100 font-semibold" : ""}`}
+                      onClick={() => setSidebarMode("objects")}
+                      title="Show objects"
+                    >
+                      Objects
+                    </button>
+                  </div>
                   <button
                     type="button"
                     className="border px-3 py-1 rounded text-sm bg-white"
@@ -635,6 +701,75 @@ export default function BoardPage() {
                   </button>
                 </div>
               </div>
+
+              {sidebarMode === "objects" ? (
+                <div className="border rounded p-3 mb-3 bg-white">
+                  <div className="text-xs font-semibold mb-2">Drag onto the board</div>
+
+                  <div className="text-xs text-gray-600 mb-2">Maroon (1–11)</div>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {Array.from({ length: 11 }).map((_, i) => {
+                      const label = String(i + 1);
+                      return (
+                        <div
+                          key={`maroon-${label}`}
+                          draggable
+                          onDragStart={(e) =>
+                            onTokenDragStart(e, {
+                              tokenType: "circle",
+                              tokenColor: "#7f1d1d",
+                              tokenLabel: label,
+                            })
+                          }
+                          className="w-10 h-10 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center text-white font-semibold select-none"
+                          style={{ background: "#7f1d1d" }}
+                          title={`Maroon ${label}`}
+                        >
+                          {label}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="text-xs text-gray-600 mb-2">Blue (1–11)</div>
+                  <div className="flex flex-wrap gap-2 mb-3">
+                    {Array.from({ length: 11 }).map((_, i) => {
+                      const label = String(i + 1);
+                      return (
+                        <div
+                          key={`blue-${label}`}
+                          draggable
+                          onDragStart={(e) =>
+                            onTokenDragStart(e, {
+                              tokenType: "circle",
+                              tokenColor: "#1d4ed8",
+                              tokenLabel: label,
+                            })
+                          }
+                          className="w-10 h-10 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center text-white font-semibold select-none"
+                          style={{ background: "#1d4ed8" }}
+                          title={`Blue ${label}`}
+                        >
+                          {label}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="text-xs text-gray-600 mb-2">Ball</div>
+                  <div className="flex items-center gap-2">
+                    <div
+                      draggable
+                      onDragStart={(e) => onTokenDragStart(e, { tokenType: "ball" })}
+                      className="w-11 h-11 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center border bg-white select-none"
+                      title="Soccer ball"
+                    >
+                      <span style={{ fontSize: 24 }}>⚽</span>
+                    </div>
+                    <div className="text-xs text-gray-600">Drag onto canvas</div>
+                  </div>
+                </div>
+              ) : null}
 
               {/* Background upload */}
               <div className="border rounded p-3 mb-3 bg-white">
@@ -673,9 +808,10 @@ export default function BoardPage() {
                 />
               </div>
 
-              {/* Filters */}
-              <div className="border rounded p-3 mb-3 bg-white relative z-30">
-                <div className="text-xs font-semibold mb-2">Filters</div>
+              {/* Filters (players mode only) */}
+              {sidebarMode === "players" ? (
+                <div className="border rounded p-3 mb-3 bg-white relative z-30">
+                  <div className="text-xs font-semibold mb-2">Filters</div>
 
                 <input
                   className="w-full border rounded px-2 py-1 text-sm mb-2"
@@ -732,85 +868,92 @@ export default function BoardPage() {
                   onToggle={(v) => toggleMulti("likelihood", v)}
                 />
 
-                <button
-                  type="button"
-                  className="text-xs underline text-gray-600 mt-2"
-                  onClick={() =>
-                    setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
-                  }
-                >
-                  Clear filters
-                </button>
-              </div>
-
-              {playersLoading && <div className="text-sm">Loading players…</div>}
-              {playersError && <div className="text-sm text-red-600">{playersError}</div>}
-
-              {!playersLoading && !playersError && players.length > 0 && (
-                <div className="text-xs text-gray-600 mb-2">
-                  Showing {filteredPlayers.length} of {players.length}
+                  <button
+                    type="button"
+                    className="text-xs underline text-gray-600 mt-2"
+                    onClick={() =>
+                      setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
+                    }
+                  >
+                    Clear filters
+                  </button>
                 </div>
-              )}
+              ) : null}
 
-              {!playersLoading && !playersError && filteredPlayers.length > 0 && (
-                <div className="space-y-2">
-                  {filteredPlayers.map((p, idx) => (
-                    <div
-                      key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-                      className="border rounded bg-white cursor-grab active:cursor-grabbing"
-                      draggable
-                      onDragStart={(e) => onPlayerDragStart(e, p)}
-                    >
-                      <div className="p-2">
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (p.pictureProxyUrl) {
-                                const u = `${p.pictureProxyUrl}${
-                                  p.pictureProxyUrl.includes("?") ? "&" : "?"
-                                }ts=${Date.now()}`;
-                                setPhotoModal({ url: u, name: p.name });
-                              }
-                            }}
-                            draggable={false}
-                            title="Click to enlarge"
-                          >
-                            {p.pictureProxyUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={p.pictureProxyUrl}
-                                alt={`${p.name} photo`}
-                                width={48}
-                                height={48}
-                                style={{ width: 48, height: 48, objectFit: "cover" }}
+              {sidebarMode === "players" ? (
+                <>
+                  {playersLoading && <div className="text-sm">Loading players…</div>}
+                  {playersError && <div className="text-sm text-red-600">{playersError}</div>}
+
+                  {!playersLoading && !playersError && players.length > 0 && (
+                    <div className="text-xs text-gray-600 mb-2">
+                      Showing {filteredPlayers.length} of {players.length}
+                    </div>
+                  )}
+
+                  {!playersLoading && !playersError && filteredPlayers.length > 0 && (
+                    <div className="space-y-2">
+                      {filteredPlayers.map((p, idx) => (
+                        <div
+                          key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
+                          className="border rounded bg-white cursor-grab active:cursor-grabbing"
+                          draggable
+                          onDragStart={(e) => onPlayerDragStart(e, p)}
+                        >
+                          <div className="p-2">
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (p.pictureProxyUrl) {
+                                    const u = `${p.pictureProxyUrl}${
+                                      p.pictureProxyUrl.includes("?") ? "&" : "?"
+                                    }ts=${Date.now()}`;
+                                    setPhotoModal({ url: u, name: p.name });
+                                  }
+                                }}
                                 draggable={false}
-                              />
-                            ) : null}
-                          </button>
+                                title="Click to enlarge"
+                              >
+                                {p.pictureProxyUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={p.pictureProxyUrl}
+                                    alt={`${p.name} photo`}
+                                    width={48}
+                                    height={48}
+                                    style={{ width: 48, height: 48, objectFit: "cover" }}
+                                    draggable={false}
+                                  />
+                                ) : null}
+                              </button>
 
-                          <div className="min-w-0">
-                            <div className="font-medium truncate">{p.name}</div>
-                            <div className="text-xs text-gray-700">
-                              Grade: {p.grade || "?"} • Pos: {p.position || "?"}
-                              {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
-                              {p.returning || "?"}
+                              <div className="min-w-0">
+                                <div className="font-medium truncate">{p.name}</div>
+                                <div className="text-xs text-gray-700">
+                                  Grade: {p.grade || "?"} • Pos: {p.position || "?"}
+                                  {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
+                                  {p.returning || "?"}
+                                </div>
+                                <div className="text-xs text-gray-700">
+                                  Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
+                                  {p.likelihoodPrimary || "?"}
+                                </div>
+                              </div>
                             </div>
-                            <div className="text-xs text-gray-700">
-                              Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
-                              {p.likelihoodPrimary || "?"}
-                            </div>
+
+                            {p.notes ? (
+                              <div className="text-xs text-gray-600 mt-1">{p.notes}</div>
+                            ) : null}
                           </div>
                         </div>
-
-                        {p.notes ? <div className="text-xs text-gray-600 mt-1">{p.notes}</div> : null}
-                      </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
+                  )}
+                </>
+              ) : null}
             </aside>
           ) : (
             <aside className="w-12 shrink-0 border-r bg-gray-50 relative z-30 flex flex-col items-center py-3">
@@ -842,7 +985,8 @@ export default function BoardPage() {
               tool={tool}
               onToolChange={(t) => setTool(t)}
               cardSizeMode={cardSizeMode}
-              dragMime={PLAYER_DRAG_MIME}
+              playerDragMime={PLAYER_DRAG_MIME}
+              objectDragMime={OBJECT_DRAG_MIME}
               backgroundUrl={backgroundUrl || undefined}
               onOpenPlayer={(pp) => setPlayerModal(pp)}
               canvasWidth={3000}

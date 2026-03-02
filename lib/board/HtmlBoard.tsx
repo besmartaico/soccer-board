@@ -28,7 +28,7 @@ export type BoardTool = "select" | "lane" | "text" | "note";
 
 export type BoardObject = {
   id: string;
-  kind: "lane" | "text" | "note";
+  kind: "lane" | "text" | "note" | "token";
   x: number;
   y: number;
   w: number;
@@ -36,6 +36,9 @@ export type BoardObject = {
   title?: string; // lane
   text?: string; // text/note
   color?: string; // note bg
+  tokenColor?: string; // token
+  tokenLabel?: string; // token
+  tokenType?: "circle" | "ball"; // token
 };
 
 const DEFAULT_W = 260;
@@ -130,7 +133,8 @@ export function HtmlBoard({
   editMode,
   placed,
   onPlacedChange,
-  dragMime,
+  playerDragMime,
+  objectDragMime,
   backgroundUrl,
   onOpenPlayer,
   canvasWidth = 3000,
@@ -144,7 +148,8 @@ export function HtmlBoard({
   editMode: boolean;
   placed: PlacedPlayer[];
   onPlacedChange: (next: PlacedPlayer[]) => void;
-  dragMime: string;
+  playerDragMime: string;
+  objectDragMime: string;
   backgroundUrl?: string;
   onOpenPlayer?: (p: PlacedPlayer) => void;
   canvasWidth?: number;
@@ -227,19 +232,37 @@ export function HtmlBoard({
   }
 
   // ---------- drag from roster drop ----------
-  function parseDragPayload(e: React.DragEvent) {
+  function parseDragJson(e: React.DragEvent) {
     const raw =
-      e.dataTransfer.getData(dragMime) ||
+      e.dataTransfer.getData(playerDragMime) ||
+      e.dataTransfer.getData(objectDragMime) ||
       e.dataTransfer.getData("application/json") ||
       e.dataTransfer.getData("text/plain");
     if (!raw) return null;
 
     try {
-      const p = JSON.parse(raw);
-      return p as PlayerPayload;
+      return JSON.parse(raw);
     } catch {
       return null;
     }
+  }
+
+  function isTokenPayload(x: any): x is {
+    __type: "token";
+    tokenType: "circle" | "ball";
+    tokenColor?: string;
+    tokenLabel?: string;
+  } {
+    return (
+      x &&
+      typeof x === "object" &&
+      x.__type === "token" &&
+      (x.tokenType === "circle" || x.tokenType === "ball")
+    );
+  }
+
+  function isPlayerPayload(x: any): x is PlayerPayload {
+    return x && typeof x === "object" && typeof x.name === "string";
   }
 
   function onDragOver(e: React.DragEvent) {
@@ -247,6 +270,12 @@ export function HtmlBoard({
     e.preventDefault();
     setIsDragOver(true);
     e.dataTransfer.dropEffect = "copy";
+  }
+
+  function onDragEnter(e: React.DragEvent) {
+    if (!editMode) return;
+    e.preventDefault();
+    setIsDragOver(true);
   }
 
   function onDragLeave() {
@@ -258,13 +287,46 @@ export function HtmlBoard({
     e.preventDefault();
     setIsDragOver(false);
 
-    const payload = parseDragPayload(e);
+    const payload = parseDragJson(e);
     if (!payload) return;
 
     const pt = clientToBoard(e.clientX, e.clientY);
+
+    // 1) Token drop (circles / ball)
+    if (isTokenPayload(payload)) {
+      const base = payload.tokenType === "ball" ? 44 : 40;
+      const w = base;
+      const h = base;
+
+      const id = `token-${payload.tokenType}-${payload.tokenLabel || ""}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const nextX = clamp(pt.x - w / 2, 0, canvasWidth - w);
+      const nextY = clamp(pt.y - h / 2, 0, canvasHeight - h);
+
+      const nextObj: BoardObject = {
+        id,
+        kind: "token",
+        x: nextX,
+        y: nextY,
+        w,
+        h,
+        tokenType: payload.tokenType,
+        tokenColor: payload.tokenColor,
+        tokenLabel: payload.tokenLabel,
+      };
+
+      onObjectsChangeRef.current?.([...objectsRef.current, nextObj]);
+      setActiveId(id);
+      setSelectedIds(new Set([id]));
+      return;
+    }
+
+    // 2) Player drop
+    if (!isPlayerPayload(payload)) return;
+
     const id = `${payload.id || payload.name}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
-    const eff = cardSizeMode === "small" ? SMALL_CARD : cardSizeMode === "medium" ? MEDIUM_CARD : LARGE_CARD;
+    const eff =
+      cardSizeMode === "small" ? SMALL_CARD : cardSizeMode === "medium" ? MEDIUM_CARD : LARGE_CARD;
     const w = eff.w;
     const h = eff.h;
 
@@ -807,9 +869,12 @@ export function HtmlBoard({
           ...bgStyle,
           touchAction: "none",
         }}
+        onDragEnter={onDragEnter}
         onDragOver={onDragOver}
+        onDragOverCapture={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
+        onDropCapture={onDrop}
         onPointerDown={onPointerDownCanvas}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -835,6 +900,74 @@ export function HtmlBoard({
           const isSelected = selectedIds.has(o.id);
           const isActive = activeId === o.id;
           const isEditing = editingId === o.id;
+
+          if (o.kind === "token") {
+            const label = o.tokenLabel || "";
+            const isBall = o.tokenType === "ball";
+            const fill = o.tokenColor || (isBall ? "#ffffff" : "#7f1d1d");
+            const txtColor = isBall ? "#111827" : isDark(fill) ? "#ffffff" : "#111827";
+
+            return (
+              <div
+                key={o.id}
+                className={`absolute select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                style={{
+                  left: o.x,
+                  top: o.y,
+                  width: o.w,
+                  height: o.h,
+                  zIndex: 1,
+                }}
+                onPointerDown={(e) => beginMoveAny(e, o.id)}
+              >
+                <div
+                  className="w-full h-full rounded-full flex items-center justify-center"
+                  style={{
+                    background: fill,
+                    border: isBall
+                      ? "1px solid rgba(17,24,39,0.35)"
+                      : "1px solid rgba(255,255,255,0.25)",
+                  }}
+                  title={isBall ? "Ball" : "Token"}
+                >
+                  {isBall ? (
+                    <span
+                      style={{
+                        fontSize: Math.max(18, Math.min(28, Math.floor(o.w * 0.6))),
+                      }}
+                    >
+                      ⚽
+                    </span>
+                  ) : (
+                    <span
+                      className="font-semibold"
+                      style={{
+                        color: txtColor,
+                        fontSize: Math.max(12, Math.min(18, Math.floor(o.w * 0.42))),
+                      }}
+                    >
+                      {label}
+                    </span>
+                  )}
+                </div>
+
+                {editMode && (isSelected || isActive) ? (
+                  <div
+                    className="absolute rounded bg-white/90 border shadow"
+                    style={{
+                      width: RESIZE_HANDLE,
+                      height: RESIZE_HANDLE,
+                      right: -RESIZE_HANDLE / 2,
+                      bottom: -RESIZE_HANDLE / 2,
+                      cursor: "nwse-resize",
+                    }}
+                    onPointerDown={(e) => beginResizeAny(e, o.id)}
+                    title="Resize"
+                  />
+                ) : null}
+              </div>
+            );
+          }
 
           if (o.kind === "lane") {
             return (
