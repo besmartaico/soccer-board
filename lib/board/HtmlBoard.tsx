@@ -815,7 +815,7 @@ export function HtmlBoard({
                       className="font-semibold"
                       style={{
                         color: txtColor,
-                        fontSize: 14,
+                        fontSize: 20,
                       }}
                     >
                       {label}
