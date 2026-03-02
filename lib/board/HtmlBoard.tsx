@@ -219,6 +219,11 @@ export function HtmlBoard({
     };
   }
 
+  function getScroll() {
+    const el = scrollRef.current;
+    return { left: el?.scrollLeft ?? 0, top: el?.scrollTop ?? 0 };
+  }
+
   function rectNorm(x1: number, y1: number, x2: number, y2: number) {
     const left = Math.min(x1, x2);
     const top = Math.min(y1, y2);
@@ -228,57 +233,47 @@ export function HtmlBoard({
   }
 
   function rectIntersects(a: { left: number; top: number; right: number; bottom: number }, b: { left: number; top: number; right: number; bottom: number }) {
-    return !(b.left > a.right || b.right < a.left || b.top > a.bottom || b.bottom < a.top);
+    return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
   }
 
-  // ---------- drag from roster drop ----------
-  function parseDragJson(e: React.DragEvent) {
-    const raw =
-      e.dataTransfer.getData(playerDragMime) ||
-      e.dataTransfer.getData(objectDragMime) ||
-      e.dataTransfer.getData("application/json") ||
-      e.dataTransfer.getData("text/plain");
-    if (!raw) return null;
-
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
+  // ---------- selection helpers ----------
+  function clearSelection() {
+    setSelectedIds(new Set());
+    setActiveId(null);
   }
 
-  function isTokenPayload(x: any): x is {
-    __type: "token";
-    tokenType: "circle" | "ball";
-    tokenColor?: string;
-    tokenLabel?: string;
-  } {
-    return (
-      x &&
-      typeof x === "object" &&
-      x.__type === "token" &&
-      (x.tokenType === "circle" || x.tokenType === "ball")
-    );
+  function selectSingle(id: string) {
+    setSelectedIds(new Set([id]));
+    setActiveId(id);
   }
 
-  function isPlayerPayload(x: any): x is PlayerPayload {
-    return x && typeof x === "object" && typeof x.name === "string";
+  function toggleSelect(id: string) {
+    setSelectedIds((cur) => {
+      const n = new Set(cur);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+    setActiveId(id);
   }
 
-  function onDragOver(e: React.DragEvent) {
-    if (!editMode) return;
-    e.preventDefault();
-    setIsDragOver(true);
-    e.dataTransfer.dropEffect = "copy";
-  }
-
+  // ---------- drag drop from sidebar ----------
   function onDragEnter(e: React.DragEvent) {
     if (!editMode) return;
     e.preventDefault();
     setIsDragOver(true);
   }
 
-  function onDragLeave() {
+  function onDragOver(e: React.DragEvent) {
+    if (!editMode) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setIsDragOver(true);
+  }
+
+  function onDragLeave(e: React.DragEvent) {
+    if (!editMode) return;
+    e.preventDefault();
     setIsDragOver(false);
   }
 
@@ -287,497 +282,376 @@ export function HtmlBoard({
     e.preventDefault();
     setIsDragOver(false);
 
-    const payload = parseDragJson(e);
-    if (!payload) return;
+    const { x, y } = clientToBoard(e.clientX, e.clientY);
 
-    const pt = clientToBoard(e.clientX, e.clientY);
-
-    // 1) Token drop (circles / ball)
-    if (isTokenPayload(payload)) {
-      const base = payload.tokenType === "ball" ? 44 : 40;
-      const w = base;
-      const h = base;
-
-      const id = `token-${payload.tokenType}-${payload.tokenLabel || ""}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const nextX = clamp(pt.x - w / 2, 0, canvasWidth - w);
-      const nextY = clamp(pt.y - h / 2, 0, canvasHeight - h);
-
-      const nextObj: BoardObject = {
-        id,
-        kind: "token",
-        x: nextX,
-        y: nextY,
-        w,
-        h,
-        tokenType: payload.tokenType,
-        tokenColor: payload.tokenColor,
-        tokenLabel: payload.tokenLabel,
-      };
-
-      onObjectsChangeRef.current?.([...objectsRef.current, nextObj]);
-      setActiveId(id);
-      setSelectedIds(new Set([id]));
+    // Player card drop
+    const playerJson = e.dataTransfer.getData(playerDragMime);
+    if (playerJson) {
+      try {
+        const p: PlayerPayload = JSON.parse(playerJson);
+        const id = `pp_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        const next: PlacedPlayer = {
+          id,
+          x: clamp(x, 0, canvasWidth - DEFAULT_W),
+          y: clamp(y, 0, canvasHeight - DEFAULT_H),
+          w: DEFAULT_W,
+          h: DEFAULT_H,
+          player: p,
+        };
+        onPlacedChangeRef.current([...placedRef.current, next]);
+      } catch {
+        // ignore
+      }
       return;
     }
 
-    // 2) Player drop
-    if (!isPlayerPayload(payload)) return;
+    // Object/token drop
+    const objJson = e.dataTransfer.getData(objectDragMime);
+    if (objJson) {
+      try {
+        const payload = JSON.parse(objJson) as Partial<BoardObject>;
+        const id = `obj_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 
-    const id = `${payload.id || payload.name}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const w = Number.isFinite(payload.w) ? (payload.w as number) : 60;
+        const h = Number.isFinite(payload.h) ? (payload.h as number) : 60;
 
-    const eff =
-      cardSizeMode === "small" ? SMALL_CARD : cardSizeMode === "medium" ? MEDIUM_CARD : LARGE_CARD;
-    const w = eff.w;
-    const h = eff.h;
+        const nextObj: BoardObject = {
+          id,
+          kind: "token",
+          tokenType: payload.tokenType || "circle",
+          tokenColor: payload.tokenColor,
+          tokenLabel: payload.tokenLabel,
+          x: clamp(x, 0, canvasWidth - w),
+          y: clamp(y, 0, canvasHeight - h),
+          w,
+          h,
+        };
 
-    const nextX = clamp(pt.x - w / 2, 0, canvasWidth - w);
-    const nextY = clamp(pt.y - h / 2, 0, canvasHeight - h);
-
-    const next: PlacedPlayer[] = [
-      ...placedRef.current,
-      {
-        id,
-        x: nextX,
-        y: nextY,
-        w,
-        h,
-        player: payload,
-      },
-    ];
-
-    onPlacedChangeRef.current(next);
-
-    setActiveId(id);
-    setSelectedIds(new Set([id]));
+        const next = [...objectsRef.current, nextObj];
+        onObjectsChangeRef.current?.(next);
+        selectSingle(nextObj.id);
+      } catch {
+        // ignore
+      }
+    }
   }
 
-  // ---------- selection helpers ----------
-  function ensureSelectionOnPointerDown(id: string, e: React.PointerEvent) {
-    const isMeta = (e as any).metaKey || (e as any).ctrlKey;
-    const isShift = (e as any).shiftKey;
+  // ---------- pointer operations ----------
+  function beginMoveAny(e: React.PointerEvent, id: string) {
+    if (!editMode) return;
 
-    if (isMeta) {
-      setSelectedIds((cur) => {
-        const next = new Set(cur);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next.size ? next : new Set([id]);
-      });
-      setActiveId(id);
-      return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
+    const isMulti = e.shiftKey || e.metaKey || e.ctrlKey;
+
+    const curSel = new Set(selectedIdsRef.current);
+    if (!curSel.has(id)) {
+      if (isMulti) toggleSelect(id);
+      else selectSingle(id);
+    } else {
+      if (isMulti) toggleSelect(id);
+      else setActiveId(id);
     }
 
-    if (isShift) {
-      setSelectedIds((cur) => new Set([...Array.from(cur), id]));
-      setActiveId(id);
-      return;
-    }
-
-    setSelectedIds(new Set([id]));
-    setActiveId(id);
-  }
-
-  function getMoveIds(id: string) {
-    if (selectedIds.has(id)) return Array.from(selectedIds);
-    return [id];
-  }
-
-  function snapshotOrigins(ids: string[]) {
     const originPlayers: DragState["originPlayers"] = {};
     const originObjects: DragState["originObjects"] = {};
+    const ids = Array.from(selectedIdsRef.current.size ? selectedIdsRef.current : new Set([id]));
 
-    for (const pid of ids) {
-      const p = placedRef.current.find((x) => x.id === pid);
+    const placedById = new Map(placedRef.current.map((p) => [p.id, p] as const));
+    const objById = new Map(objectsRef.current.map((o) => [o.id, o] as const));
+
+    ids.forEach((pid) => {
+      const p = placedById.get(pid);
       if (p) {
-        originPlayers[pid] = {
-          x: p.x,
-          y: p.y,
-          w: Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W,
-          h: Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H,
-        };
-        continue;
+        const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
+        const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
+        originPlayers[pid] = { x: p.x, y: p.y, w, h };
       }
-
-      const o = objectsRef.current.find((x) => x.id === pid);
+      const o = objById.get(pid);
       if (o) {
         originObjects[pid] = { x: o.x, y: o.y, w: o.w, h: o.h };
       }
-    }
-
-    return { originPlayers, originObjects };
-  }
-
-  // ---------- moving / resizing ----------
-  function beginMoveAny(e: React.PointerEvent, id: string) {
-    if (!editMode) return;
-    if (e.button !== 0) return;
-
-    // if currently editing this object, do not start a drag
-    if (editingIdRef.current && editingIdRef.current === id) return;
-
-    // if touch and already 2 fingers down, ignore (two-finger scroll)
-    if (e.pointerType === "touch") {
-      if (pointersRef.current.size >= 2) return;
-    }
-
-    // allow dblclick to work by not starting drag on 2nd click
-    if ((e as any).detail && (e as any).detail >= 2) return;
-
-    ensureSelectionOnPointerDown(id, e);
-
-    const ids = getMoveIds(id);
-    const { originPlayers, originObjects } = snapshotOrigins(ids);
-
-    const pt = clientToBoard(e.clientX, e.clientY);
+    });
 
     dragRef.current = {
       pointerId: e.pointerId,
       ids,
       mode: "move",
-      startX: pt.x,
-      startY: pt.y,
+      startX: e.clientX,
+      startY: e.clientY,
       moved: false,
       lastClientX: e.clientX,
       lastClientY: e.clientY,
       originPlayers,
       originObjects,
     };
-
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    e.stopPropagation();
   }
 
   function beginResizeAny(e: React.PointerEvent, id: string) {
     if (!editMode) return;
-    if (e.button !== 0) return;
 
-    // if editing, don't resize
-    if (editingIdRef.current && editingIdRef.current === id) return;
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
-    setActiveId(id);
-    setSelectedIds(new Set([id]));
+    selectSingle(id);
 
-    const { originPlayers, originObjects } = snapshotOrigins([id]);
-    const pt = clientToBoard(e.clientX, e.clientY);
+    const originPlayers: DragState["originPlayers"] = {};
+    const originObjects: DragState["originObjects"] = {};
+    const ids = [id];
+
+    const p = placedRef.current.find((pp) => pp.id === id);
+    if (p) {
+      const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
+      const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
+      originPlayers[id] = { x: p.x, y: p.y, w, h };
+    }
+    const o = objectsRef.current.find((oo) => oo.id === id);
+    if (o) originObjects[id] = { x: o.x, y: o.y, w: o.w, h: o.h };
 
     dragRef.current = {
       pointerId: e.pointerId,
-      ids: [id],
+      ids,
       mode: "resize",
-      startX: pt.x,
-      startY: pt.y,
+      startX: e.clientX,
+      startY: e.clientY,
       moved: false,
       lastClientX: e.clientX,
       lastClientY: e.clientY,
       originPlayers,
       originObjects,
     };
-
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    e.preventDefault();
-    e.stopPropagation();
   }
 
-  // ---------- tools (create objects) ----------
-  function createObject(kind: BoardObject["kind"], x: number, y: number) {
-    const id = `${kind}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  function onPointerDownCanvas(e: React.PointerEvent) {
+    // View mode panning on empty canvas
+    if (!editMode) {
+      // only start pan if clicking on the canvas itself (not a child)
+      if (e.target !== canvasRef.current) return;
 
-    let obj: BoardObject;
-    if (kind === "lane") {
-      obj = {
-        id,
-        kind,
-        x: clamp(x, 0, canvasWidth - 600),
-        y: clamp(y, 0, canvasHeight - 200),
-        w: 600,
-        h: 200,
-        title: "",
+      if (e.pointerType === "touch") return; // touch uses native scroll via container
+
+      const sc = getScroll();
+      panRef.current = {
+        pointerId: e.pointerId,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+        startScrollLeft: sc.left,
+        startScrollTop: sc.top,
       };
-    } else if (kind === "note") {
-      obj = {
-        id,
-        kind,
-        x: clamp(x, 0, canvasWidth - 220),
-        y: clamp(y, 0, canvasHeight - 160),
-        w: 220,
-        h: 160,
-        text: "",
-        color: "#fff7b2",
-      };
-    } else {
-      obj = {
-        id,
-        kind: "text",
-        x: clamp(x, 0, canvasWidth - 260),
-        y: clamp(y, 0, canvasHeight - 120),
-        w: 260,
-        h: 120,
-        text: "",
-      };
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      return;
     }
 
-    const next = [...objectsRef.current, obj];
-    onObjectsChangeRef.current?.(next);
+    // Edit mode: selection box / clear selection / create object
+    if (editingIdRef.current) return;
 
-    setActiveId(id);
-    setSelectedIds(new Set([id]));
+    // If tool creates something on click
+    if (tool === "lane") {
+      e.preventDefault();
+      const { x, y } = clientToBoard(e.clientX, e.clientY);
 
-    // auto-return to select tool
-    onToolChange?.("select");
+      const id = `obj_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      const nextObj: BoardObject = {
+        id,
+        kind: "lane",
+        title: "Lane",
+        x: clamp(x, 0, canvasWidth - 420),
+        y: clamp(y, 0, canvasHeight - 220),
+        w: 420,
+        h: 220,
+      };
+      onObjectsChangeRef.current?.([...objectsRef.current, nextObj]);
+      selectSingle(id);
+      return;
+    }
 
-    // if placing text/note, immediately enter edit mode
-    if (kind === "note" || kind === "text") {
+    if (tool === "text" || tool === "note") {
+      e.preventDefault();
+      const { x, y } = clientToBoard(e.clientX, e.clientY);
+
+      const id = `obj_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      const nextObj: BoardObject = {
+        id,
+        kind: tool,
+        x: clamp(x, 0, canvasWidth - 260),
+        y: clamp(y, 0, canvasHeight - 140),
+        w: 260,
+        h: 140,
+        text: tool === "note" ? "Note..." : "Text...",
+        color: tool === "note" ? "#fff7b2" : undefined,
+      };
+      onObjectsChangeRef.current?.([...objectsRef.current, nextObj]);
+      selectSingle(id);
       setEditingId(id);
-      // focus after render
       requestAnimationFrame(() => {
         const el = document.getElementById(`obj-edit-${id}`);
         (el as HTMLElement | null)?.focus();
       });
-    }
-  }
-
-  // ---------- pointer handlers ----------
-  function onPointerDownCanvas(e: React.PointerEvent) {
-    // Track touch pointers for two-finger scroll
-    if (e.pointerType === "touch") {
-      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
-
-      if (pointersRef.current.size >= 2) {
-        const pts = Array.from(pointersRef.current.values()).slice(0, 2);
-        twoFingerRef.current = {
-          active: true,
-          lastCx: (pts[0].x + pts[1].x) / 2,
-          lastCy: (pts[0].y + pts[1].y) / 2,
-        };
-      }
+      return;
     }
 
-    // only respond when clicking on the canvas background (not child elements)
+    // otherwise begin selection box
     if (e.target !== canvasRef.current) return;
+    const { x, y } = clientToBoard(e.clientX, e.clientY);
 
-    // if inline editing, click-away should just end editing (blur will persist)
-    if (editingIdRef.current) {
-      setEditingId(null);
-    }
+    // If shift/meta held, keep selection; else clear
+    if (!(e.shiftKey || e.metaKey || e.ctrlKey)) clearSelection();
 
-    // View mode: click-drag empty canvas to pan (mouse/pen). Touch uses 2-finger.
-    if (!editMode && e.pointerType !== "touch") {
-      const sc = scrollRef.current;
-      if (sc) {
-        panRef.current = {
-          pointerId: e.pointerId,
-          startClientX: e.clientX,
-          startClientY: e.clientY,
-          startScrollLeft: sc.scrollLeft,
-          startScrollTop: sc.scrollTop,
-        };
-        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-        sc.style.cursor = "grabbing";
-        e.preventDefault();
-        return;
-      }
-    }
-
-    const pt = clientToBoard(e.clientX, e.clientY);
-
-    if (editMode && tool !== "select") {
-      createObject(tool === "lane" ? "lane" : tool === "note" ? "note" : "text", pt.x, pt.y);
-      e.preventDefault();
-      return;
-    }
-
-    // start box select on desktop/mouse/pen when in select tool
-    if (
-      editMode &&
-      tool === "select" &&
-      e.pointerType !== "touch" &&
-      !(e as any).metaKey &&
-      !(e as any).ctrlKey &&
-      !(e as any).shiftKey
-    ) {
-      dragRef.current = {
-        pointerId: e.pointerId,
-        ids: [],
-        mode: "box",
-        startX: pt.x,
-        startY: pt.y,
-        moved: false,
-        lastClientX: e.clientX,
-        lastClientY: e.clientY,
-        originPlayers: {},
-        originObjects: {},
-      };
-      setBox({ x1: pt.x, y1: pt.y, x2: pt.x, y2: pt.y });
-
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      e.preventDefault();
-      return;
-    }
-
-    // clicking blank clears selection
-    setActiveId(null);
-    setSelectedIds(new Set());
+    dragRef.current = {
+      pointerId: e.pointerId,
+      ids: [],
+      mode: "box",
+      startX: x,
+      startY: y,
+      moved: false,
+      lastClientX: e.clientX,
+      lastClientY: e.clientY,
+      originPlayers: {},
+      originObjects: {},
+    };
+    setBox({ x1: x, y1: y, x2: x, y2: y });
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
   function onPointerMove(e: React.PointerEvent) {
-    // two-finger scroll
-    const tf = twoFingerRef.current;
-    if (tf?.active && e.pointerType === "touch") {
-      const ptrs = pointersRef.current;
-      if (ptrs.size >= 2) {
-        ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
-
-        const pts = Array.from(ptrs.values()).slice(0, 2);
-        const cx = (pts[0].x + pts[1].x) / 2;
-        const cy = (pts[0].y + pts[1].y) / 2;
-
-        const dx = cx - tf.lastCx;
-        const dy = cy - tf.lastCy;
-
-        tf.lastCx = cx;
-        tf.lastCy = cy;
-
-        const sc = scrollRef.current;
-        if (sc) {
-          sc.scrollLeft -= dx;
-          sc.scrollTop -= dy;
-        }
-
-        e.preventDefault();
-        return;
+    // View mode panning
+    if (!editMode && panRef.current && panRef.current.pointerId === e.pointerId) {
+      const pan = panRef.current;
+      const dx = e.clientX - pan.startClientX;
+      const dy = e.clientY - pan.startClientY;
+      const el = scrollRef.current;
+      if (el) {
+        el.scrollLeft = pan.startScrollLeft - dx;
+        el.scrollTop = pan.startScrollTop - dy;
       }
-    }
-
-    // View mode pan (mouse/pen)
-    const pan = panRef.current;
-    if (pan && e.pointerId === pan.pointerId) {
-      const sc = scrollRef.current;
-      if (sc) {
-        const dx = e.clientX - pan.startClientX;
-        const dy = e.clientY - pan.startClientY;
-        sc.scrollLeft = pan.startScrollLeft - dx;
-        sc.scrollTop = pan.startScrollTop - dy;
-        e.preventDefault();
-        return;
-      }
-    }
-
-    const d = dragRef.current;
-    if (!d) return;
-    if (e.pointerId !== d.pointerId) return;
-
-    const pt = clientToBoard(e.clientX, e.clientY);
-
-    const dist = Math.hypot(e.clientX - d.lastClientX, e.clientY - d.lastClientY);
-    if (dist > 2) d.moved = true;
-
-    if (d.mode === "box") {
-      setBox((cur) => (cur ? { ...cur, x2: pt.x, y2: pt.y } : { x1: d.startX, y1: d.startY, x2: pt.x, y2: pt.y }));
-      e.preventDefault();
       return;
     }
 
-    if (d.mode === "move") {
-      const dx = pt.x - d.startX;
-      const dy = pt.y - d.startY;
+    // touch two-finger scroll support (allow default)
+    if (e.pointerType === "touch") {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
 
-      // players
-      const nextPlayers = placedRef.current.map((p) => {
-        const o = d.originPlayers[p.id];
-        if (!o) return p;
-        const w = o.w;
-        const h = o.h;
-        const x = clamp(o.x + dx, 0, canvasWidth - w);
-        const y = clamp(o.y + dy, 0, canvasHeight - h);
+      // Detect two-finger
+      if (pointersRef.current.size >= 2) {
+        const pts = Array.from(pointersRef.current.values());
+        const cx = (pts[0].x + pts[1].x) / 2;
+        const cy = (pts[0].y + pts[1].y) / 2;
+        const sc = getScroll();
 
-        if (cardSizeMode === "large") {
-          return { ...p, x, y, w, h };
+        if (!twoFingerRef.current) {
+          twoFingerRef.current = { active: true, lastCx: cx, lastCy: cy };
+        } else {
+          const last = twoFingerRef.current;
+          const dx = cx - last.lastCx;
+          const dy = cy - last.lastCy;
+
+          const el = scrollRef.current;
+          if (el) {
+            el.scrollLeft = sc.left - dx;
+            el.scrollTop = sc.top - dy;
+          }
+          twoFingerRef.current = { active: true, lastCx: cx, lastCy: cy };
         }
-        return { ...p, x, y };
-      });
-
-      // objects
-      const nextObjects = objectsRef.current.map((o) => {
-        const oo = d.originObjects[o.id];
-        if (!oo) return o;
-        const x = clamp(oo.x + dx, 0, canvasWidth - oo.w);
-        const y = clamp(oo.y + dy, 0, canvasHeight - oo.h);
-        return { ...o, x, y };
-      });
-
-      onPlacedChangeRef.current(nextPlayers);
-      onObjectsChangeRef.current?.(nextObjects);
-    } else if (d.mode === "resize") {
-      const id = d.ids[0];
-
-      // resize player if exists
-      const op = d.originPlayers[id];
-      if (op) {
-        const newW = clamp(op.w + (pt.x - d.startX), MIN_W, canvasWidth - op.x);
-        const newH = clamp(op.h + (pt.y - d.startY), MIN_H, canvasHeight - op.y);
-        const nextPlayers = placedRef.current.map((p) => (p.id === id ? { ...p, w: newW, h: newH } : p));
-        onPlacedChangeRef.current(nextPlayers);
-        e.preventDefault();
         return;
       }
+      return;
+    }
 
-      // resize object
-      const oo = d.originObjects[id];
-      if (oo) {
-        const newW = clamp(oo.w + (pt.x - d.startX), OBJ_MIN_W, canvasWidth - oo.x);
-        const newH = clamp(oo.h + (pt.y - d.startY), OBJ_MIN_H, canvasHeight - oo.y);
-        const nextObjects = objectsRef.current.map((o) => (o.id === id ? { ...o, w: newW, h: newH } : o));
-        onObjectsChangeRef.current?.(nextObjects);
-        e.preventDefault();
-        return;
+    const drag = dragRef.current;
+    if (!editMode || !drag || drag.pointerId !== e.pointerId) return;
+
+    if (drag.mode === "box") {
+      const { x, y } = clientToBoard(e.clientX, e.clientY);
+      setBox((cur) => (cur ? { ...cur, x2: x, y2: y } : null));
+      return;
+    }
+
+    const dx = e.clientX - drag.startX;
+    const dy = e.clientY - drag.startY;
+
+    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+
+    // Update players
+    const placedById = new Map(placedRef.current.map((p) => [p.id, p] as const));
+    const objById = new Map(objectsRef.current.map((o) => [o.id, o] as const));
+
+    let nextPlaced = placedRef.current.slice();
+    let nextObjects = objectsRef.current.slice();
+
+    for (const id of drag.ids) {
+      const p = placedById.get(id);
+      if (p) {
+        const o = drag.originPlayers[id];
+        if (!o) continue;
+
+        if (drag.mode === "move") {
+          const nx = clamp(o.x + dx, 0, canvasWidth - o.w);
+          const ny = clamp(o.y + dy, 0, canvasHeight - o.h);
+          nextPlaced = nextPlaced.map((pp) => (pp.id === id ? { ...pp, x: nx, y: ny } : pp));
+        } else if (drag.mode === "resize") {
+          const nw = clamp(o.w + dx, MIN_W, 900);
+          const nh = clamp(o.h + dy, MIN_H, 600);
+          nextPlaced = nextPlaced.map((pp) => (pp.id === id ? { ...pp, w: nw, h: nh } : pp));
+        }
+      }
+
+      const ob = objById.get(id);
+      if (ob) {
+        const oo = drag.originObjects[id];
+        if (!oo) continue;
+
+        if (drag.mode === "move") {
+          const nx = clamp(oo.x + dx, 0, canvasWidth - oo.w);
+          const ny = clamp(oo.y + dy, 0, canvasHeight - oo.h);
+          nextObjects = nextObjects.map((x) => (x.id === id ? { ...x, x: nx, y: ny } : x));
+        } else if (drag.mode === "resize") {
+          const nw = clamp(oo.w + dx, OBJ_MIN_W, 1400);
+          const nh = clamp(oo.h + dy, OBJ_MIN_H, 900);
+          nextObjects = nextObjects.map((x) => (x.id === id ? { ...x, w: nw, h: nh } : x));
+        }
       }
     }
 
-    d.lastClientX = e.clientX;
-    d.lastClientY = e.clientY;
-    e.preventDefault();
+    onPlacedChangeRef.current(nextPlaced);
+    onObjectsChangeRef.current?.(nextObjects);
+
+    drag.lastClientX = e.clientX;
+    drag.lastClientY = e.clientY;
   }
 
   function onPointerUp(e: React.PointerEvent) {
-    // pointer tracking for two-finger scroll
-    if (e.pointerType === "touch") {
-      pointersRef.current.delete(e.pointerId);
-
-      const tf = twoFingerRef.current;
-      if (tf?.active && pointersRef.current.size < 2) {
-        twoFingerRef.current = null;
-      }
-    }
-
-    // finish view-mode panning
-    const pan = panRef.current;
-    if (pan && e.pointerId === pan.pointerId) {
+    // View mode pan end
+    if (!editMode && panRef.current && panRef.current.pointerId === e.pointerId) {
       panRef.current = null;
-      const sc = scrollRef.current;
-      if (sc) sc.style.cursor = "default";
       return;
     }
 
-    const d = dragRef.current;
-    if (!d) return;
-    if (e.pointerId !== d.pointerId) return;
+    // touch pointer cleanup
+    if (e.pointerType === "touch") {
+      pointersRef.current.delete(e.pointerId);
+      if (pointersRef.current.size < 2) twoFingerRef.current = null;
+      return;
+    }
 
-    if (d.mode === "box") {
-      const bx = box;
+    const drag = dragRef.current;
+    if (!editMode || !drag || drag.pointerId !== e.pointerId) return;
+
+    if (drag.mode === "box") {
+      const b = box;
       setBox(null);
-      dragRef.current = null;
 
-      if (!bx) return;
+      if (!b) return;
 
-      const r = rectNorm(bx.x1, bx.y1, bx.x2, bx.y2);
+      const r = rectNorm(b.x1, b.y1, b.x2, b.y2);
       if (r.w < 6 && r.h < 6) {
-        setActiveId(null);
-        setSelectedIds(new Set());
+        // small click, clear selection
         return;
       }
 
-      const selected = new Set<string>();
+      const selected = new Set<string>(selectedIdsRef.current);
 
+      // intersect players + objects
       for (const p of placedRef.current) {
         const w = Number.isFinite(p.w) ? (p.w as number) : DEFAULT_W;
         const h = Number.isFinite(p.h) ? (p.h as number) : DEFAULT_H;
@@ -829,7 +703,7 @@ export function HtmlBoard({
     setActiveId((cur) => (cur && set.has(cur) ? null : cur));
   }
 
-  // Keyboard delete/backspace to remove selected board objects (lanes/text/notes)
+  // Keyboard delete/backspace to remove selected board objects (lanes/text/notes/tokens)
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (!editMode) return;
@@ -904,7 +778,7 @@ export function HtmlBoard({
           if (o.kind === "token") {
             const label = o.tokenLabel || "";
             const isBall = o.tokenType === "ball";
-            const fill = o.tokenColor || (isBall ? "#ffffff" : "#7f1d1d");
+            const fill = o.tokenColor || (isBall ? "transparent" : "#7f1d1d");
             const txtColor = isBall ? "#111827" : isDark(fill) ? "#ffffff" : "#111827";
 
             return (
@@ -923,10 +797,8 @@ export function HtmlBoard({
                 <div
                   className="w-full h-full rounded-full flex items-center justify-center"
                   style={{
-                    background: fill,
-                    border: isBall
-                      ? "1px solid rgba(17,24,39,0.35)"
-                      : "1px solid rgba(255,255,255,0.25)",
+                    background: isBall ? "transparent" : fill,
+                    border: isBall ? "none" : "1px solid rgba(255,255,255,0.25)",
                   }}
                   title={isBall ? "Ball" : "Token"}
                 >
@@ -943,13 +815,29 @@ export function HtmlBoard({
                       className="font-semibold"
                       style={{
                         color: txtColor,
-                        fontSize: Math.max(12, Math.min(18, Math.floor(o.w * 0.42))),
+                        fontSize: 14,
                       }}
                     >
                       {label}
                     </span>
                   )}
                 </div>
+
+                {/* Delete button (tokens) */}
+                {editMode && (isSelected || isActive) ? (
+                  <button
+                    type="button"
+                    className="absolute -top-2 -right-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/90 shadow"
+                    title="Delete"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteSelectedObjects([o.id]);
+                    }}
+                  >
+                    ×
+                  </button>
+                ) : null}
 
                 {editMode && (isSelected || isActive) ? (
                   <div
@@ -1124,7 +1012,6 @@ export function HtmlBoard({
                 </button>
               ) : null}
 
-              {/* Resize handle */}
               {editMode ? (
                 <div
                   className="absolute right-0 bottom-0 rounded-tl bg-black/10"
@@ -1142,106 +1029,82 @@ export function HtmlBoard({
           );
         })}
 
-        {/* placed player cards */}
+        {/* Players */}
         {placed.map((p) => {
-          const effSize = getEffectiveCardSize(cardSizeMode, p);
-          const w = effSize.w;
-          const h = effSize.h;
-
-          // Card content rules:
-          // - Small: name only
-          // - Medium: show Grade
-          // - Large: show Grade + Notes
-          const showPhoto = cardSizeMode !== "small";
-          const showGrade = cardSizeMode !== "small";
-          const showNotes = cardSizeMode === "large";
-
-          const isActive = activeId === p.id;
           const isSelected = selectedIds.has(p.id);
+          const isActive = activeId === p.id;
 
-          const gCol = gradeColor(p.player.grade);
-          const onDark = isDark(gCol);
+          const sz = getEffectiveCardSize(cardSizeMode, p);
+          const w = sz.w;
+          const h = sz.h;
+
+          const gc = gradeColor(p.player.grade);
+          const dark = isDark(gc);
 
           return (
             <div
               key={p.id}
-              className={`absolute rounded-xl border shadow-sm bg-white select-none ${
-                editMode ? "cursor-grab active:cursor-grabbing" : "cursor-default"
-              } ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+              className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${
+                isSelected ? "ring-2 ring-blue-500/50" : ""
+              } ${isActive ? "ring-blue-600/70" : ""}`}
               style={{
                 left: p.x,
                 top: p.y,
                 width: w,
                 height: h,
-                userSelect: "none",
-                touchAction: "none",
                 zIndex: 5,
-                borderColor: gCol,
               }}
               onPointerDown={(e) => beginMoveAny(e, p.id)}
+              onDoubleClick={(e) => {
+                if (!onOpenPlayer) return;
+                e.stopPropagation();
+                onOpenPlayer(p);
+              }}
+              title={editMode ? "Drag to move. Use resize handle to resize." : "Double-click to open"}
             >
-              {/* grade bar */}
-              <div className="absolute left-0 top-0 w-full rounded-t-xl" style={{ height: 6, background: gCol }} />
+              <div className="flex h-full">
+                <div
+                  className="flex items-center justify-center"
+                  style={{
+                    width: h,
+                    background: gc,
+                    color: dark ? "#fff" : "#111827",
+                  }}
+                >
+                  {p.player.pictureUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={p.player.pictureUrl}
+                      alt={p.player.name}
+                      className="w-full h-full object-cover"
+                      draggable={false}
+                    />
+                  ) : (
+                    <div className="text-xl font-bold">{getInitials(p.player.name)}</div>
+                  )}
+                </div>
 
-              <div className="flex h-full pt-[6px]">
-                {showPhoto ? (
-                  <div
-                    className="w-[88px] h-full bg-gray-100 border-r rounded-bl-xl overflow-hidden flex items-center justify-center relative"
-                    onPointerDown={(e) => {
-                      // photo click opens details; do not drag
-                      e.preventDefault();
-                      e.stopPropagation();
-                      ensureSelectionOnPointerDown(p.id, e);
-                      onOpenPlayer?.(p);
-                    }}
-                    title="Open details"
-                    style={{ cursor: "pointer" }}
-                  >
-                    {p.player.pictureUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={p.player.pictureUrl}
-                        alt={`${p.player.name} photo`}
-                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                        draggable={false}
-                      />
-                    ) : (
-                      <div className="text-lg font-bold" style={{ color: onDark ? "#ffffff" : "#111827" }}>
-                        {getInitials(p.player.name)}
-                      </div>
-                    )}
-                  </div>
-                ) : null}
-
-                <div className="flex-1 p-2 overflow-hidden">
-                  <div
-                    className="font-semibold text-sm text-gray-900 break-words whitespace-normal leading-tight"
-                    style={{
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                      overflow: "hidden",
-                    }}
-                  >
-                    {p.player.name || "Player"}
-                  </div>
-
-                  {showGrade ? (
-                    <div className="text-[12px] text-gray-700 mt-1 overflow-hidden whitespace-nowrap text-ellipsis">
-                      Grade: {p.player.grade || "?"}
-                    </div>
-                  ) : null}
-
-                  {showNotes ? (
-                    <div
-                      className="text-[12px] text-gray-700 mt-1 overflow-hidden whitespace-nowrap text-ellipsis"
-                      title={p.player.notes || ""}
-                    >
-                      {p.player.notes ? `Notes: ${p.player.notes}` : "Notes: —"}
-                    </div>
-                  ) : null}
+                <div className="flex-1 min-w-0 px-3 py-2">
+                  <div className="font-semibold text-gray-900 truncate">{p.player.name || "Player"}</div>
+                  <div className="text-xs text-gray-600 truncate">{buildLine1(p.player)}</div>
+                  <div className="text-xs text-gray-600 truncate">{buildLine2(p.player)}</div>
                 </div>
               </div>
+
+              {editMode && (isSelected || isActive) ? (
+                <div
+                  className="absolute rounded bg-white/90 border shadow"
+                  style={{
+                    width: RESIZE_HANDLE,
+                    height: RESIZE_HANDLE,
+                    right: -RESIZE_HANDLE / 2,
+                    bottom: -RESIZE_HANDLE / 2,
+                    cursor: "nwse-resize",
+                  }}
+                  onPointerDown={(e) => beginResizeAny(e, p.id)}
+                  title="Resize"
+                />
+              ) : null}
             </div>
           );
         })}
