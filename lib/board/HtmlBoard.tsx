@@ -56,6 +56,9 @@ const LARGE_CARD = { w: 260, h: 92 };
 const MEDIUM_CARD = { w: 210, h: 72 };
 const SMALL_CARD = { w: 150, h: 52 };
 
+const ZOOM_MIN = 0.4;
+const ZOOM_MAX = 2.5;
+
 function getEffectiveCardSize(mode: "large" | "medium" | "small", p: PlacedPlayer) {
   if (mode === "medium") return MEDIUM_CARD;
   if (mode === "small") return SMALL_CARD;
@@ -161,7 +164,46 @@ export function HtmlBoard({
   cardSizeMode?: "large" | "medium" | "small";
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLDivElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null); // scrollable “scaled” wrapper
+  const canvasRef = useRef<HTMLDivElement | null>(null); // actual canvas content (scaled via transform)
+
+  // Zoom state
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  useEffect(() => void (zoomRef.current = zoom), [zoom]);
+
+  function setZoomAnchored(nextZoomRaw: number, midClientX: number, midClientY: number) {
+    const el = scrollRef.current;
+    if (!el) {
+      setZoom(clamp(nextZoomRaw, ZOOM_MIN, ZOOM_MAX));
+      return;
+    }
+
+    const prevZoom = zoomRef.current;
+    const nextZoom = clamp(nextZoomRaw, ZOOM_MIN, ZOOM_MAX);
+    if (Math.abs(nextZoom - prevZoom) < 0.001) return;
+
+    const scLeft = el.scrollLeft;
+    const scTop = el.scrollTop;
+
+    const rect = el.getBoundingClientRect();
+    const mx = midClientX - rect.left;
+    const my = midClientY - rect.top;
+
+    // content-space point under the pinch midpoint (in board units)
+    const contentX = (scLeft + mx) / prevZoom;
+    const contentY = (scTop + my) / prevZoom;
+
+    setZoom(nextZoom);
+
+    // after zoom applies, restore scroll so midpoint stays anchored
+    requestAnimationFrame(() => {
+      const el2 = scrollRef.current;
+      if (!el2) return;
+      el2.scrollLeft = contentX * nextZoom - mx;
+      el2.scrollTop = contentY * nextZoom - my;
+    });
+  }
 
   // latest state refs for pointer handlers
   const placedRef = useRef<PlacedPlayer[]>(placed);
@@ -190,16 +232,16 @@ export function HtmlBoard({
   const editingIdRef = useRef<string | null>(null);
   useEffect(() => void (editingIdRef.current = editingId), [editingId]);
 
-  // Touch pointers for optional two-finger scroll (kept, but now 1-finger pan exists)
+  // Touch pointers (used for pinch)
   const pointersRef = useRef<Map<number, PointerInfo>>(new Map());
-  const twoFingerRef = useRef<{ active: boolean; lastCx: number; lastCy: number } | null>(null);
+  const pinchRef = useRef<null | { lastDist: number }>(null);
 
   // Selection box
   const [box, setBox] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
 
   const dragRef = useRef<DragState | null>(null);
 
-  // Panning (works in view mode, and in edit mode for touch on empty canvas)
+  // Panning (view mode and edit-mode-touch-empty-canvas)
   const panRef = useRef<null | {
     pointerId: number;
     startClientX: number;
@@ -213,9 +255,10 @@ export function HtmlBoard({
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
+    const z = zoomRef.current || 1;
     return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
+      x: (clientX - rect.left) / z,
+      y: (clientY - rect.top) / z,
     };
   }
 
@@ -331,12 +374,9 @@ export function HtmlBoard({
 
     const isMulti = e.shiftKey || e.metaKey || e.ctrlKey;
 
-    // ✅ Make selection synchronous BEFORE computing drag ids
-    if (isMulti) {
-      toggleSelectImmediate(id);
-    } else {
-      selectSingleImmediate(id);
-    }
+    // make selection synchronous BEFORE computing drag ids
+    if (isMulti) toggleSelectImmediate(id);
+    else selectSingleImmediate(id);
 
     const selectionNow = new Set(selectedIdsRef.current);
     if (!selectionNow.size) selectionNow.add(id);
@@ -379,7 +419,6 @@ export function HtmlBoard({
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
-    // ✅ Ensure the resized thing becomes the selection immediately
     selectSingleImmediate(id);
 
     const originPlayers: DragState["originPlayers"] = {};
@@ -410,11 +449,14 @@ export function HtmlBoard({
   }
 
   function onPointerDownCanvas(e: React.PointerEvent) {
-    // ✅ In edit mode on touch: 1-finger pan when touching EMPTY canvas (tool select)
-    if (editMode && e.pointerType === "touch" && tool === "select" && e.target === canvasRef.current) {
-      // Tap on empty canvas clears selection
-      clearSelection();
+    // Pinch tracking
+    if (e.pointerType === "touch") {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
+    }
 
+    // In edit mode on touch: 1-finger pan when touching EMPTY canvas (tool select)
+    if (editMode && e.pointerType === "touch" && tool === "select" && e.target === canvasRef.current) {
+      clearSelection();
       const sc = getScroll();
       panRef.current = {
         pointerId: e.pointerId,
@@ -427,10 +469,10 @@ export function HtmlBoard({
       return;
     }
 
-    // View mode: allow mouse/pen drag panning on empty canvas
+    // View mode panning on empty canvas (mouse/pen)
     if (!editMode) {
       if (e.target !== canvasRef.current) return;
-      if (e.pointerType === "touch") return; // native scroll via container
+      if (e.pointerType === "touch") return; // touch uses native scroll via container
       const sc = getScroll();
       panRef.current = {
         pointerId: e.pointerId,
@@ -443,7 +485,7 @@ export function HtmlBoard({
       return;
     }
 
-    // Edit mode: selection box / clear selection / create object
+    // Edit mode: create object
     if (editingIdRef.current) return;
 
     if (tool === "lane") {
@@ -492,11 +534,9 @@ export function HtmlBoard({
 
     // Mouse box-select only (touch uses pan)
     if (e.pointerType === "touch") return;
-
     if (e.target !== canvasRef.current) return;
-    const { x, y } = clientToBoard(e.clientX, e.clientY);
 
-    // If shift/meta held, keep selection; else clear
+    const { x, y } = clientToBoard(e.clientX, e.clientY);
     if (!(e.shiftKey || e.metaKey || e.ctrlKey)) clearSelection();
 
     dragRef.current = {
@@ -554,7 +594,40 @@ export function HtmlBoard({
   }, [editMode]);
 
   function onPointerMove(e: React.PointerEvent) {
-    // ✅ Panning (view mode AND edit-mode-touch-empty-canvas)
+    // Keep pointer tracking updated for pinch
+    if (e.pointerType === "touch") {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
+    }
+
+    // Pinch zoom (two touches, no active object drag)
+    if (e.pointerType === "touch" && !dragRef.current) {
+      if (pointersRef.current.size >= 2) {
+        const pts = Array.from(pointersRef.current.values()).slice(0, 2);
+        const dx = pts[0].x - pts[1].x;
+        const dy = pts[0].y - pts[1].y;
+        const dist = Math.hypot(dx, dy);
+
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+
+        if (!pinchRef.current) {
+          pinchRef.current = { lastDist: dist };
+        } else {
+          const last = pinchRef.current.lastDist || dist;
+          if (last > 0) {
+            const scale = dist / last;
+            const nextZoom = zoomRef.current * scale;
+            setZoomAnchored(nextZoom, midX, midY);
+          }
+          pinchRef.current = { lastDist: dist };
+        }
+        return;
+      } else {
+        pinchRef.current = null;
+      }
+    }
+
+    // Panning (panRef uses pixel scroll; do NOT divide by zoom)
     if (panRef.current && panRef.current.pointerId === e.pointerId) {
       const pan = panRef.current;
       const dx = e.clientX - pan.startClientX;
@@ -568,8 +641,6 @@ export function HtmlBoard({
     }
 
     const drag = dragRef.current;
-
-    // ✅ If we are dragging, process it for any pointer type
     if (editMode && drag && drag.pointerId === e.pointerId) {
       if (drag.mode === "box") {
         const { x, y } = clientToBoard(e.clientX, e.clientY);
@@ -577,8 +648,9 @@ export function HtmlBoard({
         return;
       }
 
-      const dx = e.clientX - drag.startX;
-      const dy = e.clientY - drag.startY;
+      const z = zoomRef.current || 1;
+      const dx = (e.clientX - drag.startX) / z;
+      const dy = (e.clientY - drag.startY) / z;
 
       if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
 
@@ -629,34 +701,6 @@ export function HtmlBoard({
       drag.lastClientY = e.clientY;
       return;
     }
-
-    // Optional: keep two-finger touch scroll (still works)
-    if (e.pointerType === "touch") {
-      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
-
-      if (pointersRef.current.size >= 2) {
-        const pts = Array.from(pointersRef.current.values());
-        const cx = (pts[0].x + pts[1].x) / 2;
-        const cy = (pts[0].y + pts[1].y) / 2;
-        const sc = getScroll();
-
-        if (!twoFingerRef.current) {
-          twoFingerRef.current = { active: true, lastCx: cx, lastCy: cy };
-        } else {
-          const last = twoFingerRef.current;
-          const dx = cx - last.lastCx;
-          const dy = cy - last.lastCy;
-
-          const el = scrollRef.current;
-          if (el) {
-            el.scrollLeft = sc.left - dx;
-            el.scrollTop = sc.top - dy;
-          }
-          twoFingerRef.current = { active: true, lastCx: cx, lastCy: cy };
-        }
-      }
-      return;
-    }
   }
 
   function onPointerUp(e: React.PointerEvent) {
@@ -698,7 +742,7 @@ export function HtmlBoard({
 
     if (e.pointerType === "touch") {
       pointersRef.current.delete(e.pointerId);
-      if (pointersRef.current.size < 2) twoFingerRef.current = null;
+      if (pointersRef.current.size < 2) pinchRef.current = null;
     }
   }
 
@@ -713,99 +757,281 @@ export function HtmlBoard({
     };
   }, [backgroundUrl]);
 
+  const scaledW = canvasWidth * zoom;
+  const scaledH = canvasHeight * zoom;
+
   return (
-    <div ref={scrollRef} className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white" style={{ WebkitOverflowScrolling: "touch" }}>
-      <div
-        ref={canvasRef}
-        className="relative"
-        style={{
-          width: canvasWidth,
-          height: canvasHeight,
-          ...bgStyle,
-          touchAction: "none",
-        }}
-        onDragEnter={(e) => {
-          if (!editMode) return;
-          e.preventDefault();
-          setIsDragOver(true);
-        }}
-        onDragOver={(e) => {
-          if (!editMode) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-          setIsDragOver(true);
-        }}
-        onDragOverCapture={(e) => {
-          if (!editMode) return;
-          e.preventDefault();
-          e.dataTransfer.dropEffect = "copy";
-          setIsDragOver(true);
-        }}
-        onDragLeave={(e) => {
-          if (!editMode) return;
-          e.preventDefault();
-          setIsDragOver(false);
-        }}
-        onDrop={(e) => {
-          if (!editMode) return;
-          onDrop(e);
-        }}
-        onDropCapture={(e) => {
-          if (!editMode) return;
-          onDrop(e);
-        }}
-        onPointerDown={onPointerDownCanvas}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-      >
-        {editMode && isDragOver ? <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" /> : null}
+    <div
+      ref={scrollRef}
+      className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white"
+      style={{ WebkitOverflowScrolling: "touch" }}
+    >
+      {/* wrapper defines scrollable area */}
+      <div ref={wrapperRef} className="relative" style={{ width: scaledW, height: scaledH }}>
+        <div
+          ref={canvasRef}
+          className="relative"
+          style={{
+            width: canvasWidth,
+            height: canvasHeight,
+            ...bgStyle,
+            transform: `scale(${zoom})`,
+            transformOrigin: "top left",
+            touchAction: "none", // needed so pinch doesn't zoom the page; we handle it
+          }}
+          onDragEnter={(e) => {
+            if (!editMode) return;
+            e.preventDefault();
+            setIsDragOver(true);
+          }}
+          onDragOver={(e) => {
+            if (!editMode) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            setIsDragOver(true);
+          }}
+          onDragOverCapture={(e) => {
+            if (!editMode) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            setIsDragOver(true);
+          }}
+          onDragLeave={(e) => {
+            if (!editMode) return;
+            e.preventDefault();
+            setIsDragOver(false);
+          }}
+          onDrop={(e) => {
+            if (!editMode) return;
+            onDrop(e);
+          }}
+          onDropCapture={(e) => {
+            if (!editMode) return;
+            onDrop(e);
+          }}
+          onPointerDown={onPointerDownCanvas}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+        >
+          {editMode && isDragOver ? <div className="pointer-events-none absolute inset-0 ring-4 ring-blue-500/35 z-10" /> : null}
 
-        {box
-          ? (() => {
-              const r = rectNorm(box.x1, box.y1, box.x2, box.y2);
-              return <div className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/15" style={{ left: r.left, top: r.top, width: r.w, height: r.h }} />;
-            })()
-          : null}
+          {box
+            ? (() => {
+                const r = rectNorm(box.x1, box.y1, box.x2, box.y2);
+                return (
+                  <div
+                    className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/15"
+                    style={{ left: r.left, top: r.top, width: r.w, height: r.h }}
+                  />
+                );
+              })()
+            : null}
 
-        {/* Objects */}
-        {objects.map((o) => {
-          const isSelected = selectedIds.has(o.id);
-          const isActive = activeId === o.id;
-          const isEditing = editingId === o.id;
+          {/* Objects */}
+          {objects.map((o) => {
+            const isSelected = selectedIds.has(o.id);
+            const isActive = activeId === o.id;
+            const isEditing = editingId === o.id;
 
-          if (o.kind === "token") {
-            const label = o.tokenLabel || "";
-            const isBall = o.tokenType === "ball";
-            const fill = o.tokenColor || (isBall ? "transparent" : "#7f1d1d");
-            const txtColor = isBall ? "#111827" : isDark(fill) ? "#ffffff" : "#111827";
-            const ballPx = clamp(Math.floor(Math.min(o.w, o.h) * 0.9), 18, 220);
+            if (o.kind === "token") {
+              const label = o.tokenLabel || "";
+              const isBall = o.tokenType === "ball";
+              const fill = o.tokenColor || (isBall ? "transparent" : "#7f1d1d");
+              const txtColor = isBall ? "#111827" : isDark(fill) ? "#ffffff" : "#111827";
+              const ballPx = clamp(Math.floor(Math.min(o.w, o.h) * 0.9), 18, 220);
+
+              return (
+                <div
+                  key={o.id}
+                  className={`absolute select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                  style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1 }}
+                  onPointerDown={(e) => beginMoveAny(e, o.id)}
+                >
+                  <div
+                    className="w-full h-full rounded-full flex items-center justify-center"
+                    style={{
+                      background: isBall ? "transparent" : fill,
+                      border: isBall ? "none" : "1px solid rgba(255,255,255,0.25)",
+                    }}
+                    title={isBall ? "Ball" : "Token"}
+                  >
+                    {isBall ? (
+                      <span style={{ fontSize: ballPx, lineHeight: 1 }}>⚽</span>
+                    ) : (
+                      <span className="font-semibold" style={{ color: txtColor, fontSize: 14 }}>
+                        {label}
+                      </span>
+                    )}
+                  </div>
+
+                  {editMode && (isSelected || isActive) ? (
+                    <button
+                      type="button"
+                      className="absolute -top-2 -right-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/90 shadow"
+                      title="Delete"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSelectedObjects([o.id]);
+                      }}
+                    >
+                      ×
+                    </button>
+                  ) : null}
+
+                  {editMode && (isSelected || isActive) ? (
+                    <div
+                      className="absolute rounded bg-white/90 border shadow"
+                      style={{
+                        width: RESIZE_HANDLE,
+                        height: RESIZE_HANDLE,
+                        right: -RESIZE_HANDLE / 2,
+                        bottom: -RESIZE_HANDLE / 2,
+                        cursor: "nwse-resize",
+                      }}
+                      onPointerDown={(e) => beginResizeAny(e, o.id)}
+                      title="Resize"
+                    />
+                  ) : null}
+                </div>
+              );
+            }
+
+            if (o.kind === "lane") {
+              return (
+                <div
+                  key={o.id}
+                  className={`absolute rounded-xl border bg-white/60 ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                  style={{
+                    left: o.x,
+                    top: o.y,
+                    width: o.w,
+                    height: o.h,
+                    zIndex: 1,
+                    backdropFilter: "blur(2px)",
+                  }}
+                  onPointerDown={(e) => beginMoveAny(e, o.id)}
+                >
+                  <div
+                    className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none"
+                    title={editMode ? "Double-click to rename lane" : undefined}
+                    onDoubleClick={(e) => {
+                      if (!editMode) return;
+                      e.stopPropagation();
+                      const next = window.prompt("Lane title:", o.title || "");
+                      if (next === null) return;
+                      updateObject(o.id, { title: next.trim() });
+                    }}
+                  >
+                    <div className="min-w-0 truncate">{o.title || ""}</div>
+                    {editMode && isSelected ? (
+                      <button
+                        type="button"
+                        className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
+                        title="Delete"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteSelectedObjects([o.id]);
+                        }}
+                      >
+                        ×
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {editMode ? (
+                    <div
+                      className="absolute right-0 bottom-0 rounded-tl bg-black/10"
+                      style={{
+                        width: RESIZE_HANDLE,
+                        height: RESIZE_HANDLE,
+                        cursor: "nwse-resize",
+                        touchAction: "none",
+                      }}
+                      onPointerDown={(e) => beginResizeAny(e, o.id)}
+                      title="Resize"
+                    />
+                  ) : null}
+                </div>
+              );
+            }
+
+            const isNote = o.kind === "note";
+            const bg = isNote ? o.color || "#fff7b2" : "transparent";
 
             return (
               <div
                 key={o.id}
-                className={`absolute select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
-                style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1 }}
-                onPointerDown={(e) => beginMoveAny(e, o.id)}
+                className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                style={{
+                  left: o.x,
+                  top: o.y,
+                  width: o.w,
+                  height: o.h,
+                  zIndex: 2,
+                  background: bg,
+                }}
+                onPointerDown={(e) => {
+                  if (isEditing) return;
+                  beginMoveAny(e, o.id);
+                }}
+                onDoubleClick={(e) => {
+                  if (!editMode) return;
+                  e.stopPropagation();
+                  setEditingId(o.id);
+                  requestAnimationFrame(() => {
+                    const el = document.getElementById(`obj-edit-${o.id}`);
+                    (el as HTMLElement | null)?.focus();
+                  });
+                }}
+                title={editMode ? "Double-click to edit" : undefined}
               >
-                <div
-                  className="w-full h-full rounded-full flex items-center justify-center"
-                  style={{ background: isBall ? "transparent" : fill, border: isBall ? "none" : "1px solid rgba(255,255,255,0.25)" }}
-                  title={isBall ? "Ball" : "Token"}
-                >
-                  {isBall ? (
-                    <span style={{ fontSize: ballPx, lineHeight: 1 }}>⚽</span>
-                  ) : (
-                    <span className="font-semibold" style={{ color: txtColor, fontSize: 14 }}>
-                      {label}
-                    </span>
-                  )}
-                </div>
+                {isEditing ? (
+                  <div
+                    id={`obj-edit-${o.id}`}
+                    contentEditable
+                    suppressContentEditableWarning
+                    className="w-full h-full outline-none"
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      overflow: "auto",
+                      padding: isNote ? 10 : 6,
+                      border: "none",
+                      background: "transparent",
+                      cursor: "text",
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") (e.currentTarget as HTMLDivElement).blur();
+                    }}
+                    onBlur={(e) => {
+                      const nextText = e.currentTarget.innerText ?? "";
+                      updateObject(o.id, { text: nextText });
+                      setEditingId(null);
+                    }}
+                  >
+                    {o.text || ""}
+                  </div>
+                ) : (
+                  <div
+                    className="w-full h-full text-sm"
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      overflow: "hidden",
+                      padding: isNote ? 10 : 6,
+                      pointerEvents: "none",
+                    }}
+                  >
+                    {o.text || ""}
+                  </div>
+                )}
 
-                {editMode && (isSelected || isActive) ? (
+                {editMode && isSelected ? (
                   <button
                     type="button"
-                    className="absolute -top-2 -right-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/90 shadow"
+                    className="absolute top-1 right-1 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
                     title="Delete"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
@@ -817,195 +1043,98 @@ export function HtmlBoard({
                   </button>
                 ) : null}
 
-                {editMode && (isSelected || isActive) ? (
-                  <div
-                    className="absolute rounded bg-white/90 border shadow"
-                    style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, right: -RESIZE_HANDLE / 2, bottom: -RESIZE_HANDLE / 2, cursor: "nwse-resize" }}
-                    onPointerDown={(e) => beginResizeAny(e, o.id)}
-                    title="Resize"
-                  />
-                ) : null}
-              </div>
-            );
-          }
-
-          if (o.kind === "lane") {
-            return (
-              <div
-                key={o.id}
-                className={`absolute rounded-xl border bg-white/60 ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
-                style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1, backdropFilter: "blur(2px)" }}
-                onPointerDown={(e) => beginMoveAny(e, o.id)}
-              >
-                <div
-                  className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none"
-                  title={editMode ? "Double-click to rename lane" : undefined}
-                  onDoubleClick={(e) => {
-                    if (!editMode) return;
-                    e.stopPropagation();
-                    const next = window.prompt("Lane title:", o.title || "");
-                    if (next === null) return;
-                    updateObject(o.id, { title: next.trim() });
-                  }}
-                >
-                  <div className="min-w-0 truncate">{o.title || ""}</div>
-
-                  {editMode && isSelected ? (
-                    <button
-                      type="button"
-                      className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
-                      title="Delete"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteSelectedObjects([o.id]);
-                      }}
-                    >
-                      ×
-                    </button>
-                  ) : null}
-                </div>
-
                 {editMode ? (
                   <div
                     className="absolute right-0 bottom-0 rounded-tl bg-black/10"
-                    style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, cursor: "nwse-resize", touchAction: "none" }}
+                    style={{
+                      width: RESIZE_HANDLE,
+                      height: RESIZE_HANDLE,
+                      cursor: "nwse-resize",
+                      touchAction: "none",
+                    }}
                     onPointerDown={(e) => beginResizeAny(e, o.id)}
                     title="Resize"
                   />
                 ) : null}
               </div>
             );
-          }
+          })}
 
-          const isNote = o.kind === "note";
-          const bg = isNote ? o.color || "#fff7b2" : "transparent";
+          {/* Players */}
+          {placed.map((p) => {
+            const isSelected = selectedIds.has(p.id);
+            const isActive = activeId === p.id;
 
-          return (
-            <div
-              key={o.id}
-              className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
-              style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 2, background: bg }}
-              onPointerDown={(e) => {
-                if (isEditing) return;
-                beginMoveAny(e, o.id);
-              }}
-              onDoubleClick={(e) => {
-                if (!editMode) return;
-                e.stopPropagation();
-                setEditingId(o.id);
-                requestAnimationFrame(() => {
-                  const el = document.getElementById(`obj-edit-${o.id}`);
-                  (el as HTMLElement | null)?.focus();
-                });
-              }}
-              title={editMode ? "Double-click to edit" : undefined}
-            >
-              {isEditing ? (
-                <div
-                  id={`obj-edit-${o.id}`}
-                  contentEditable
-                  suppressContentEditableWarning
-                  className="w-full h-full outline-none"
-                  style={{ whiteSpace: "pre-wrap", overflow: "auto", padding: isNote ? 10 : 6, border: "none", background: "transparent", cursor: "text" }}
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") (e.currentTarget as HTMLDivElement).blur();
-                  }}
-                  onBlur={(e) => {
-                    const nextText = e.currentTarget.innerText ?? "";
-                    updateObject(o.id, { text: nextText });
-                    setEditingId(null);
-                  }}
-                >
-                  {o.text || ""}
-                </div>
-              ) : (
-                <div className="w-full h-full text-sm" style={{ whiteSpace: "pre-wrap", overflow: "hidden", padding: isNote ? 10 : 6, pointerEvents: "none" }}>
-                  {o.text || ""}
-                </div>
-              )}
+            const sz = getEffectiveCardSize(cardSizeMode, p);
+            const w = sz.w;
+            const h = sz.h;
 
-              {editMode && isSelected ? (
-                <button
-                  type="button"
-                  className="absolute top-1 right-1 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
-                  title="Delete"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteSelectedObjects([o.id]);
-                  }}
-                >
-                  ×
-                </button>
-              ) : null}
+            const gc = gradeColor(p.player.grade);
+            const dark = isDark(gc);
 
-              {editMode ? (
-                <div
-                  className="absolute right-0 bottom-0 rounded-tl bg-black/10"
-                  style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, cursor: "nwse-resize", touchAction: "none" }}
-                  onPointerDown={(e) => beginResizeAny(e, o.id)}
-                  title="Resize"
-                />
-              ) : null}
-            </div>
-          );
-        })}
+            return (
+              <div
+                key={p.id}
+                className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${
+                  isSelected ? "ring-2 ring-blue-500/50" : ""
+                } ${isActive ? "ring-blue-600/70" : ""}`}
+                style={{
+                  left: p.x,
+                  top: p.y,
+                  width: w,
+                  height: h,
+                  zIndex: 5,
+                }}
+                onPointerDown={(e) => beginMoveAny(e, p.id)}
+                onDoubleClick={(e) => {
+                  if (!onOpenPlayer) return;
+                  e.stopPropagation();
+                  onOpenPlayer(p);
+                }}
+                title={editMode ? "Drag to move. Use resize handle to resize." : "Double-click to open"}
+              >
+                <div className="flex h-full">
+                  <div
+                    className="flex items-center justify-center"
+                    style={{
+                      width: h,
+                      background: gc,
+                      color: dark ? "#fff" : "#111827",
+                    }}
+                  >
+                    {p.player.pictureUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={p.player.pictureUrl} alt={p.player.name} className="w-full h-full object-cover" draggable={false} />
+                    ) : (
+                      <div className="text-xl font-bold">{getInitials(p.player.name)}</div>
+                    )}
+                  </div>
 
-        {/* Players */}
-        {placed.map((p) => {
-          const isSelected = selectedIds.has(p.id);
-          const isActive = activeId === p.id;
-
-          const sz = getEffectiveCardSize(cardSizeMode, p);
-          const w = sz.w;
-          const h = sz.h;
-
-          const gc = gradeColor(p.player.grade);
-          const dark = isDark(gc);
-
-          return (
-            <div
-              key={p.id}
-              className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
-              style={{ left: p.x, top: p.y, width: w, height: h, zIndex: 5 }}
-              onPointerDown={(e) => beginMoveAny(e, p.id)}
-              onDoubleClick={(e) => {
-                if (!onOpenPlayer) return;
-                e.stopPropagation();
-                onOpenPlayer(p);
-              }}
-              title={editMode ? "Drag to move. Use resize handle to resize." : "Double-click to open"}
-            >
-              <div className="flex h-full">
-                <div className="flex items-center justify-center" style={{ width: h, background: gc, color: dark ? "#fff" : "#111827" }}>
-                  {p.player.pictureUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={p.player.pictureUrl} alt={p.player.name} className="w-full h-full object-cover" draggable={false} />
-                  ) : (
-                    <div className="text-xl font-bold">{getInitials(p.player.name)}</div>
-                  )}
+                  <div className="flex-1 min-w-0 px-3 py-2">
+                    <div className="font-semibold text-gray-900 truncate">{p.player.name || "Player"}</div>
+                    <div className="text-xs text-gray-600 truncate">{buildLine1(p.player)}</div>
+                    <div className="text-xs text-gray-600 truncate">{buildLine2(p.player)}</div>
+                  </div>
                 </div>
 
-                <div className="flex-1 min-w-0 px-3 py-2">
-                  <div className="font-semibold text-gray-900 truncate">{p.player.name || "Player"}</div>
-                  <div className="text-xs text-gray-600 truncate">{buildLine1(p.player)}</div>
-                  <div className="text-xs text-gray-600 truncate">{buildLine2(p.player)}</div>
-                </div>
+                {editMode && (isSelected || isActive) ? (
+                  <div
+                    className="absolute rounded bg-white/90 border shadow"
+                    style={{
+                      width: RESIZE_HANDLE,
+                      height: RESIZE_HANDLE,
+                      right: -RESIZE_HANDLE / 2,
+                      bottom: -RESIZE_HANDLE / 2,
+                      cursor: "nwse-resize",
+                    }}
+                    onPointerDown={(e) => beginResizeAny(e, p.id)}
+                    title="Resize"
+                  />
+                ) : null}
               </div>
-
-              {editMode && (isSelected || isActive) ? (
-                <div
-                  className="absolute rounded bg-white/90 border shadow"
-                  style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, right: -RESIZE_HANDLE / 2, bottom: -RESIZE_HANDLE / 2, cursor: "nwse-resize" }}
-                  onPointerDown={(e) => beginResizeAny(e, p.id)}
-                  title="Resize"
-                />
-              ) : null}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
