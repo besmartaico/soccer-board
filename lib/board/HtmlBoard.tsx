@@ -59,9 +59,6 @@ const SMALL_CARD = { w: 150, h: 52 };
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 2.5;
 
-// how much the finger distance must change (in pixels) before we treat it as zoom
-const PINCH_ZOOM_THRESHOLD_PX = 4;
-
 function getEffectiveCardSize(mode: "large" | "medium" | "small", p: PlacedPlayer) {
   if (mode === "medium") return MEDIUM_CARD;
   if (mode === "small") return SMALL_CARD;
@@ -170,12 +167,12 @@ export function HtmlBoard({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLDivElement | null>(null);
 
-  // Zoom state
+  // Zoom state (slider-driven)
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   useEffect(() => void (zoomRef.current = zoom), [zoom]);
 
-  function setZoomAnchored(nextZoomRaw: number, midClientX: number, midClientY: number) {
+  function setZoomCentered(nextZoomRaw: number) {
     const el = scrollRef.current;
     if (!el) {
       setZoom(clamp(nextZoomRaw, ZOOM_MIN, ZOOM_MAX));
@@ -186,12 +183,13 @@ export function HtmlBoard({
     const nextZoom = clamp(nextZoomRaw, ZOOM_MIN, ZOOM_MAX);
     if (Math.abs(nextZoom - prevZoom) < 0.001) return;
 
+    // Anchor zoom to the center of the viewport
+    const rect = el.getBoundingClientRect();
+    const mx = rect.width / 2;
+    const my = rect.height / 2;
+
     const scLeft = el.scrollLeft;
     const scTop = el.scrollTop;
-
-    const rect = el.getBoundingClientRect();
-    const mx = midClientX - rect.left;
-    const my = midClientY - rect.top;
 
     const contentX = (scLeft + mx) / prevZoom;
     const contentY = (scTop + my) / prevZoom;
@@ -206,7 +204,6 @@ export function HtmlBoard({
     });
   }
 
-  // latest state refs for pointer handlers
   const placedRef = useRef<PlacedPlayer[]>(placed);
   useEffect(() => void (placedRef.current = placed), [placed]);
 
@@ -232,16 +229,14 @@ export function HtmlBoard({
   const editingIdRef = useRef<string | null>(null);
   useEffect(() => void (editingIdRef.current = editingId), [editingId]);
 
-  // Touch pointers (for pinch + two-finger pan)
+  // Touch pointers (for 2-finger panning only — NO pinch zoom)
   const pointersRef = useRef<Map<number, PointerInfo>>(new Map());
-  const gestureRef = useRef<null | { lastDist: number; lastCx: number; lastCy: number }>(null);
+  const twoFingerRef = useRef<null | { lastCx: number; lastCy: number }>(null);
 
-  // Selection box
   const [box, setBox] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
-
   const dragRef = useRef<DragState | null>(null);
 
-  // Panning (view mode and edit-mode-touch-empty-canvas)
+  // 1-finger pan on empty canvas (edit mode)
   const panRef = useRef<null | {
     pointerId: number;
     startClientX: number;
@@ -250,7 +245,6 @@ export function HtmlBoard({
     startScrollTop: number;
   }>(null);
 
-  // ---------- coordinate helpers ----------
   function clientToBoard(clientX: number, clientY: number) {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
@@ -282,7 +276,6 @@ export function HtmlBoard({
     return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
   }
 
-  // ---------- selection helpers ----------
   function clearSelection() {
     selectedIdsRef.current = new Set();
     setSelectedIds(new Set());
@@ -305,7 +298,6 @@ export function HtmlBoard({
     setActiveId(id);
   }
 
-  // ---------- drag drop from sidebar ----------
   function onDrop(e: React.DragEvent) {
     if (!editMode) return;
     e.preventDefault();
@@ -327,9 +319,7 @@ export function HtmlBoard({
           player: p,
         };
         onPlacedChangeRef.current([...placedRef.current, next]);
-      } catch {
-        // ignore
-      }
+      } catch {}
       return;
     }
 
@@ -357,13 +347,10 @@ export function HtmlBoard({
         const next = [...objectsRef.current, nextObj];
         onObjectsChangeRef.current?.(next);
         selectSingleImmediate(nextObj.id);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
   }
 
-  // ---------- pointer operations ----------
   function beginMoveAny(e: React.PointerEvent, id: string) {
     if (!editMode) return;
 
@@ -371,7 +358,6 @@ export function HtmlBoard({
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
 
     const isMulti = e.shiftKey || e.metaKey || e.ctrlKey;
-
     if (isMulti) toggleSelectImmediate(id);
     else selectSingleImmediate(id);
 
@@ -527,7 +513,7 @@ export function HtmlBoard({
       return;
     }
 
-    // Mouse box-select only (touch uses pan/pinch)
+    // Mouse box-select only (touch uses pan)
     if (e.pointerType === "touch") return;
     if (e.target !== canvasRef.current) return;
 
@@ -589,12 +575,12 @@ export function HtmlBoard({
   }, [editMode]);
 
   function onPointerMove(e: React.PointerEvent) {
-    // update tracking for touch pointers
+    // update tracking for touch pointers (for 2-finger pan)
     if (e.pointerType === "touch") {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
     }
 
-    // ✅ two-finger: ALWAYS PAN; also ZOOM only when pinch distance changes enough
+    // ✅ Two-finger pan ONLY (no zoom)
     if (e.pointerType === "touch" && !dragRef.current) {
       if (pointersRef.current.size >= 2) {
         const el = scrollRef.current;
@@ -603,42 +589,27 @@ export function HtmlBoard({
         const cx = (pts[0].x + pts[1].x) / 2;
         const cy = (pts[0].y + pts[1].y) / 2;
 
-        const dx = pts[0].x - pts[1].x;
-        const dy = pts[0].y - pts[1].y;
-        const dist = Math.hypot(dx, dy);
-
-        if (!gestureRef.current) {
-          gestureRef.current = { lastDist: dist, lastCx: cx, lastCy: cy };
+        if (!twoFingerRef.current) {
+          twoFingerRef.current = { lastCx: cx, lastCy: cy };
           return;
         }
 
-        // PAN by midpoint movement
         if (el) {
-          const last = gestureRef.current;
+          const last = twoFingerRef.current;
           const dCx = cx - last.lastCx;
           const dCy = cy - last.lastCy;
           el.scrollLeft = el.scrollLeft - dCx;
           el.scrollTop = el.scrollTop - dCy;
         }
 
-        // ZOOM if pinch distance changed enough
-        const lastDist = gestureRef.current.lastDist;
-        const distDelta = dist - lastDist;
-
-        if (Math.abs(distDelta) >= PINCH_ZOOM_THRESHOLD_PX && lastDist > 0) {
-          const scale = dist / lastDist;
-          const nextZoom = zoomRef.current * scale;
-          setZoomAnchored(nextZoom, cx, cy);
-        }
-
-        gestureRef.current = { lastDist: dist, lastCx: cx, lastCy: cy };
+        twoFingerRef.current = { lastCx: cx, lastCy: cy };
         return;
       } else {
-        gestureRef.current = null;
+        twoFingerRef.current = null;
       }
     }
 
-    // one-finger pan (empty canvas)
+    // 1-finger pan (empty canvas)
     if (panRef.current && panRef.current.pointerId === e.pointerId) {
       const pan = panRef.current;
       const dx = e.clientX - pan.startClientX;
@@ -752,7 +723,7 @@ export function HtmlBoard({
 
     if (e.pointerType === "touch") {
       pointersRef.current.delete(e.pointerId);
-      if (pointersRef.current.size < 2) gestureRef.current = null;
+      if (pointersRef.current.size < 2) twoFingerRef.current = null;
     }
   }
 
@@ -770,8 +741,56 @@ export function HtmlBoard({
   const scaledW = canvasWidth * zoom;
   const scaledH = canvasHeight * zoom;
 
+  const zoomPct = Math.round(zoom * 100);
+
   return (
-    <div ref={scrollRef} className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white" style={{ WebkitOverflowScrolling: "touch" }}>
+    <div
+      ref={scrollRef}
+      className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white relative"
+      style={{ WebkitOverflowScrolling: "touch" }}
+    >
+      {/* Zoom slider UI (bottom-left, fixed within board viewport) */}
+      <div
+        className="absolute left-3 bottom-3 z-50 bg-white/95 border rounded-xl shadow px-3 py-2 flex items-center gap-2"
+        onPointerDown={(e) => e.stopPropagation()}
+        onPointerMove={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          className="w-9 h-9 rounded-lg border bg-white hover:bg-gray-50 text-lg"
+          onClick={() => setZoomCentered(zoomRef.current / 1.1)}
+          title="Zoom out"
+        >
+          −
+        </button>
+
+        <div className="flex flex-col">
+          <div className="text-xs text-gray-700 font-semibold mb-1">Zoom: {zoomPct}%</div>
+          <input
+            type="range"
+            min={Math.round(ZOOM_MIN * 100)}
+            max={Math.round(ZOOM_MAX * 100)}
+            step={5}
+            value={zoomPct}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (Number.isFinite(v)) setZoomCentered(v / 100);
+            }}
+            style={{ width: 150 }}
+          />
+        </div>
+
+        <button
+          type="button"
+          className="w-9 h-9 rounded-lg border bg-white hover:bg-gray-50 text-lg"
+          onClick={() => setZoomCentered(zoomRef.current * 1.1)}
+          title="Zoom in"
+        >
+          +
+        </button>
+      </div>
+
+      {/* wrapper defines scrollable area */}
       <div ref={wrapperRef} className="relative" style={{ width: scaledW, height: scaledH }}>
         <div
           ref={canvasRef}
@@ -782,7 +801,7 @@ export function HtmlBoard({
             ...bgStyle,
             transform: `scale(${zoom})`,
             transformOrigin: "top left",
-            touchAction: "none",
+            touchAction: "none", // we handle object drags + 2-finger panning ourselves
           }}
           onDragEnter={(e) => {
             if (!editMode) return;
@@ -824,7 +843,12 @@ export function HtmlBoard({
           {box
             ? (() => {
                 const r = rectNorm(box.x1, box.y1, box.x2, box.y2);
-                return <div className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/15" style={{ left: r.left, top: r.top, width: r.w, height: r.h }} />;
+                return (
+                  <div
+                    className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/15"
+                    style={{ left: r.left, top: r.top, width: r.w, height: r.h }}
+                  />
+                );
               })()
             : null}
 
@@ -844,13 +868,18 @@ export function HtmlBoard({
               return (
                 <div
                   key={o.id}
-                  className={`absolute select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                  className={`absolute select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
+                    isActive ? "ring-blue-600/70" : ""
+                  }`}
                   style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1 }}
                   onPointerDown={(e) => beginMoveAny(e, o.id)}
                 >
                   <div
                     className="w-full h-full rounded-full flex items-center justify-center"
-                    style={{ background: isBall ? "transparent" : fill, border: isBall ? "none" : "1px solid rgba(255,255,255,0.25)" }}
+                    style={{
+                      background: isBall ? "transparent" : fill,
+                      border: isBall ? "none" : "1px solid rgba(255,255,255,0.25)",
+                    }}
                     title={isBall ? "Ball" : "Token"}
                   >
                     {isBall ? (
@@ -870,7 +899,16 @@ export function HtmlBoard({
                       onPointerDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
-                        deleteSelectedObjects([o.id]);
+                        // delete single
+                        const set = new Set([o.id]);
+                        onObjectsChangeRef.current?.(objectsRef.current.filter((x) => !set.has(x.id)));
+                        setSelectedIds((cur) => {
+                          const n = new Set(cur);
+                          n.delete(o.id);
+                          selectedIdsRef.current = n;
+                          return n;
+                        });
+                        setActiveId((cur) => (cur === o.id ? null : cur));
                       }}
                     >
                       ×
@@ -880,7 +918,13 @@ export function HtmlBoard({
                   {editMode && (isSelected || isActive) ? (
                     <div
                       className="absolute rounded bg-white/90 border shadow"
-                      style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, right: -RESIZE_HANDLE / 2, bottom: -RESIZE_HANDLE / 2, cursor: "nwse-resize" }}
+                      style={{
+                        width: RESIZE_HANDLE,
+                        height: RESIZE_HANDLE,
+                        right: -RESIZE_HANDLE / 2,
+                        bottom: -RESIZE_HANDLE / 2,
+                        cursor: "nwse-resize",
+                      }}
                       onPointerDown={(e) => beginResizeAny(e, o.id)}
                       title="Resize"
                     />
@@ -893,7 +937,9 @@ export function HtmlBoard({
               return (
                 <div
                   key={o.id}
-                  className={`absolute rounded-xl border bg-white/60 ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                  className={`absolute rounded-xl border bg-white/60 ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
+                    isActive ? "ring-blue-600/70" : ""
+                  }`}
                   style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1, backdropFilter: "blur(2px)" }}
                   onPointerDown={(e) => beginMoveAny(e, o.id)}
                 >
@@ -909,21 +955,6 @@ export function HtmlBoard({
                     }}
                   >
                     <div className="min-w-0 truncate">{o.title || ""}</div>
-
-                    {editMode && isSelected ? (
-                      <button
-                        type="button"
-                        className="ml-2 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
-                        title="Delete"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteSelectedObjects([o.id]);
-                        }}
-                      >
-                        ×
-                      </button>
-                    ) : null}
                   </div>
 
                   {editMode ? (
@@ -944,7 +975,9 @@ export function HtmlBoard({
             return (
               <div
                 key={o.id}
-                className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
+                  isActive ? "ring-blue-600/70" : ""
+                }`}
                 style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 2, background: bg }}
                 onPointerDown={(e) => {
                   if (isEditing) return;
@@ -967,7 +1000,14 @@ export function HtmlBoard({
                     contentEditable
                     suppressContentEditableWarning
                     className="w-full h-full outline-none"
-                    style={{ whiteSpace: "pre-wrap", overflow: "auto", padding: isNote ? 10 : 6, border: "none", background: "transparent", cursor: "text" }}
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      overflow: "auto",
+                      padding: isNote ? 10 : 6,
+                      border: "none",
+                      background: "transparent",
+                      cursor: "text",
+                    }}
                     onPointerDown={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") (e.currentTarget as HTMLDivElement).blur();
@@ -981,25 +1021,18 @@ export function HtmlBoard({
                     {o.text || ""}
                   </div>
                 ) : (
-                  <div className="w-full h-full text-sm" style={{ whiteSpace: "pre-wrap", overflow: "hidden", padding: isNote ? 10 : 6, pointerEvents: "none" }}>
+                  <div
+                    className="w-full h-full text-sm"
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      overflow: "hidden",
+                      padding: isNote ? 10 : 6,
+                      pointerEvents: "none",
+                    }}
+                  >
                     {o.text || ""}
                   </div>
                 )}
-
-                {editMode && isSelected ? (
-                  <button
-                    type="button"
-                    className="absolute top-1 right-1 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-50 text-red-600 border border-red-200 bg-white/80"
-                    title="Delete"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      deleteSelectedObjects([o.id]);
-                    }}
-                  >
-                    ×
-                  </button>
-                ) : null}
 
                 {editMode ? (
                   <div
@@ -1028,7 +1061,9 @@ export function HtmlBoard({
             return (
               <div
                 key={p.id}
-                className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
+                  isActive ? "ring-blue-600/70" : ""
+                }`}
                 style={{ left: p.x, top: p.y, width: w, height: h, zIndex: 5 }}
                 onPointerDown={(e) => beginMoveAny(e, p.id)}
                 onDoubleClick={(e) => {
