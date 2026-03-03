@@ -59,6 +59,9 @@ const SMALL_CARD = { w: 150, h: 52 };
 const ZOOM_MIN = 0.4;
 const ZOOM_MAX = 2.5;
 
+// how much the finger distance must change (in pixels) before we treat it as zoom
+const PINCH_ZOOM_THRESHOLD_PX = 4;
+
 function getEffectiveCardSize(mode: "large" | "medium" | "small", p: PlacedPlayer) {
   if (mode === "medium") return MEDIUM_CARD;
   if (mode === "small") return SMALL_CARD;
@@ -164,8 +167,8 @@ export function HtmlBoard({
   cardSizeMode?: "large" | "medium" | "small";
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const wrapperRef = useRef<HTMLDivElement | null>(null); // scrollable “scaled” wrapper
-  const canvasRef = useRef<HTMLDivElement | null>(null); // actual canvas content (scaled via transform)
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const canvasRef = useRef<HTMLDivElement | null>(null);
 
   // Zoom state
   const [zoom, setZoom] = useState(1);
@@ -190,13 +193,11 @@ export function HtmlBoard({
     const mx = midClientX - rect.left;
     const my = midClientY - rect.top;
 
-    // content-space point under the pinch midpoint (in board units)
     const contentX = (scLeft + mx) / prevZoom;
     const contentY = (scTop + my) / prevZoom;
 
     setZoom(nextZoom);
 
-    // after zoom applies, restore scroll so midpoint stays anchored
     requestAnimationFrame(() => {
       const el2 = scrollRef.current;
       if (!el2) return;
@@ -227,14 +228,13 @@ export function HtmlBoard({
     selectedIdsRef.current = selectedIds;
   }, [selectedIds]);
 
-  // inline editing id for note/text objects
   const [editingId, setEditingId] = useState<string | null>(null);
   const editingIdRef = useRef<string | null>(null);
   useEffect(() => void (editingIdRef.current = editingId), [editingId]);
 
-  // Touch pointers (used for pinch)
+  // Touch pointers (for pinch + two-finger pan)
   const pointersRef = useRef<Map<number, PointerInfo>>(new Map());
-  const pinchRef = useRef<null | { lastDist: number }>(null);
+  const gestureRef = useRef<null | { lastDist: number; lastCx: number; lastCy: number }>(null);
 
   // Selection box
   const [box, setBox] = useState<null | { x1: number; y1: number; x2: number; y2: number }>(null);
@@ -313,7 +313,6 @@ export function HtmlBoard({
 
     const { x, y } = clientToBoard(e.clientX, e.clientY);
 
-    // Player card drop
     const playerJson = e.dataTransfer.getData(playerDragMime);
     if (playerJson) {
       try {
@@ -334,7 +333,6 @@ export function HtmlBoard({
       return;
     }
 
-    // Object/token drop
     const objJson = e.dataTransfer.getData(objectDragMime);
     if (objJson) {
       try {
@@ -374,7 +372,6 @@ export function HtmlBoard({
 
     const isMulti = e.shiftKey || e.metaKey || e.ctrlKey;
 
-    // make selection synchronous BEFORE computing drag ids
     if (isMulti) toggleSelectImmediate(id);
     else selectSingleImmediate(id);
 
@@ -449,12 +446,11 @@ export function HtmlBoard({
   }
 
   function onPointerDownCanvas(e: React.PointerEvent) {
-    // Pinch tracking
     if (e.pointerType === "touch") {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
     }
 
-    // In edit mode on touch: 1-finger pan when touching EMPTY canvas (tool select)
+    // Edit mode + touch + empty canvas => 1-finger pan
     if (editMode && e.pointerType === "touch" && tool === "select" && e.target === canvasRef.current) {
       clearSelection();
       const sc = getScroll();
@@ -469,10 +465,10 @@ export function HtmlBoard({
       return;
     }
 
-    // View mode panning on empty canvas (mouse/pen)
+    // View mode panning (mouse/pen)
     if (!editMode) {
       if (e.target !== canvasRef.current) return;
-      if (e.pointerType === "touch") return; // touch uses native scroll via container
+      if (e.pointerType === "touch") return;
       const sc = getScroll();
       panRef.current = {
         pointerId: e.pointerId,
@@ -485,7 +481,6 @@ export function HtmlBoard({
       return;
     }
 
-    // Edit mode: create object
     if (editingIdRef.current) return;
 
     if (tool === "lane") {
@@ -532,7 +527,7 @@ export function HtmlBoard({
       return;
     }
 
-    // Mouse box-select only (touch uses pan)
+    // Mouse box-select only (touch uses pan/pinch)
     if (e.pointerType === "touch") return;
     if (e.target !== canvasRef.current) return;
 
@@ -594,40 +589,56 @@ export function HtmlBoard({
   }, [editMode]);
 
   function onPointerMove(e: React.PointerEvent) {
-    // Keep pointer tracking updated for pinch
+    // update tracking for touch pointers
     if (e.pointerType === "touch") {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
     }
 
-    // Pinch zoom (two touches, no active object drag)
+    // ✅ two-finger: ALWAYS PAN; also ZOOM only when pinch distance changes enough
     if (e.pointerType === "touch" && !dragRef.current) {
       if (pointersRef.current.size >= 2) {
+        const el = scrollRef.current;
         const pts = Array.from(pointersRef.current.values()).slice(0, 2);
+
+        const cx = (pts[0].x + pts[1].x) / 2;
+        const cy = (pts[0].y + pts[1].y) / 2;
+
         const dx = pts[0].x - pts[1].x;
         const dy = pts[0].y - pts[1].y;
         const dist = Math.hypot(dx, dy);
 
-        const midX = (pts[0].x + pts[1].x) / 2;
-        const midY = (pts[0].y + pts[1].y) / 2;
-
-        if (!pinchRef.current) {
-          pinchRef.current = { lastDist: dist };
-        } else {
-          const last = pinchRef.current.lastDist || dist;
-          if (last > 0) {
-            const scale = dist / last;
-            const nextZoom = zoomRef.current * scale;
-            setZoomAnchored(nextZoom, midX, midY);
-          }
-          pinchRef.current = { lastDist: dist };
+        if (!gestureRef.current) {
+          gestureRef.current = { lastDist: dist, lastCx: cx, lastCy: cy };
+          return;
         }
+
+        // PAN by midpoint movement
+        if (el) {
+          const last = gestureRef.current;
+          const dCx = cx - last.lastCx;
+          const dCy = cy - last.lastCy;
+          el.scrollLeft = el.scrollLeft - dCx;
+          el.scrollTop = el.scrollTop - dCy;
+        }
+
+        // ZOOM if pinch distance changed enough
+        const lastDist = gestureRef.current.lastDist;
+        const distDelta = dist - lastDist;
+
+        if (Math.abs(distDelta) >= PINCH_ZOOM_THRESHOLD_PX && lastDist > 0) {
+          const scale = dist / lastDist;
+          const nextZoom = zoomRef.current * scale;
+          setZoomAnchored(nextZoom, cx, cy);
+        }
+
+        gestureRef.current = { lastDist: dist, lastCx: cx, lastCy: cy };
         return;
       } else {
-        pinchRef.current = null;
+        gestureRef.current = null;
       }
     }
 
-    // Panning (panRef uses pixel scroll; do NOT divide by zoom)
+    // one-finger pan (empty canvas)
     if (panRef.current && panRef.current.pointerId === e.pointerId) {
       const pan = panRef.current;
       const dx = e.clientX - pan.startClientX;
@@ -709,7 +720,6 @@ export function HtmlBoard({
     }
 
     const drag = dragRef.current;
-
     if (editMode && drag && drag.pointerId === e.pointerId) {
       if (drag.mode === "box") {
         const b = box;
@@ -742,7 +752,7 @@ export function HtmlBoard({
 
     if (e.pointerType === "touch") {
       pointersRef.current.delete(e.pointerId);
-      if (pointersRef.current.size < 2) pinchRef.current = null;
+      if (pointersRef.current.size < 2) gestureRef.current = null;
     }
   }
 
@@ -761,12 +771,7 @@ export function HtmlBoard({
   const scaledH = canvasHeight * zoom;
 
   return (
-    <div
-      ref={scrollRef}
-      className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white"
-      style={{ WebkitOverflowScrolling: "touch" }}
-    >
-      {/* wrapper defines scrollable area */}
+    <div ref={scrollRef} className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white" style={{ WebkitOverflowScrolling: "touch" }}>
       <div ref={wrapperRef} className="relative" style={{ width: scaledW, height: scaledH }}>
         <div
           ref={canvasRef}
@@ -777,7 +782,7 @@ export function HtmlBoard({
             ...bgStyle,
             transform: `scale(${zoom})`,
             transformOrigin: "top left",
-            touchAction: "none", // needed so pinch doesn't zoom the page; we handle it
+            touchAction: "none",
           }}
           onDragEnter={(e) => {
             if (!editMode) return;
@@ -819,12 +824,7 @@ export function HtmlBoard({
           {box
             ? (() => {
                 const r = rectNorm(box.x1, box.y1, box.x2, box.y2);
-                return (
-                  <div
-                    className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/15"
-                    style={{ left: r.left, top: r.top, width: r.w, height: r.h }}
-                  />
-                );
+                return <div className="pointer-events-none absolute z-20 border border-blue-500 bg-blue-200/15" style={{ left: r.left, top: r.top, width: r.w, height: r.h }} />;
               })()
             : null}
 
@@ -850,10 +850,7 @@ export function HtmlBoard({
                 >
                   <div
                     className="w-full h-full rounded-full flex items-center justify-center"
-                    style={{
-                      background: isBall ? "transparent" : fill,
-                      border: isBall ? "none" : "1px solid rgba(255,255,255,0.25)",
-                    }}
+                    style={{ background: isBall ? "transparent" : fill, border: isBall ? "none" : "1px solid rgba(255,255,255,0.25)" }}
                     title={isBall ? "Ball" : "Token"}
                   >
                     {isBall ? (
@@ -883,13 +880,7 @@ export function HtmlBoard({
                   {editMode && (isSelected || isActive) ? (
                     <div
                       className="absolute rounded bg-white/90 border shadow"
-                      style={{
-                        width: RESIZE_HANDLE,
-                        height: RESIZE_HANDLE,
-                        right: -RESIZE_HANDLE / 2,
-                        bottom: -RESIZE_HANDLE / 2,
-                        cursor: "nwse-resize",
-                      }}
+                      style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, right: -RESIZE_HANDLE / 2, bottom: -RESIZE_HANDLE / 2, cursor: "nwse-resize" }}
                       onPointerDown={(e) => beginResizeAny(e, o.id)}
                       title="Resize"
                     />
@@ -903,14 +894,7 @@ export function HtmlBoard({
                 <div
                   key={o.id}
                   className={`absolute rounded-xl border bg-white/60 ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
-                  style={{
-                    left: o.x,
-                    top: o.y,
-                    width: o.w,
-                    height: o.h,
-                    zIndex: 1,
-                    backdropFilter: "blur(2px)",
-                  }}
+                  style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1, backdropFilter: "blur(2px)" }}
                   onPointerDown={(e) => beginMoveAny(e, o.id)}
                 >
                   <div
@@ -925,6 +909,7 @@ export function HtmlBoard({
                     }}
                   >
                     <div className="min-w-0 truncate">{o.title || ""}</div>
+
                     {editMode && isSelected ? (
                       <button
                         type="button"
@@ -944,12 +929,7 @@ export function HtmlBoard({
                   {editMode ? (
                     <div
                       className="absolute right-0 bottom-0 rounded-tl bg-black/10"
-                      style={{
-                        width: RESIZE_HANDLE,
-                        height: RESIZE_HANDLE,
-                        cursor: "nwse-resize",
-                        touchAction: "none",
-                      }}
+                      style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, cursor: "nwse-resize", touchAction: "none" }}
                       onPointerDown={(e) => beginResizeAny(e, o.id)}
                       title="Resize"
                     />
@@ -965,14 +945,7 @@ export function HtmlBoard({
               <div
                 key={o.id}
                 className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
-                style={{
-                  left: o.x,
-                  top: o.y,
-                  width: o.w,
-                  height: o.h,
-                  zIndex: 2,
-                  background: bg,
-                }}
+                style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 2, background: bg }}
                 onPointerDown={(e) => {
                   if (isEditing) return;
                   beginMoveAny(e, o.id);
@@ -994,14 +967,7 @@ export function HtmlBoard({
                     contentEditable
                     suppressContentEditableWarning
                     className="w-full h-full outline-none"
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      overflow: "auto",
-                      padding: isNote ? 10 : 6,
-                      border: "none",
-                      background: "transparent",
-                      cursor: "text",
-                    }}
+                    style={{ whiteSpace: "pre-wrap", overflow: "auto", padding: isNote ? 10 : 6, border: "none", background: "transparent", cursor: "text" }}
                     onPointerDown={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {
                       if (e.key === "Escape") (e.currentTarget as HTMLDivElement).blur();
@@ -1015,15 +981,7 @@ export function HtmlBoard({
                     {o.text || ""}
                   </div>
                 ) : (
-                  <div
-                    className="w-full h-full text-sm"
-                    style={{
-                      whiteSpace: "pre-wrap",
-                      overflow: "hidden",
-                      padding: isNote ? 10 : 6,
-                      pointerEvents: "none",
-                    }}
-                  >
+                  <div className="w-full h-full text-sm" style={{ whiteSpace: "pre-wrap", overflow: "hidden", padding: isNote ? 10 : 6, pointerEvents: "none" }}>
                     {o.text || ""}
                   </div>
                 )}
@@ -1046,12 +1004,7 @@ export function HtmlBoard({
                 {editMode ? (
                   <div
                     className="absolute right-0 bottom-0 rounded-tl bg-black/10"
-                    style={{
-                      width: RESIZE_HANDLE,
-                      height: RESIZE_HANDLE,
-                      cursor: "nwse-resize",
-                      touchAction: "none",
-                    }}
+                    style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, cursor: "nwse-resize", touchAction: "none" }}
                     onPointerDown={(e) => beginResizeAny(e, o.id)}
                     title="Resize"
                   />
@@ -1075,16 +1028,8 @@ export function HtmlBoard({
             return (
               <div
                 key={p.id}
-                className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${
-                  isSelected ? "ring-2 ring-blue-500/50" : ""
-                } ${isActive ? "ring-blue-600/70" : ""}`}
-                style={{
-                  left: p.x,
-                  top: p.y,
-                  width: w,
-                  height: h,
-                  zIndex: 5,
-                }}
+                className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                style={{ left: p.x, top: p.y, width: w, height: h, zIndex: 5 }}
                 onPointerDown={(e) => beginMoveAny(e, p.id)}
                 onDoubleClick={(e) => {
                   if (!onOpenPlayer) return;
@@ -1094,14 +1039,7 @@ export function HtmlBoard({
                 title={editMode ? "Drag to move. Use resize handle to resize." : "Double-click to open"}
               >
                 <div className="flex h-full">
-                  <div
-                    className="flex items-center justify-center"
-                    style={{
-                      width: h,
-                      background: gc,
-                      color: dark ? "#fff" : "#111827",
-                    }}
-                  >
+                  <div className="flex items-center justify-center" style={{ width: h, background: gc, color: dark ? "#fff" : "#111827" }}>
                     {p.player.pictureUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={p.player.pictureUrl} alt={p.player.name} className="w-full h-full object-cover" draggable={false} />
@@ -1120,13 +1058,7 @@ export function HtmlBoard({
                 {editMode && (isSelected || isActive) ? (
                   <div
                     className="absolute rounded bg-white/90 border shadow"
-                    style={{
-                      width: RESIZE_HANDLE,
-                      height: RESIZE_HANDLE,
-                      right: -RESIZE_HANDLE / 2,
-                      bottom: -RESIZE_HANDLE / 2,
-                      cursor: "nwse-resize",
-                    }}
+                    style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, right: -RESIZE_HANDLE / 2, bottom: -RESIZE_HANDLE / 2, cursor: "nwse-resize" }}
                     onPointerDown={(e) => beginResizeAny(e, p.id)}
                     title="Resize"
                   />
