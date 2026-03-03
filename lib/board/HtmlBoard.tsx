@@ -132,6 +132,14 @@ type DragState = {
   originObjects: Record<string, { x: number; y: number; w: number; h: number }>;
 };
 
+type AvatarTapState = {
+  pointerId: number;
+  playerId: string;
+  startX: number;
+  startY: number;
+  moved: boolean;
+};
+
 export function HtmlBoard({
   editMode,
   placed,
@@ -174,6 +182,9 @@ export function HtmlBoard({
 
   // Zoom UI state
   const [zoomUiCollapsed, setZoomUiCollapsed] = useState(false);
+
+  // Avatar tap tracking
+  const avatarTapRef = useRef<AvatarTapState | null>(null);
 
   function setZoomCentered(nextZoomRaw: number) {
     const el = scrollRef.current;
@@ -246,6 +257,23 @@ export function HtmlBoard({
     startScrollLeft: number;
     startScrollTop: number;
   }>(null);
+
+  function deleteObjectsById(ids: string[]) {
+    if (!ids.length) return;
+    const set = new Set(ids);
+
+    const next = objectsRef.current.filter((o) => !set.has(o.id));
+    onObjectsChangeRef.current?.(next);
+
+    setSelectedIds((cur) => {
+      const n = new Set(cur);
+      ids.forEach((id) => n.delete(id));
+      selectedIdsRef.current = n;
+      return n;
+    });
+
+    setActiveId((cur) => (cur && set.has(cur) ? null : cur));
+  }
 
   function clientToBoard(clientX: number, clientY: number) {
     const canvas = canvasRef.current;
@@ -433,6 +461,47 @@ export function HtmlBoard({
     };
   }
 
+  // --- Avatar click/tap to open (without breaking drag) ---
+  function onAvatarPointerDown(e: React.PointerEvent, playerId: string) {
+    // Don't let avatar start dragging the card; it's a "tap to open" zone.
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+
+    avatarTapRef.current = {
+      pointerId: e.pointerId,
+      playerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+    };
+
+    // Still select the player card on tap
+    selectSingleImmediate(playerId);
+  }
+
+  function onAvatarPointerMove(e: React.PointerEvent) {
+    const st = avatarTapRef.current;
+    if (!st || st.pointerId !== e.pointerId) return;
+    const dx = e.clientX - st.startX;
+    const dy = e.clientY - st.startY;
+    if (Math.abs(dx) + Math.abs(dy) > 6) st.moved = true;
+  }
+
+  function onAvatarPointerUp(e: React.PointerEvent) {
+    const st = avatarTapRef.current;
+    if (!st || st.pointerId !== e.pointerId) return;
+
+    avatarTapRef.current = null;
+
+    if (st.moved) return;
+
+    if (!onOpenPlayer) return;
+    const p = placedRef.current.find((x) => x.id === st.playerId);
+    if (!p) return;
+
+    onOpenPlayer(p);
+  }
+
   function onPointerDownCanvas(e: React.PointerEvent) {
     if (e.pointerType === "touch") {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
@@ -470,50 +539,6 @@ export function HtmlBoard({
     }
 
     if (editingIdRef.current) return;
-
-    if (tool === "lane") {
-      e.preventDefault();
-      const { x, y } = clientToBoard(e.clientX, e.clientY);
-
-      const id = `obj_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-      const nextObj: BoardObject = {
-        id,
-        kind: "lane",
-        title: "Lane",
-        x: clamp(x, 0, canvasWidth - 420),
-        y: clamp(y, 0, canvasHeight - 220),
-        w: 420,
-        h: 220,
-      };
-      onObjectsChangeRef.current?.([...objectsRef.current, nextObj]);
-      selectSingleImmediate(id);
-      return;
-    }
-
-    if (tool === "text" || tool === "note") {
-      e.preventDefault();
-      const { x, y } = clientToBoard(e.clientX, e.clientY);
-
-      const id = `obj_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-      const nextObj: BoardObject = {
-        id,
-        kind: tool,
-        x: clamp(x, 0, canvasWidth - 260),
-        y: clamp(y, 0, canvasHeight - 140),
-        w: 260,
-        h: 140,
-        text: tool === "note" ? "Note..." : "Text...",
-        color: tool === "note" ? "#fff7b2" : undefined,
-      };
-      onObjectsChangeRef.current?.([...objectsRef.current, nextObj]);
-      selectSingleImmediate(id);
-      setEditingId(id);
-      requestAnimationFrame(() => {
-        const el = document.getElementById(`obj-edit-${id}`);
-        (el as HTMLElement | null)?.focus();
-      });
-      return;
-    }
 
     // Mouse box-select only (touch uses pan)
     if (e.pointerType === "touch") return;
@@ -554,15 +579,7 @@ export function HtmlBoard({
       if (!toDelete.length) return;
 
       e.preventDefault();
-      const set = new Set(toDelete);
-      onObjectsChangeRef.current?.(objectsRef.current.filter((o) => !set.has(o.id)));
-      setSelectedIds((cur) => {
-        const n = new Set(cur);
-        toDelete.forEach((id) => n.delete(id));
-        selectedIdsRef.current = n;
-        return n;
-      });
-      setActiveId((cur) => (cur && set.has(cur) ? null : cur));
+      deleteObjectsById(toDelete);
     }
 
     window.addEventListener("keydown", onKeyDown);
@@ -570,11 +587,14 @@ export function HtmlBoard({
   }, [editMode]);
 
   function onPointerMove(e: React.PointerEvent) {
+    // Avatar tap detection
+    onAvatarPointerMove(e);
+
     if (e.pointerType === "touch") {
       pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY, pointerType: e.pointerType });
     }
 
-    // ✅ Two-finger pan ONLY (no zoom)
+    // Two-finger pan ONLY
     if (e.pointerType === "touch" && !dragRef.current) {
       if (pointersRef.current.size >= 2) {
         const el = scrollRef.current;
@@ -678,6 +698,9 @@ export function HtmlBoard({
   }
 
   function onPointerUp(e: React.PointerEvent) {
+    // Avatar tap open (if applicable)
+    onAvatarPointerUp(e);
+
     if (panRef.current && panRef.current.pointerId === e.pointerId) {
       panRef.current = null;
     }
@@ -741,7 +764,7 @@ export function HtmlBoard({
       className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white relative"
       style={{ WebkitOverflowScrolling: "touch" }}
     >
-      {/* ✅ Fixed Zoom UI: always bottom-left of visible viewport */}
+      {/* Fixed Zoom UI: bottom-left of visible viewport */}
       <div
         className="fixed left-3 bottom-3 z-[9999]"
         onPointerDown={(e) => e.stopPropagation()}
@@ -817,7 +840,6 @@ export function HtmlBoard({
         )}
       </div>
 
-      {/* wrapper defines scrollable area */}
       <div ref={wrapperRef} className="relative" style={{ width: scaledW, height: scaledH }}>
         <div
           ref={canvasRef}
@@ -879,11 +901,6 @@ export function HtmlBoard({
               })()
             : null}
 
-          {/* NOTE: objects + players rendering stays the same as your current file.
-              If you already have your objects + players blocks in this file from previous step,
-              keep them below. For brevity, they are omitted here in the comment,
-              but you should keep your existing render blocks unchanged. */}
-
           {/* Objects */}
           {objects.map((o) => {
             const isSelected = selectedIds.has(o.id);
@@ -906,7 +923,10 @@ export function HtmlBoard({
                 >
                   <div
                     className="w-full h-full rounded-full flex items-center justify-center"
-                    style={{ background: isBall ? "transparent" : fill, border: isBall ? "none" : "1px solid rgba(255,255,255,0.25)" }}
+                    style={{
+                      background: isBall ? "transparent" : fill,
+                      border: isBall ? "none" : "1px solid rgba(255,255,255,0.25)",
+                    }}
                     title={isBall ? "Ball" : "Token"}
                   >
                     {isBall ? (
@@ -921,7 +941,13 @@ export function HtmlBoard({
                   {editMode && (isSelected || isActive) ? (
                     <div
                       className="absolute rounded bg-white/90 border shadow"
-                      style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, right: -RESIZE_HANDLE / 2, bottom: -RESIZE_HANDLE / 2, cursor: "nwse-resize" }}
+                      style={{
+                        width: RESIZE_HANDLE,
+                        height: RESIZE_HANDLE,
+                        right: -RESIZE_HANDLE / 2,
+                        bottom: -RESIZE_HANDLE / 2,
+                        cursor: "nwse-resize",
+                      }}
                       onPointerDown={(e) => beginResizeAny(e, o.id)}
                       title="Resize"
                     />
@@ -941,6 +967,7 @@ export function HtmlBoard({
                   <div className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none">
                     <div className="min-w-0 truncate">{o.title || ""}</div>
                   </div>
+
                   {editMode ? (
                     <div
                       className="absolute right-0 bottom-0 rounded-tl bg-black/10"
@@ -959,12 +986,24 @@ export function HtmlBoard({
             return (
               <div
                 key={o.id}
-                className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                className={`absolute ${isNote ? "rounded-xl border shadow-sm" : ""} ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
+                  isActive ? "ring-blue-600/70" : ""
+                }`}
                 style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 2, background: bg }}
                 onPointerDown={(e) => {
                   if (isEditing) return;
                   beginMoveAny(e, o.id);
                 }}
+                onDoubleClick={(e) => {
+                  if (!editMode) return;
+                  e.stopPropagation();
+                  setEditingId(o.id);
+                  requestAnimationFrame(() => {
+                    const el = document.getElementById(`obj-edit-${o.id}`);
+                    (el as HTMLElement | null)?.focus();
+                  });
+                }}
+                title={editMode ? "Double-click to edit" : undefined}
               >
                 {isEditing ? (
                   <div
@@ -972,8 +1011,18 @@ export function HtmlBoard({
                     contentEditable
                     suppressContentEditableWarning
                     className="w-full h-full outline-none"
-                    style={{ whiteSpace: "pre-wrap", overflow: "auto", padding: isNote ? 10 : 6, border: "none", background: "transparent", cursor: "text" }}
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      overflow: "auto",
+                      padding: isNote ? 10 : 6,
+                      border: "none",
+                      background: "transparent",
+                      cursor: "text",
+                    }}
                     onPointerDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") (e.currentTarget as HTMLDivElement).blur();
+                    }}
                     onBlur={(e) => {
                       const nextText = e.currentTarget.innerText ?? "";
                       updateObject(o.id, { text: nextText });
@@ -983,10 +1032,19 @@ export function HtmlBoard({
                     {o.text || ""}
                   </div>
                 ) : (
-                  <div className="w-full h-full text-sm" style={{ whiteSpace: "pre-wrap", overflow: "hidden", padding: isNote ? 10 : 6, pointerEvents: "none" }}>
+                  <div
+                    className="w-full h-full text-sm"
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      overflow: "hidden",
+                      padding: isNote ? 10 : 6,
+                      pointerEvents: "none",
+                    }}
+                  >
                     {o.text || ""}
                   </div>
                 )}
+
                 {editMode ? (
                   <div
                     className="absolute right-0 bottom-0 rounded-tl bg-black/10"
@@ -1014,12 +1072,23 @@ export function HtmlBoard({
             return (
               <div
                 key={p.id}
-                className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
+                className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
+                  isActive ? "ring-blue-600/70" : ""
+                }`}
                 style={{ left: p.x, top: p.y, width: w, height: h, zIndex: 5 }}
                 onPointerDown={(e) => beginMoveAny(e, p.id)}
               >
                 <div className="flex h-full">
-                  <div className="flex items-center justify-center" style={{ width: h, background: gc, color: dark ? "#fff" : "#111827" }}>
+                  {/* ✅ Avatar zone: tap/click opens player details */}
+                  <div
+                    className="flex items-center justify-center"
+                    style={{ width: h, background: gc, color: dark ? "#fff" : "#111827", cursor: onOpenPlayer ? "pointer" : "default" }}
+                    title={onOpenPlayer ? "Tap to view player" : undefined}
+                    onPointerDown={(e) => onAvatarPointerDown(e, p.id)}
+                    onPointerMove={onAvatarPointerMove}
+                    onPointerUp={onAvatarPointerUp}
+                    onPointerCancel={onAvatarPointerUp}
+                  >
                     {p.player.pictureUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={p.player.pictureUrl} alt={p.player.name} className="w-full h-full object-cover" draggable={false} />
