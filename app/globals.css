@@ -4,8 +4,26 @@
 html,
 body {
   height: 100%;
+  background-color: #121212;
+  color: #e0e0e0;
 }
 
 body {
   margin: 0;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+::-webkit-scrollbar-thumb {
+  background: #800000;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #a81212;
 }
