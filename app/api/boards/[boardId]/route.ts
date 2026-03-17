@@ -22,56 +22,43 @@ function getSupabaseAdmin() {
  * GET /api/boards/[boardId]
  *
  * Returns board if:
- *  - requester is a member of the board's team (team_members), OR
- *  - requester's email is listed in board.data.sharing.emails
- *
- * If access is granted via board share (email), we ALSO upsert the requester into
- * team_members as viewer. This ensures the TEAM becomes visible after the share,
- * matching the "board share implies team share" requirement.
+ *   1. User is a member of the board's team (returns their team role)
+ *   2. User has a direct board share entry (returns their share role)
  */
 export async function GET(
   req: NextRequest,
-  context: { params: Promise<{ boardId: string }> }
+  { params }: { params: Promise<{ boardId: string }> }
 ) {
   try {
-    const supabaseAdmin = getSupabaseAdmin();
-    const { boardId } = await context.params;
+    const { boardId } = await params;
 
-    const id = String(boardId || "").trim();
-    if (!id) {
-      return NextResponse.json(
-        { success: false, error: "Missing boardId" },
-        { status: 400 }
-      );
-    }
-
-    const authHeader = req.headers.get("authorization") || "";
-    const token = authHeader.toLowerCase().startsWith("bearer ")
-      ? authHeader.slice(7)
-      : "";
-
+    // Authenticate user from Bearer token
+    const authHeader = req.headers.get("authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
     if (!token) {
       return NextResponse.json(
-        { success: false, error: "Missing Authorization token" },
+        { success: false, error: "Missing authorization token." },
         { status: 401 }
       );
     }
 
+    const supabaseAdmin = getSupabaseAdmin();
+
+    // Verify token and get user
     const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
     if (userErr || !userData?.user) {
       return NextResponse.json(
-        { success: false, error: "Invalid session" },
+        { success: false, error: "Invalid or expired token." },
         { status: 401 }
       );
     }
-
     const userId = userData.user.id;
-    const userEmail = (userData.user.email || "").toLowerCase();
 
+    // Fetch board
     const { data: board, error: boardErr } = await supabaseAdmin
       .from("boards")
-      .select("id,team_id,name,data,created_at")
-      .eq("id", id)
+      .select("*")
+      .eq("id", boardId)
       .single();
 
     if (boardErr || !board) {
@@ -103,30 +90,36 @@ export async function GET(
       );
     }
 
-    // 2) Shared email access
-    const sharedEmails: string[] = Array.isArray((board as any)?.data?.sharing?.emails)
-      ? ((board as any).data.sharing.emails as any[])
-          .map((e) => String(e || "").trim().toLowerCase())
-          .filter(Boolean)
-      : [];
+    // 2) Direct board share access — look up the actual role stored in board_shares
+    const { data: share, error: shareErr } = await supabaseAdmin
+      .from("board_shares")
+      .select("role")
+      .eq("board_id", boardId)
+      .eq("user_id", userId)
+      .maybeSingle();
 
-    if (userEmail && sharedEmails.includes(userEmail)) {
-      // IMPORTANT: board share implies team share
-      // Add the user to the team as viewer so it shows up in Teams / Boards lists.
+    if (shareErr) {
+      return NextResponse.json(
+        { success: false, error: shareErr.message },
+        { status: 500 }
+      );
+    }
+
+    if (share) {
+      // Ensure user also has team membership so they can see the team
       const { error: upErr } = await supabaseAdmin
         .from("team_members")
         .upsert(
-          { team_id: board.team_id, user_id: userId, role: "viewer" },
-          { onConflict: "team_id,user_id" }
+          { team_id: board.team_id, user_id: userId, role: share.role ?? "viewer" },
+          { onConflict: "team_id,user_id", ignoreDuplicates: true }
         );
 
       if (upErr) {
-        // still allow board view, but report that membership sync failed
         return NextResponse.json(
           {
             success: true,
             access: "shared",
-            role: "viewer",
+            role: share.role ?? "viewer",
             board,
             warning: `Shared access granted, but team membership upsert failed: ${upErr.message}`,
           },
@@ -135,7 +128,7 @@ export async function GET(
       }
 
       return NextResponse.json(
-        { success: true, access: "shared", role: "viewer", board },
+        { success: true, access: "shared", role: share.role ?? "viewer", board },
         { status: 200 }
       );
     }
@@ -149,5 +142,78 @@ export async function GET(
       { success: false, error: e?.message ?? "Server error" },
       { status: 500 }
     );
+  }
+}
+
+/**
+ * PATCH /api/boards/[boardId]
+ * Save board data
+ */
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: Promise<{ boardId: string }> }
+) {
+  try {
+    const { boardId } = await params;
+
+    const authHeader = req.headers.get("authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    if (!token) {
+      return NextResponse.json({ success: false, error: "Missing token." }, { status: 401 });
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
+    if (userErr || !userData?.user) {
+      return NextResponse.json({ success: false, error: "Invalid token." }, { status: 401 });
+    }
+    const userId = userData.user.id;
+
+    const body = await req.json();
+
+    // Check write access: team member with editor/admin OR board share with editor/admin
+    const { data: board } = await supabaseAdmin
+      .from("boards")
+      .select("team_id")
+      .eq("id", boardId)
+      .single();
+
+    if (!board) {
+      return NextResponse.json({ success: false, error: "Board not found." }, { status: 404 });
+    }
+
+    const { data: tm } = await supabaseAdmin
+      .from("team_members")
+      .select("role")
+      .eq("team_id", board.team_id)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const { data: share } = await supabaseAdmin
+      .from("board_shares")
+      .select("role")
+      .eq("board_id", boardId)
+      .eq("user_id", userId)
+      .maybeSingle();
+
+    const role = tm?.role ?? share?.role ?? "viewer";
+    if (role !== "admin" && role !== "editor") {
+      return NextResponse.json({ success: false, error: "Forbidden: read-only access." }, { status: 403 });
+    }
+
+    const { data: updated, error: updateErr } = await supabaseAdmin
+      .from("boards")
+      .update({ data: body.data, name: body.name ?? undefined })
+      .eq("id", boardId)
+      .select()
+      .single();
+
+    if (updateErr) {
+      return NextResponse.json({ success: false, error: updateErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, board: updated }, { status: 200 });
+  } catch (e: any) {
+    return NextResponse.json({ success: false, error: e?.message ?? "Server error" }, { status: 500 });
   }
 }
