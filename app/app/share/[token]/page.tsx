@@ -38,7 +38,7 @@ const BG_BUCKET = "board-backgrounds";
 
 const PLAYER_DRAG_MIME = "application/x-soccerboard-player";
 const OBJECT_DRAG_MIME = "application/x-soccerboard-object";
-const BG_BUCKET = "board-backgrounds";
+
 
 export default function SharePage({ params }: { params: Promise<{ token: string }> }) {
   // Share-specific state
@@ -50,7 +50,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   const [sharedBoardId, setSharedBoardId] = useState("");
 
 
-    typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
+    typeof sharedBoardId === "string" ? sharedBoardId : Array.isArray(sharedBoardId) ? sharedBoardId[0] : null;
 
 
   const [error, setError] = useState<string | null>(null);
@@ -60,7 +60,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   const [editMode, setEditMode] = useState<boolean>(false);
   const [objectsLocked, setObjectsLocked] = useState<boolean>(true);
 
-  const canEdit = myRole === "admin" || myRole === "editor";
+  // canEdit defined below based on shareMode
   const isAdmin = myRole === "admin";
 
   // Google player data
@@ -285,7 +285,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     setShareLinkLoading(true);
     setShareLinkUrl("");
     try {
-      const res = await fetch(`/api/boards/${raw}/share-link`, {
+      const res = await fetch(`/api/boards/${sharedBoardId}/share-link`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: shareLinkMode, password: shareLinkPassword || undefined }),
@@ -301,13 +301,13 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
   async function saveBoard() {
     if (!sharedBoardId) return;
-    if (!board) return;
+    if (!sharedBoardId) return;
 
     setSaving(true);
     setError(null);
 
     try {
-      const prevData = board?.data && typeof board.data === "object" ? board.data : {};
+      const prevData: Record<string, unknown> = {};
 
       const nextData = {
         ...prevData,
@@ -323,7 +323,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
       const _res = await fetch(`/api/boards/${sharedBoardId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ data: nextData }) });
       if (!_res.ok) throw new Error("Failed to save");
 
-      setBoard({ ...board, data: nextData });
+      // board state update skipped in share page
       setDirty(false);
     } catch (e: any) {
       console.error(e);
@@ -364,18 +364,22 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     setDirty(true);
   }
 
-  return (
-
   if (pageStatus === "loading") return (
     <div className="min-h-screen bg-dark-900 flex items-center justify-center text-white">
       <div className="text-lg">Loading...</div>
     </div>
   );
+
   if (pageStatus === "error") return (
     <div className="min-h-screen bg-dark-900 flex items-center justify-center text-white">
-      <div className="text-center"><div className="text-4xl mb-4">⚠️</div><div className="text-xl font-bold mb-2">Link Error</div><div className="text-gray-400">{pageError}</div></div>
+      <div className="text-center">
+        <div className="text-4xl mb-4">⚠️</div>
+        <div className="text-xl font-bold mb-2">Link Error</div>
+        <div className="text-gray-400">{pageError}</div>
+      </div>
     </div>
   );
+
   if (pageStatus === "password") return (
     <div className="min-h-screen bg-dark-900 flex items-center justify-center text-white">
       <div className="bg-dark-800 rounded-xl p-8 w-full max-w-sm shadow-xl border border-dark-600">
@@ -387,8 +391,11 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
       </div>
     </div>
   );
+
   const canEdit = shareMode === "edit";
 
+
+  return (
     <main className="h-screen overflow-hidden">
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-dark-800 relative z-40">
@@ -1120,8 +1127,8 @@ function uniq(arr: string[]) {
 /**
  * Normalize Google Drive links into a "direct-ish" image URL.
  */
-function normalizePictureUrl(raw: string) {
-  const s = (raw ?? "").trim();
+function normalizePictureUrl(sharedBoardId: string) {
+  const s = (sharedBoardId ?? "").trim();
   if (!s) return "";
 
   try {
