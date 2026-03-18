@@ -128,6 +128,8 @@ type DragState = {
   mode: "move" | "resize" | "box";
   startX: number;
   startY: number;
+  startClientX: number;
+  startClientY: number;
   moved: boolean;
   lastClientX: number;
   lastClientY: number;
