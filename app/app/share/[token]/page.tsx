@@ -36,9 +36,6 @@ const OBJECT_DRAG_MIME = "application/x-soccerboard-object";
 const BG_BUCKET = "board-backgrounds";
 
 
-const PLAYER_DRAG_MIME = "application/x-soccerboard-player";
-const OBJECT_DRAG_MIME = "application/x-soccerboard-object";
-
 
 export default function SharePage({ params }: { params: Promise<{ token: string }> }) {
   // Share-specific state
@@ -1050,15 +1047,6 @@ function DropdownMultiSelect({
   );
 
 }
-
-function DropdownMultiSelect({
-  label,
-  options,
-  selected,
-  open,
-  onOpen,
-  onToggle,
-}: {
   label: string;
   options: { value: string; label: string }[];
   selected: string[];
