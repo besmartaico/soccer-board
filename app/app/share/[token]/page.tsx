@@ -121,11 +121,6 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   async function loadBoard() {
 
 
-  useEffect(() => {
-    params.then(p => { setToken(p.token); fetchBoard(p.token, ""); });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   async function fetchBoard(tok: string, pwd: string) {
     setPageStatus("loading");
     setPageError("");
@@ -148,6 +143,11 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     setPlayers(allPlayersData.map((p: any) => ({ id: p.id || p.name, name: p.name, grade: p.grade, position: p.position, secondaryPosition: p.secondaryPosition, returning: p.returning, likelihoodPrimary: p.likelihoodPrimary, potentialPrimary: p.potentialPrimary, notes: p.notes || "" } as PlayerRow)));
     setPageStatus("ready");
   }
+
+  useEffect(() => {
+    params.then(p => { setToken(p.token); fetchBoard(p.token, ""); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function saveBoard() {
     if (!sharedBoardId || !dirty) return;
