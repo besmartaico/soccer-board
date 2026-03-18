@@ -1139,137 +1139,71 @@ export default function BoardPage() {
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <div>
                 <div className="text-lg font-semibold">Share Board</div>
+                <div className="flex gap-2 mt-2 border-b border-dark-600">
+                  <button onClick={() => setShareTab("email")} className={`px-4 py-1.5 text-sm font-medium border-b-2 -mb-px ${shareTab === "email" ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>📧 Email</button>
+                  <button onClick={() => setShareTab("link")} className={`px-4 py-1.5 text-sm font-medium border-b-2 -mb-px ${shareTab === "link" ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>🔗 Share Link</button>
+                </div>
               </div>
-              <button
-                type="button"
-                className="w-8 h-8 rounded-full border hover:bg-dark-900"
-                onClick={() => setShareOpen(false)}
-                title="Close"
-              >
-                ×
-              </button>
+              <button className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-dark-700" onClick={() => setShareOpen(false)}>✕</button>
             </div>
 
-            <div className="p-5 space-y-4">
-              {/* Share tabs */}
-              <div className="flex gap-2 border-b border-dark-600 mb-2">
-                <button onClick={() => setShareTab("email")} className={`px-4 py-1.5 text-sm font-medium border-b-2 -mb-px ${shareTab === "email" ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>📧 Email</button>
-                <button onClick={() => setShareTab("link")} className={`px-4 py-1.5 text-sm font-medium border-b-2 -mb-px ${shareTab === "link" ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>🔗 Share Link</button>
-              </div>
-              {shareTab === "link" && (
-                <div className="space-y-3">
-                  <div className="flex gap-3">
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium mb-1">Access</label>
-                      <select value={linkMode} onChange={e => setLinkMode(e.target.value as "view"|"edit")} className="w-full border rounded px-3 py-2 text-sm bg-dark-800 text-white">
-                        <option value="view">View only</option>
-                        <option value="edit">Can edit</option>
-                      </select>
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium mb-1">Password (optional)</label>
-                      <input type="password" value={linkPassword} onChange={e => setLinkPassword(e.target.value)} placeholder="No password" className="w-full border rounded px-3 py-2 text-sm bg-dark-800 text-white" />
-                    </div>
+            {shareTab === "email" && (
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Email address</label>
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 border rounded px-3 py-2 bg-dark-700 text-sm focus:outline-none focus:ring-1 focus:ring-white"
+                      placeholder="name@example.com"
+                      value={shareInput}
+                      onChange={e => setShareInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); if (shareInput.trim()) { setShareEmails(cur => [...cur, shareInput.trim()]); setShareInput(""); } } }}
+                    />
+                    <button
+                      className="rounded bg-dark-600 px-3 py-2 text-sm hover:bg-dark-500"
+                      onClick={() => { if (shareInput.trim()) { setShareEmails(cur => [...cur, shareInput.trim()]); setShareInput(""); } }}
+                    >Add</button>
                   </div>
-                  <button
-                    onClick={async () => {
-                      setLinkGenerating(true); setGeneratedLink("");
-                      const res = await fetch(`/api/boards/${boardId}/share-link`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ mode: linkMode, password: linkPassword || undefined }) });
-                      const d = await res.json();
-                      if (d.token) setGeneratedLink(`${window.location.origin}/app/share/${d.token}`);
-                      setLinkGenerating(false);
-                    }}
-                    disabled={linkGenerating}
-                    className="w-full bg-red-900 hover:bg-red-800 text-white font-semibold py-2 rounded-lg text-sm disabled:opacity-50"
-                  >{linkGenerating ? "Generating..." : "Generate Link"}</button>
-                  {generatedLink && (
-                    <div className="space-y-2">
-                      <div className="flex gap-2">
-                        <input readOnly value={generatedLink} className="flex-1 border rounded px-3 py-2 text-sm bg-dark-700 text-gray-300 min-w-0" onClick={e => (e.target as HTMLInputElement).select()} />
-                        <button onClick={() => { navigator.clipboard.writeText(generatedLink); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); }} className="px-3 py-2 bg-dark-600 hover:bg-dark-500 rounded text-sm font-medium whitespace-nowrap">{linkCopied ? "✓ Copied!" : "Copy"}</button>
-                      </div>
-                      <p className="text-xs text-gray-400">{linkMode === "edit" ? "Anyone with this link can edit." : "Anyone with this link can view."}{linkPassword ? " 🔒 Password protected." : ""}</p>
+                  <div className="text-xs text-dark-400 mt-1">Tip: press Enter to add.</div>
+                </div>
+
+                <div>
+                  <div className="text-sm font-medium mb-2">Shared with</div>
+                  {shareEmails.length === 0 ? (
+                    <div className="text-sm text-dark-300">No one yet.</div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {shareEmails.map((em) => (
+                        <span
+                          key={em}
+                          className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-dark-700"
+                        >
+                          <span className="max-w-[320px] truncate">{em}</span>
+                          <button
+                            type="button"
+                            className="w-6 h-6 rounded-full border hover:bg-dark-800"
+                            onClick={() => setShareEmails((cur) => cur.filter((x) => x !== em))}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
                     </div>
                   )}
                 </div>
-              )}
-              {shareTab === "email" && (
-              <div>
-                <label className="block text-sm font-medium mb-1">Email address</label>
-                <div className="flex gap-2">
-                  <input
-                    className="flex-1 border rounded px-3 py-2"
-                    value={shareInput}
-                    onChange={(e) => setShareInput(e.target.value)}
-                    placeholder="ex: coach@example.com"
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        const val = shareInput.trim();
-                        if (!val) return;
-                        setShareEmails((cur) => Array.from(new Set([...cur, val])));
-                        setShareInput("");
-                      }
-                    }}
-                  />
+
+                <div className="flex items-center justify-end gap-2 pt-2">
+                  <button type="button" className="border px-4 py-2 rounded bg-dark-800" onClick={() => setShareOpen(false)}>Cancel</button>
                   <button
                     type="button"
-                    className="border px-3 py-2 rounded bg-dark-800"
-                    onClick={() => {
-                      const val = shareInput.trim();
-                      if (!val) return;
-                      setShareEmails((cur) => Array.from(new Set([...cur, val])));
-                      setShareInput("");
-                    }}
-                  >
-                    Add
-                  </button>
+                    className="rounded bg-maroon-800 text-white px-4 py-2 disabled:opacity-60"
+                    onClick={saveSharing}
+                    disabled={shareSaving}
+                  >{shareSaving ? "Saving..." : "Save"}</button>
                 </div>
-                <div className="text-xs text-dark-400 mt-1">Tip: press Enter to add.</div>
               </div>
-              )}
-              {shareTab === "email" && (
-              <div>
-                <div className="text-sm font-medium mb-2">Shared with</div>
-                {shareEmails.length === 0 ? (
-                  <div className="text-sm text-dark-300">No one yet.</div>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {shareEmails.map((em) => (
-                      <span
-                        key={em}
-                        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-dark-900"
-                      >
-                        <span className="max-w-[320px] truncate">{em}</span>
-                        <button
-                          type="button"
-                          className="w-6 h-6 rounded-full border hover:bg-dark-800"
-                          title="Remove"
-                          onClick={() => setShareEmails((cur) => cur.filter((x) => x !== em))}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+            )}
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" className="border px-4 py-2 rounded bg-dark-800" onClick={() => setShareOpen(false)}>
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="rounded bg-maroon-800 text-white px-4 py-2 disabled:opacity-60"
-                  onClick={saveSharing}
-                  disabled={shareSaving}
-                >
-                  {shareSaving ? "Saving..." : "Save"}
-                </button>
-              </div>
-            </div>
-              )}
             {shareTab === "link" && (
               <div className="px-5 py-4 flex flex-col gap-4">
                 <div>
@@ -1294,7 +1228,7 @@ export default function BoardPage() {
                 )}
               </div>
             )}
-            </div>
+
           </div>
         </div>
       ) : null}
