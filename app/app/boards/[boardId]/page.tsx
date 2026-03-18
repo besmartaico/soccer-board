@@ -1227,7 +1227,8 @@ export default function BoardPage() {
                 </div>
                 <div className="text-xs text-dark-400 mt-1">Tip: press Enter to add.</div>
               </div>
-
+              )}
+              {shareTab === "email" && (
               <div>
                 <div className="text-sm font-medium mb-2">Shared with</div>
                 {shareEmails.length === 0 ? (
