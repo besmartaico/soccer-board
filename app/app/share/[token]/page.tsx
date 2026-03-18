@@ -168,12 +168,6 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
   
 
-  useEffect(() => {
-    if (!googleConfig) return;
-    loadPlayersFromGoogle(googleConfig);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [googleConfig?.sheetId, googleConfig?.range]);
-
   const gradeOptions = useMemo(
     () =>
       uniq(players.map((p) => (p.grade ?? "").trim())).sort((a, b) =>
@@ -558,7 +552,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                     type="button"
                     className="border px-3 py-1 rounded text-sm bg-dark-800"
                     onClick={() => {
-                      if (googleConfig) loadPlayersFromGoogle(googleConfig);
+                      if (googleConfig) loadBoard();
                     }}
                     disabled={!googleConfig}
                   >
