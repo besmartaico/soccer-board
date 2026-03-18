@@ -118,9 +118,6 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     return () => window.removeEventListener("mousedown", onDown);
   }, []);
 
-  async function loadBoard() {
-
-
   async function fetchBoard(tok: string, pwd: string) {
     setPageStatus("loading");
     setPageError("");
@@ -163,7 +160,6 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     } finally { setSaving(false); }
   }
 
-  }
 
 
   
@@ -403,7 +399,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
           <button
             type="button"
             className="border px-3 py-1 rounded text-sm bg-dark-800"
-            onClick={() => loadBoard()}
+            onClick={() => fetchBoard(token, "")}
             disabled={saving}
           >
             Reload
@@ -549,7 +545,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
                     type="button"
                     className="border px-3 py-1 rounded text-sm bg-dark-800"
                     onClick={() => {
-                      if (googleConfig) loadBoard();
+      // Google config loading not applicable on share page
                     }}
                     disabled={!googleConfig}
                   >
