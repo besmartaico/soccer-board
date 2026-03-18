@@ -23,10 +23,12 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
   async function fetchBoard(tok: string, pwd: string) {
     setStatus("loading");
-    const url = `/api/boards/share-link?token=${tok}${pwd ? `&password=${encodeURIComponent(pwd)}` : ""}`;
+    setError("");
+    const url = `/api/boards/_/share-link?token=${tok}${pwd ? `&password=${encodeURIComponent(pwd)}` : ""}`;
     const res = await fetch(url);
     const data = await res.json();
     if (res.status === 401) { setStatus("password"); return; }
+    if (res.status === 403) { setError("Wrong password. Please try again."); setStatus("password"); return; }
     if (!res.ok) { setError(data.error || "Invalid link"); setStatus("error"); return; }
     setBoardName(data.boardName || "Shared Board");
     setMode(data.mode || "view");
