@@ -61,7 +61,7 @@ export default function BoardPage() {
 
   const [myRole, setMyRole] = useState<UserRole>("viewer");
   const [editMode, setEditMode] = useState<boolean>(false);
-  const [objectsLocked, setObjectsLocked] = useState<boolean>(false);
+  const [objectsLocked, setObjectsLocked] = useState<boolean>(true);
 
   const canEdit = myRole === "admin" || myRole === "editor";
   const isAdmin = myRole === "admin";
