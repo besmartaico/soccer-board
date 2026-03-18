@@ -142,6 +142,8 @@ type AvatarTapState = {
   playerId: string;
   startX: number;
   startY: number;
+  startClientX: number;
+  startClientY: number;
   moved: boolean;
 };
 
