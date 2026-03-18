@@ -176,7 +176,7 @@ export default function TeamPage() {
     setError(null);
 
     try {
-      const { data: sess } = await supabase.getSession();
+            const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       if (!token) throw new Error("Not authenticated.");
 
@@ -209,7 +209,7 @@ export default function TeamPage() {
     setError(null);
 
     try {
-      const { data: sess } = await supabase.getSession();
+      const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       if (!token) throw new Error("Not authenticated.");
 
@@ -254,7 +254,7 @@ export default function TeamPage() {
     setError(null);
 
     try {
-      const { data: sess } = await supabase.getSession();
+      const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       if (!token) throw new Error("Not authenticated.");
 
