@@ -17,7 +17,6 @@ export default function TeamsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-
   const [newTeamName, setNewTeamName] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -45,7 +44,7 @@ export default function TeamsPage() {
       return;
     }
 
-    const teamIds = (mem?.data ?? []).map((r: any) => r.team_id).filter(Boolean);
+    const teamIds = (mem ?? []).map((r: any) => r.team_id).filter(Boolean);
     if (teamIds.length === 0) {
       setTeams([]);
       setLoading(false);
@@ -76,10 +75,8 @@ export default function TeamsPage() {
   async function createTeam() {
     const name = newTeamName.trim();
     if (!name) return;
-
     setCreating(true);
     setError(null);
-
     try {
       const { data: userResp } = await supabase.auth.getUser();
       const user = userResp.user;
@@ -93,7 +90,7 @@ export default function TeamsPage() {
 
       if (ins.error) throw new Error(ins.error.message);
 
-      const { data: sess } = await supabase.getSession();
+      const { data: sess } = await supabase.auth.getSession();
       const token = sess.session?.access_token;
       if (!token) throw new Error("Missing session token.");
 
@@ -122,24 +119,14 @@ export default function TeamsPage() {
 
   async function deleteTeam(teamId: string, teamName: string) {
     const ok = window.confirm(
-      `Delete team "${teamName}"?\n\nThis will also delete ALL boards under it (if your DB has cascade). This cannot be undone.`
+      `Delete team "${teamName}"?\n\nThis will also delete ALL boards under it. This cannot be undone.`
     );
     if (!ok) return;
-
     setError(null);
-
     const delBoards = await supabase.from("boards").delete().eq("team_id", teamId);
-    if (delBoards.error) {
-      setError(delBoards.error.message);
-      return;
-    }
-
+    if (delBoards.error) { setError(delBoards.error.message); return; }
     const delTeam = await supabase.from("teams").delete().eq("id", teamId);
-    if (delTeam.error) {
-      setError(delTeam.error.message);
-      return;
-    }
-
+    if (delTeam.error) { setError(delTeam.error.message); return; }
     await load();
   }
 
@@ -164,9 +151,7 @@ export default function TeamsPage() {
                 value={newTeamName}
                 onChange={(e) => setNewTeamName(e.target.value)}
                 placeholder="Team name"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") createTeam();
-                }}
+                onKeyDown={(e) => { if (e.key === "Enter") createTeam(); }}
               />
               <button
                 className="rounded-md bg-maroon-800 px-5 py-2 text-white disabled:opacity-60 hover:bg-maroon-700 transition-colors"
@@ -192,23 +177,16 @@ export default function TeamsPage() {
                   key={t.id}
                   className="flex items-center justify-between border border-dark-600 rounded-xl px-4 py-3 bg-dark-700 hover:bg-dark-600 cursor-pointer transition-colors"
                   onClick={() => router.push(`/app/teams/${t.id}`)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") router.push(`/app/teams/${t.id}`);
-                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") router.push(`/app/teams/${t.id}`); }}
                   title="Open team"
                 >
                   <div className="font-medium min-w-0 truncate text-dark-100">{t.name}</div>
-
                   {isAdmin && (
                     <button
                       type="button"
-                      className="ml-3 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-900 text-red-400 border border-red-800"
+                      className="ml-3 inline-flex items-center justify-center w-7 h-7 rounded hover:bg-red-900 text-red-400 border border-red-800 transition-colors"
                       title="Delete team"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        deleteTeam(t.id, t.name);
-                      }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); deleteTeam(t.id, t.name); }}
                     >
                       ×
                     </button>
