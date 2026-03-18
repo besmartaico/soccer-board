@@ -1022,6 +1022,16 @@ export function HtmlBoard({
                       title="Resize"
                     />
                   ) : null}
+
+                {editMode && !objectsLocked && (
+                  <button
+                    className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center rounded-bl text-xs font-bold leading-none"
+                    style={{ background: "#6A0D24", color: "#fff", zIndex: 20, lineHeight: 1, fontSize: 14, cursor: "pointer" }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => { e.stopPropagation(); onObjectsChange?.(objects.filter(x => x.id !== o.id)); }}
+                    title="Delete"
+                  >×</button>
+                )}
                 </div>
               );
             }
