@@ -1047,51 +1047,6 @@ function DropdownMultiSelect({
   );
 
 }
-  const selectedCount = selected.length;
-
-  return (
-    <div className="mb-2 relative">
-      <button
-        type="button"
-        className="w-full border rounded px-2 py-1 text-sm flex items-center justify-between bg-dark-800"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={onOpen}
-      >
-        <span>
-          {label}
-          {selectedCount ? ` (${selectedCount})` : ""}
-        </span>
-        <span className="text-dark-400">{open ? "▲" : "▼"}</span>
-      </button>
-
-      {open ? (
-        <div
-          className="mt-1 w-full bg-dark-800 border rounded shadow p-2 max-h-56 overflow-auto relative z-40"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {options.length === 0 ? (
-            <div className="text-xs text-dark-400">No options</div>
-          ) : (
-            <div className="space-y-1">
-              {options.map((o) => (
-                <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(o.value)}
-                    onChange={() => onToggle(o.value)}
-                  />
-                  <span>{o.label}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 function uniq(arr: string[]) {
   const out: string[] = [];
   const set = new Set<string>();
