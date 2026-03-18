@@ -67,6 +67,17 @@ function getEffectiveCardSize(mode: "large" | "medium" | "small", p: PlacedPlaye
   return { w, h };
 }
 
+
+function gradeColor(grade?: string): { bg: string; text: string } {
+  switch ((grade || "").trim()) {
+    case "9":  return { bg: "#1565C0", text: "#ffffff" }; // Blue
+    case "10": return { bg: "#2E7D32", text: "#ffffff" }; // Green
+    case "11": return { bg: "#6A1B9A", text: "#ffffff" }; // Purple
+    case "12": return { bg: "#E65100", text: "#ffffff" }; // Orange
+    default:   return { bg: "#37474F", text: "#ffffff" }; // Dark grey
+  }
+}
+
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -154,6 +165,7 @@ export function HtmlBoard({
   onObjectsChange,
   tool = "select",
   onToolChange,
+  objectsLocked = false,
   cardSizeMode = "large",
 }: {
   editMode: boolean;
@@ -228,6 +240,11 @@ export function HtmlBoard({
 
   const onObjectsChangeRef = useRef(onObjectsChange);
   useEffect(() => void (onObjectsChangeRef.current = onObjectsChange), [onObjectsChange]);
+  const toolRef = useRef(tool);
+  useEffect(() => void (toolRef.current = tool), [tool]);
+  const onToolChangeRef = useRef(onToolChange);
+  useEffect(() => void (onToolChangeRef.current = onToolChange), [onToolChange]);
+
 
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -733,6 +750,25 @@ export function HtmlBoard({
           }
         }
       }
+
+        // Tool-based creation on canvas click
+        if (toolRef.current && toolRef.current !== "select" && !dragRef.current?.moved) {
+          const pos = dragRef.current ? { x: dragRef.current.startClientX || e.clientX, y: dragRef.current.startClientY || e.clientY } : { x: e.clientX, y: e.clientY };
+          const bpos = clientToBoard(pos.x, pos.y);
+          const bx = bpos.x; const by = bpos.y;
+          const id2 = `obj_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+          const t = toolRef.current;
+          let newObj2: BoardObject | null = null;
+          if (t === "lane") newObj2 = { id: id2, kind: "lane", x: clamp(bx-150,0,canvasWidth-300), y: clamp(by-150,0,canvasHeight-300), w: 300, h: 300, text: "Lane" };
+          else if (t === "text") newObj2 = { id: id2, kind: "text", x: clamp(bx-80,0,canvasWidth-160), y: clamp(by-20,0,canvasHeight-40), w: 160, h: 40, text: "Label" };
+          else if (t === "note") newObj2 = { id: id2, kind: "note", x: clamp(bx-80,0,canvasWidth-160), y: clamp(by-50,0,canvasHeight-100), w: 160, h: 100, text: "Note", color: "#fff7b2" };
+          if (newObj2) {
+            onObjectsChangeRef.current?.([...objectsRef.current, newObj2]);
+            selectSingleImmediate(newObj2.id);
+            onToolChangeRef.current?.("select");
+          }
+        }
+
       dragRef.current = null;
     }
 
@@ -743,13 +779,13 @@ export function HtmlBoard({
   }
 
   const bgStyle: React.CSSProperties = useMemo(() => {
-    if (!backgroundUrl) return { backgroundColor: "#fff" };
+    if (!backgroundUrl) return { backgroundColor: "#1a1a1a" };
     return {
       backgroundImage: `url(${backgroundUrl})`,
       backgroundSize: "contain",
       backgroundRepeat: "no-repeat",
       backgroundPosition: "top left",
-      backgroundColor: "#fff",
+      backgroundColor: "#1a1a1a",
     };
   }, [backgroundUrl]);
 
@@ -761,7 +797,7 @@ export function HtmlBoard({
   return (
     <div
       ref={scrollRef}
-      className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white relative"
+      className="w-full h-full min-w-0 min-h-0 overflow-auto relative" style={{ backgroundColor: "#1a1a1a" }}
       style={{ WebkitOverflowScrolling: "touch" }}
     >
       {/* Fixed Zoom UI: bottom-left of visible viewport */}
@@ -774,19 +810,19 @@ export function HtmlBoard({
         {zoomUiCollapsed ? (
           <button
             type="button"
-            className="bg-white/95 border rounded-xl shadow px-3 py-2 flex items-center gap-2 hover:bg-gray-50"
+            className="bg-dark-800/95 border border-dark-600 rounded-xl shadow px-3 py-2 flex items-center gap-2 hover:bg-dark-700"
             onClick={() => setZoomUiCollapsed(false)}
             title="Show zoom controls"
           >
-            <span className="text-sm font-semibold text-gray-800">Zoom</span>
-            <span className="text-xs text-gray-600">{zoomPct}%</span>
+            <span className="text-sm font-semibold text-dark-200">Zoom</span>
+            <span className="text-xs text-dark-300">{zoomPct}%</span>
             <span className="text-gray-700">▴</span>
           </button>
         ) : (
-          <div className="bg-white/95 border rounded-xl shadow px-3 py-2 flex items-center gap-2">
+          <div className="bg-dark-800/95 border border-dark-700 rounded-xl shadow px-3 py-2 flex items-center gap-2">
             <button
               type="button"
-              className="w-9 h-9 rounded-lg border bg-white hover:bg-gray-50 text-lg"
+              className="w-9 h-9 rounded-lg border border-dark-600 bg-dark-700 hover:bg-dark-600 text-dark-100 text-lg"
               onClick={() => setZoomCentered(zoomRef.current / 1.1)}
               title="Zoom out"
             >
@@ -794,11 +830,11 @@ export function HtmlBoard({
             </button>
 
             <div className="flex flex-col">
-              <div className="text-xs text-gray-700 font-semibold mb-1 flex items-center justify-between gap-2">
+              <div className="text-xs text-dark-300 font-semibold mb-1 flex items-center justify-between gap-2">
                 <span>Zoom: {zoomPct}%</span>
                 <button
                   type="button"
-                  className="text-gray-600 hover:text-gray-900 px-1"
+                  className="text-dark-400 hover:text-dark-100 px-1"
                   onClick={() => setZoomUiCollapsed(true)}
                   title="Collapse"
                 >
@@ -821,7 +857,7 @@ export function HtmlBoard({
 
             <button
               type="button"
-              className="w-9 h-9 rounded-lg border bg-white hover:bg-gray-50 text-lg"
+              className="w-9 h-9 rounded-lg border border-dark-600 bg-dark-700 hover:bg-dark-600 text-dark-100 text-lg"
               onClick={() => setZoomCentered(zoomRef.current * 1.1)}
               title="Zoom in"
             >
@@ -830,7 +866,7 @@ export function HtmlBoard({
 
             <button
               type="button"
-              className="ml-1 text-xs px-2 py-1 rounded border bg-white hover:bg-gray-50"
+              className="ml-1 text-xs px-2 py-1 rounded border border-dark-600 bg-dark-700 hover:bg-dark-600 text-dark-100"
               onClick={() => setZoomCentered(1)}
               title="Reset zoom"
             >
@@ -940,7 +976,7 @@ export function HtmlBoard({
 
                   {editMode && (isSelected || isActive) ? (
                     <div
-                      className="absolute rounded bg-white/90 border shadow"
+                      className="absolute rounded bg-dark-600/90 border border-dark-400 shadow"
                       style={{
                         width: RESIZE_HANDLE,
                         height: RESIZE_HANDLE,
@@ -1098,9 +1134,9 @@ export function HtmlBoard({
                   </div>
 
                   <div className="flex-1 min-w-0 px-3 py-2">
-                    <div className="font-semibold text-gray-900 truncate">{p.player.name || "Player"}</div>
-                    <div className="text-xs text-gray-600 truncate">{buildLine1(p.player)}</div>
-                    <div className="text-xs text-gray-600 truncate">{buildLine2(p.player)}</div>
+                    <div className="font-semibold truncate" style={{ color: '#ffffff' }}>{p.player.name || "Player"}</div>
+                    <div className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.85)' }}>{buildLine1(p.player)}</div>
+                    <div className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.85)' }}>{buildLine2(p.player)}</div>
                   </div>
                 </div>
 
@@ -1119,4 +1155,4 @@ export function HtmlBoard({
       </div>
     </div>
   );
-}
+    }
