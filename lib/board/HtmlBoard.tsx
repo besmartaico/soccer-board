@@ -89,10 +89,10 @@ function normalizeGrade(g?: string) {
 
 function gradeColor(grade?: string): { bg: string; text: string } {
   switch ((grade || "").trim()) {
-    case "9":  return { bg: "#1565C0", text: "#ffffff" };
-    case "10": return { bg: "#2E7D32", text: "#ffffff" };
-    case "11": return { bg: "#6A1B9A", text: "#ffffff" };
-    case "12": return { bg: "#E65100", text: "#ffffff" };
+    case "9":  return { bg: "#222222", text: "#ffffff" };
+    case "10": return { bg: "#000000", text: "#ffffff" };
+    case "11": return { bg: "#6A0D24", text: "#ffffff" };
+    case "12": return { bg: "#EFBF04", text: "#ffffff" };
     default:   return { bg: "#37474F", text: "#ffffff" };
   }
 }
@@ -1116,7 +1116,7 @@ export function HtmlBoard({
             return (
               <div
                 key={p.id}
-                className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
+                className={`absolute rounded-2xl border shadow-sm overflow-hidden select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
                   isActive ? "ring-blue-600/70" : ""
                 }`}
                 style={{ left: p.x, top: p.y, width: w, height: h, zIndex: 5 }}
@@ -1141,10 +1141,10 @@ export function HtmlBoard({
                     )}
                   </div>
 
-                  <div className="flex-1 min-w-0 px-3 py-2">
-                    <div className="font-semibold truncate" style={{ color: '#ffffff' }}>{p.player.name || "Player"}</div>
-                    <div className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.85)' }}>{buildLine1(p.player)}</div>
-                    <div className="text-xs truncate" style={{ color: 'rgba(255,255,255,0.85)' }}>{buildLine2(p.player)}</div>
+                  <div className="flex-1 min-w-0 px-3 py-2" style={{ background: gc.bg }}>
+                    <div className="font-semibold truncate" style={{ color: gc.text }}>{p.player.name || "Player"}</div>
+                    <div className="text-xs truncate" style={{ color: gc.text, opacity: 0.85 }}>{buildLine1(p.player)}</div>
+                    <div className="text-xs truncate" style={{ color: gc.text, opacity: 0.85 }}>{buildLine2(p.player)}</div>
                   </div>
                 </div>
 
