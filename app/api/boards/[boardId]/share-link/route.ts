@@ -11,7 +11,8 @@ export async function POST(
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll(), setAll: (c) => c.forEach(({ name, value, options }) => cookieStore.set(name, value, options)) } }
+    { cookies: { getAll: () => cookieStore.getAll(), // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setAll: (c: any) => c.forEach(({ name, value, options }) => cookieStore.set(name, value, options)) } }
   );
 
   const { data: { user } } = await supabase.auth.getUser();
