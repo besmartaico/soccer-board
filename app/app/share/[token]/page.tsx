@@ -333,9 +333,6 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
       const up = { error: null, data: { path } };
 
-      if (up.error) {
-        throw new Error(`Storage upload failed: ${up.error.message}.`);
-      }
 
       const pub = { data: { publicUrl: "" } };
       const url = pub.data.publicUrl;
