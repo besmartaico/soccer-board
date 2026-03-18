@@ -409,6 +409,22 @@ export default function BoardPage() {
     e.dataTransfer.effectAllowed = "copy";
   }
 
+  async function generateShareLink() {
+    setShareLinkLoading(true);
+    setShareLinkUrl("");
+    try {
+      const res = await fetch(`/api/boards/${raw}/share-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: shareLinkMode, password: shareLinkPassword || undefined }),
+      });
+      const data = await res.json();
+      if (res.ok) setShareLinkUrl(`${window.location.origin}/app/share/${data.token}`);
+    } finally {
+      setShareLinkLoading(false);
+    }
+  }
+
   async function saveSharing() {
     if (!boardId || !board) return;
     setShareSaving(true);
