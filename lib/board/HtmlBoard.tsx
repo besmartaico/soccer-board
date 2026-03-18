@@ -806,8 +806,7 @@ export function HtmlBoard({
   return (
     <div
       ref={scrollRef}
-      className="w-full h-full min-w-0 min-h-0 overflow-auto relative" style={{ backgroundColor: "#1a1a1a" }}
-      style={{ WebkitOverflowScrolling: "touch" }}
+      className="w-full h-full min-w-0 min-h-0 overflow-auto relative" style={{ backgroundColor: "#1a1a1a", WebkitOverflowScrolling: "touch" }}
     >
       {/* Fixed Zoom UI: bottom-left of visible viewport */}
       <div
