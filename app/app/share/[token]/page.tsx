@@ -343,10 +343,6 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
       const path = `boards/${sharedBoardId}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
 
       const up = { error: null, data: { path } };
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type || undefined,
-      });
 
       if (up.error) {
         throw new Error(`Storage upload failed: ${up.error.message}.`);
