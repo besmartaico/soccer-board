@@ -68,15 +68,6 @@ function getEffectiveCardSize(mode: "large" | "medium" | "small", p: PlacedPlaye
 }
 
 
-function gradeColor(grade?: string): { bg: string; text: string } {
-  switch ((grade || "").trim()) {
-    case "9":  return { bg: "#1565C0", text: "#ffffff" }; // Blue
-    case "10": return { bg: "#2E7D32", text: "#ffffff" }; // Green
-    case "11": return { bg: "#6A1B9A", text: "#ffffff" }; // Purple
-    case "12": return { bg: "#E65100", text: "#ffffff" }; // Orange
-    default:   return { bg: "#37474F", text: "#ffffff" }; // Dark grey
-  }
-}
 
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
