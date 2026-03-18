@@ -1111,7 +1111,7 @@ export function HtmlBoard({
             const h = sz.h;
 
             const gc = gradeColor(p.player.grade);
-            const dark = isDark(gc);
+            const dark = isDark(gc.bg);
 
             return (
               <div
@@ -1126,7 +1126,7 @@ export function HtmlBoard({
                   {/* ✅ Avatar zone: tap/click opens player details */}
                   <div
                     className="flex items-center justify-center"
-                    style={{ width: h, background: gc, color: dark ? "#fff" : "#111827", cursor: onOpenPlayer ? "pointer" : "default" }}
+                    style={{ width: h, background: gc.bg, color: dark ? "#fff" : "#111827", cursor: onOpenPlayer ? "pointer" : "default" }}
                     title={onOpenPlayer ? "Tap to view player" : undefined}
                     onPointerDown={(e) => onAvatarPointerDown(e, p.id)}
                     onPointerMove={onAvatarPointerMove}
