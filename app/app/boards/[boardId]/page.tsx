@@ -98,6 +98,17 @@ export default function BoardPage() {
   const [shareEmails, setShareEmails] = useState<string[]>([]);
   const [shareInput, setShareInput] = useState("");
   const [shareSaving, setShareSaving] = useState(false);
+  const [shareLinkTab, setShareLinkTab] = useState<"email"|"link">("email");
+  const [shareLinkMode, setShareLinkMode] = useState<"view"|"edit">("view");
+  const [shareLinkPassword, setShareLinkPassword] = useState("");
+  const [shareLinkUrl, setShareLinkUrl] = useState("");
+  const [shareLinkLoading, setShareLinkLoading] = useState(false);
+  const [shareTab, setShareTab] = useState<"email"|"link">("email");
+  const [linkMode, setLinkMode] = useState<"view"|"edit">("view");
+  const [linkPassword, setLinkPassword] = useState("");
+  const [generatedLink, setGeneratedLink] = useState("");
+  const [linkGenerating, setLinkGenerating] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
 
   // Modals
@@ -1129,7 +1140,10 @@ export default function BoardPage() {
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <div>
                 <div className="text-lg font-semibold">Share Board</div>
-                <div className="text-sm text-dark-300">Add email addresses who should have access to this board.</div>
+                <div className="flex gap-1 mt-3 border-b border-dark-600">
+                  <button onClick={() => setShareLinkTab("email")} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${shareLinkTab === "email" ? "border-yellow-500 text-white" : "border-transparent text-dark-300 hover:text-white"}`}>📧 Email Access</button>
+                  <button onClick={() => setShareLinkTab("link")} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${shareLinkTab === "link" ? "border-yellow-500 text-white" : "border-transparent text-dark-300 hover:text-white"}`}>🔗 Share Link</button>
+                </div>
               </div>
               <button
                 type="button"
@@ -1142,6 +1156,49 @@ export default function BoardPage() {
             </div>
 
             <div className="p-5 space-y-4">
+              {/* Share tabs */}
+              <div className="flex gap-2 border-b border-dark-600 mb-2">
+                <button onClick={() => setShareTab("email")} className={`px-4 py-1.5 text-sm font-medium border-b-2 -mb-px ${shareTab === "email" ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>📧 Email</button>
+                <button onClick={() => setShareTab("link")} className={`px-4 py-1.5 text-sm font-medium border-b-2 -mb-px ${shareTab === "link" ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>🔗 Share Link</button>
+              </div>
+              {shareTab === "link" && (
+                <div className="space-y-3">
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium mb-1">Access</label>
+                      <select value={linkMode} onChange={e => setLinkMode(e.target.value as "view"|"edit")} className="w-full border rounded px-3 py-2 text-sm bg-dark-800 text-white">
+                        <option value="view">View only</option>
+                        <option value="edit">Can edit</option>
+                      </select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium mb-1">Password (optional)</label>
+                      <input type="password" value={linkPassword} onChange={e => setLinkPassword(e.target.value)} placeholder="No password" className="w-full border rounded px-3 py-2 text-sm bg-dark-800 text-white" />
+                    </div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      setLinkGenerating(true); setGeneratedLink("");
+                      const res = await fetch(`/api/boards/${boardId}/share-link`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ mode: linkMode, password: linkPassword || undefined }) });
+                      const d = await res.json();
+                      if (d.token) setGeneratedLink(`${window.location.origin}/app/share/${d.token}`);
+                      setLinkGenerating(false);
+                    }}
+                    disabled={linkGenerating}
+                    className="w-full bg-red-900 hover:bg-red-800 text-white font-semibold py-2 rounded-lg text-sm disabled:opacity-50"
+                  >{linkGenerating ? "Generating..." : "Generate Link"}</button>
+                  {generatedLink && (
+                    <div className="space-y-2">
+                      <div className="flex gap-2">
+                        <input readOnly value={generatedLink} className="flex-1 border rounded px-3 py-2 text-sm bg-dark-700 text-gray-300 min-w-0" onClick={e => (e.target as HTMLInputElement).select()} />
+                        <button onClick={() => { navigator.clipboard.writeText(generatedLink); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000); }} className="px-3 py-2 bg-dark-600 hover:bg-dark-500 rounded text-sm font-medium whitespace-nowrap">{linkCopied ? "✓ Copied!" : "Copy"}</button>
+                      </div>
+                      <p className="text-xs text-gray-400">{linkMode === "edit" ? "Anyone with this link can edit." : "Anyone with this link can view."}{linkPassword ? " 🔒 Password protected." : ""}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+              {shareTab === "email" && (
               <div>
                 <label className="block text-sm font-medium mb-1">Email address</label>
                 <div className="flex gap-2">
@@ -1215,6 +1272,32 @@ export default function BoardPage() {
                   {shareSaving ? "Saving..." : "Save"}
                 </button>
               </div>
+            </div>
+              )}
+            {shareLinkTab === "link" && (
+              <div className="px-5 py-4 flex flex-col gap-4">
+                <div>
+                  <label className="text-sm text-dark-300 block mb-1">Access Mode</label>
+                  <div className="flex gap-2">
+                    <button onClick={() => setShareLinkMode("view")} className={`flex-1 py-2 rounded text-sm font-medium ${shareLinkMode === "view" ? "bg-dark-600 text-white ring-1 ring-yellow-500" : "bg-dark-700 text-dark-300 hover:text-white"}`}>👁️ View Only</button>
+                    <button onClick={() => setShareLinkMode("edit")} className={`flex-1 py-2 rounded text-sm font-medium ${shareLinkMode === "edit" ? "bg-dark-600 text-white ring-1 ring-yellow-500" : "bg-dark-700 text-dark-300 hover:text-white"}`}>✏️ Can Edit</button>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm text-dark-300 block mb-1">Password (optional)</label>
+                  <input type="password" value={shareLinkPassword} onChange={e => setShareLinkPassword(e.target.value)} placeholder="Leave blank for no password" className="w-full rounded border border-dark-600 bg-dark-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-yellow-500" />
+                </div>
+                <button onClick={generateShareLink} disabled={shareLinkLoading} className="w-full bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-black font-semibold py-2 rounded text-sm">
+                  {shareLinkLoading ? "Generating..." : "Generate Link"}
+                </button>
+                {shareLinkUrl && (
+                  <div className="rounded bg-dark-700 border border-dark-600 p-3 flex items-center gap-2">
+                    <input readOnly value={shareLinkUrl} className="flex-1 bg-transparent text-xs text-dark-200 outline-none truncate" />
+                    <button onClick={() => navigator.clipboard.writeText(shareLinkUrl)} className="text-xs bg-dark-600 hover:bg-dark-500 text-white px-2 py-1 rounded whitespace-nowrap">Copy</button>
+                  </div>
+                )}
+              </div>
+            )}
             </div>
           </div>
         </div>
