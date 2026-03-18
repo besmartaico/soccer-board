@@ -46,6 +46,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   const [pageError, setPageError] = useState("");
   const [sharePassword, setSharePassword] = useState("");
   const [sharedBoardId, setSharedBoardId] = useState("");
+  const [label, setLabel] = useState("Shared Board");
 
 
     typeof sharedBoardId === "string" ? sharedBoardId : Array.isArray(sharedBoardId) ? sharedBoardId[0] : null;
@@ -144,7 +145,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     setLabel(data.boardName || "Shared Board");
     const allPlaced: PlacedPlayer[] = Array.isArray(hb.placedPlayers) ? hb.placedPlayers : [];
     const allPlayersData = allPlaced.map(p => p.player);
-    setAllPlayers(allPlayersData);
+    setPlayers(allPlayersData.map((p: any) => ({ id: p.id || p.name, name: p.name, grade: p.grade, position: p.position, secondaryPosition: p.secondaryPosition, returning: p.returning, likelihoodPrimary: p.likelihoodPrimary, potentialPrimary: p.potentialPrimary, notes: p.notes || "" } as PlayerRow)));
     setPageStatus("ready");
   }
 
