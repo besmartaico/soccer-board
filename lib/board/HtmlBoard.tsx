@@ -772,7 +772,7 @@ export function HtmlBoard({
           let newObj2: BoardObject | null = null;
           if (t === "lane") newObj2 = { id: id2, kind: "lane", x: clamp(bx-150,0,canvasWidth-300), y: clamp(by-150,0,canvasHeight-300), w: 300, h: 300, text: "Lane" };
           else if (t === "text") newObj2 = { id: id2, kind: "text", x: clamp(bx-80,0,canvasWidth-160), y: clamp(by-20,0,canvasHeight-40), w: 160, h: 40, text: "Label" };
-          else if (t === "note") newObj2 = { id: id2, kind: "note", x: clamp(bx-80,0,canvasWidth-160), y: clamp(by-50,0,canvasHeight-100), w: 160, h: 100, text: "Note", color: "#fff7b2" };
+          else if (t === "note") newObj2 = { id: id2, kind: "note", x: clamp(bx-80,0,canvasWidth-160), y: clamp(by-50,0,canvasHeight-100), w: 160, h: 100, text: "Note", color: "#222222" };
           if (newObj2) {
             onObjectsChangeRef.current?.([...objectsRef.current, newObj2]);
             selectSingleImmediate(newObj2.id);
@@ -1027,7 +1027,7 @@ export function HtmlBoard({
             }
 
             const isNote = o.kind === "note";
-            const bg = isNote ? o.color || "#fff7b2" : "transparent";
+            const bg = isNote ? o.color || "#222222" : "transparent";
 
             return (
               <div
@@ -1038,6 +1038,7 @@ export function HtmlBoard({
                 style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 2, background: bg }}
                 onPointerDown={(e) => {
                   if (isEditing) return;
+                  if (objectsLockedRef.current) return;
                   beginMoveAny(e, o.id);
                 }}
                 onDoubleClick={(e) => {
