@@ -87,13 +87,14 @@ function normalizeGrade(g?: string) {
   return n;
 }
 
-function gradeColor(grade?: string) {
-  const g = normalizeGrade(grade);
-  if (g === 12) return "#74213c";
-  if (g === 11) return "#c7b782";
-  if (g === 10) return "#808080";
-  if (g === 9) return "#000000";
-  return "#d1d5db";
+function gradeColor(grade?: string): { bg: string; text: string } {
+  switch ((grade || "").trim()) {
+    case "9":  return { bg: "#1565C0", text: "#ffffff" };
+    case "10": return { bg: "#2E7D32", text: "#ffffff" };
+    case "11": return { bg: "#6A1B9A", text: "#ffffff" };
+    case "12": return { bg: "#E65100", text: "#ffffff" };
+    default:   return { bg: "#37474F", text: "#ffffff" };
+  }
 }
 
 function isDark(hex: string) {
@@ -172,6 +173,7 @@ export function HtmlBoard({
   onObjectsChange?: (next: BoardObject[]) => void;
   tool?: BoardTool;
   onToolChange?: (t: BoardTool) => void;
+  objectsLocked?: boolean;
   cardSizeMode?: "large" | "medium" | "small";
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
