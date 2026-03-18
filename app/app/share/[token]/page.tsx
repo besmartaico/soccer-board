@@ -3,12 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { HtmlBoard, type PlacedPlayer, type BoardObject, type BoardTool } from "@/lib/board/HtmlBoard";
 
 
-  id: string;
-  team_id: string;
-  name: string;
-  data: any;
-  created_at: string;
-};
 
 type GoogleConfig = {
   sheetId: string;
