@@ -89,7 +89,7 @@ function normalizeGrade(g?: string) {
 
 function gradeColor(grade?: string): { bg: string; text: string } {
   switch ((grade || "").trim()) {
-    case "9":  return { bg: "#222222", text: "#ffffff" };
+    case "9":  return { bg: "#616161", text: "#ffffff" };
     case "10": return { bg: "#000000", text: "#ffffff" };
     case "11": return { bg: "#6A0D24", text: "#ffffff" };
     case "12": return { bg: "#EFBF04", text: "#ffffff" };
@@ -963,7 +963,7 @@ export function HtmlBoard({
                   key={o.id}
                   className={`absolute select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
                   style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1 }}
-                  onPointerDown={(e) => beginMoveAny(e, o.id)}
+                  onPointerDown={(e) => { if (objectsLocked) return; beginMoveAny(e, o.id); }}
                 >
                   <div
                     className="w-full h-full rounded-full flex items-center justify-center"
@@ -992,7 +992,7 @@ export function HtmlBoard({
                         bottom: -RESIZE_HANDLE / 2,
                         cursor: "nwse-resize",
                       }}
-                      onPointerDown={(e) => beginResizeAny(e, o.id)}
+                      onPointerDown={(e) => { if (objectsLocked) return; beginResizeAny(e, o.id); }}
                       title="Resize"
                     />
                   ) : null}
@@ -1006,7 +1006,7 @@ export function HtmlBoard({
                   key={o.id}
                   className={`absolute rounded-xl border bg-white/60 ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
                   style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1, backdropFilter: "blur(2px)" }}
-                  onPointerDown={(e) => beginMoveAny(e, o.id)}
+                  onPointerDown={(e) => { if (objectsLocked) return; beginMoveAny(e, o.id); }}
                 >
                   <div className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none">
                     <div className="min-w-0 truncate">{o.title || ""}</div>
@@ -1016,7 +1016,7 @@ export function HtmlBoard({
                     <div
                       className="absolute right-0 bottom-0 rounded-tl bg-black/10"
                       style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, cursor: "nwse-resize", touchAction: "none" }}
-                      onPointerDown={(e) => beginResizeAny(e, o.id)}
+                      onPointerDown={(e) => { if (objectsLocked) return; beginResizeAny(e, o.id); }}
                       title="Resize"
                     />
                   ) : null}
@@ -1093,7 +1093,7 @@ export function HtmlBoard({
                   <div
                     className="absolute right-0 bottom-0 rounded-tl bg-black/10"
                     style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, cursor: "nwse-resize", touchAction: "none" }}
-                    onPointerDown={(e) => beginResizeAny(e, o.id)}
+                    onPointerDown={(e) => { if (objectsLocked) return; beginResizeAny(e, o.id); }}
                     title="Resize"
                   />
                 ) : null}
