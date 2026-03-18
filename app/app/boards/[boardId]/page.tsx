@@ -527,14 +527,14 @@ export default function BoardPage() {
   return (
     <main className="h-screen overflow-hidden">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-6 py-4 border-b bg-white relative z-40">
+      <div className="flex items-center justify-between px-6 py-4 border-b bg-dark-800 relative z-40">
         <div className="flex items-center gap-3 min-w-0">
           <div className="text-2xl font-bold truncate">{board ? board.name : "Board"}</div>
 
           <button
             type="button"
             className={`border px-3 py-1 rounded text-sm ${
-              dirty ? "bg-gray-900 text-white" : "bg-white text-gray-700"
+              dirty ? "bg-maroon-800 text-white" : "bg-dark-800 text-dark-200"
             }`}
             onClick={saveBoard}
             disabled={!dirty || saving}
@@ -545,7 +545,7 @@ export default function BoardPage() {
 
           <button
             type="button"
-            className="border px-3 py-1 rounded text-sm bg-white"
+            className="border px-3 py-1 rounded text-sm bg-dark-800"
             onClick={() => loadBoard()}
             disabled={saving}
           >
@@ -556,7 +556,7 @@ export default function BoardPage() {
   <button
     type="button"
     className={`border px-3 py-1 rounded text-sm ${
-      editMode ? "bg-gray-900 text-white" : "bg-white text-gray-700"
+      editMode ? "bg-maroon-800 text-white" : "bg-dark-800 text-dark-200"
     }`}
     onClick={() => {
       setEditMode((v) => {
@@ -570,12 +570,12 @@ export default function BoardPage() {
     {editMode ? "Edit" : "View"}
   </button>
 ) : (
-  <span className="text-xs px-2 py-1 rounded bg-gray-100 text-gray-700">View only</span>
+  <span className="text-xs px-2 py-1 rounded bg-dark-800 text-dark-200">View only</span>
 )}
 
           <button
             type="button"
-            className="border px-3 py-1 rounded text-sm bg-white"
+            className="border px-3 py-1 rounded text-sm bg-dark-800"
             onClick={() => setShareOpen(true)}
             disabled={!board}
             title="Share this board"
@@ -583,11 +583,11 @@ export default function BoardPage() {
             Share
           </button>
 
-          <div className="w-px h-6 bg-gray-300" />
+          <div className="w-px h-6 bg-dark-600" />
 
           <div className="flex items-center gap-2">
             <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "select" ? "bg-gray-100" : "bg-white"}`}
+              className={`rounded-md border px-3 py-1 text-sm ${tool === "select" ? "bg-dark-800" : "bg-dark-800"}`}
               onClick={() => setTool("select")}
               title="Select / Move"
               type="button"
@@ -595,7 +595,7 @@ export default function BoardPage() {
               Select
             </button>
             <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "lane" ? "bg-gray-100" : "bg-white"}`}
+              className={`rounded-md border px-3 py-1 text-sm ${tool === "lane" ? "bg-dark-800" : "bg-dark-800"}`}
               onClick={() => { if (!editMode) return; setTool("lane"); } }
               title="Add a swim lane (click on board to place)"
               type="button"
@@ -604,7 +604,7 @@ export default function BoardPage() {
               Lane
             </button>
             <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "text" ? "bg-gray-100" : "bg-white"}`}
+              className={`rounded-md border px-3 py-1 text-sm ${tool === "text" ? "bg-dark-800" : "bg-dark-800"}`}
               onClick={() => { if (!editMode) return; setTool("text"); } }
               title="Add a text box (click on board to place)"
               type="button"
@@ -613,7 +613,7 @@ export default function BoardPage() {
               Text
             </button>
             <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "note" ? "bg-gray-100" : "bg-white"}`}
+              className={`rounded-md border px-3 py-1 text-sm ${tool === "note" ? "bg-dark-800" : "bg-dark-800"}`}
               onClick={() => { if (!editMode) return; setTool("note"); } }
               title="Add a sticky note (click on board to place)"
               type="button"
@@ -623,7 +623,7 @@ export default function BoardPage() {
             </button>
 
             <select
-              className="border rounded px-2 py-1 text-sm bg-white"
+              className="border rounded px-2 py-1 text-sm bg-dark-800"
               value={cardSizeMode}
               onChange={(e) => { setCardSizeMode(e.target.value as any); setDirty(true); }}
               title="Card size"
@@ -658,16 +658,16 @@ export default function BoardPage() {
         <div className="flex h-[calc(100vh-73px)] min-w-0">
           {/* Left sidebar */}
           {!sidebarCollapsed ? (
-            <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-gray-50 relative z-30">
+            <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-dark-900 relative z-30">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-sm font-semibold">
                   {sidebarMode === "players" ? "Roster" : "Objects"}
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="flex items-center border rounded overflow-hidden bg-white">
+                  <div className="flex items-center border rounded overflow-hidden bg-dark-800">
                     <button
                       type="button"
-                      className={`px-2 py-1 text-xs ${sidebarMode === "players" ? "bg-gray-100 font-semibold" : ""}`}
+                      className={`px-2 py-1 text-xs ${sidebarMode === "players" ? "bg-dark-800 font-semibold" : ""}`}
                       onClick={() => setSidebarMode("players")}
                       title="Show players"
                     >
@@ -675,7 +675,7 @@ export default function BoardPage() {
                     </button>
                     <button
                       type="button"
-                      className={`px-2 py-1 text-xs ${sidebarMode === "objects" ? "bg-gray-100 font-semibold" : ""}`}
+                      className={`px-2 py-1 text-xs ${sidebarMode === "objects" ? "bg-dark-800 font-semibold" : ""}`}
                       onClick={() => setSidebarMode("objects")}
                       title="Show objects"
                     >
@@ -684,14 +684,14 @@ export default function BoardPage() {
                   </div>
                   <button
                     type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
+                    className="border px-3 py-1 rounded text-sm bg-dark-800"
                     onClick={() => setSidebarCollapsed(true)}
                   >
                     Collapse
                   </button>
                   <button
                     type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
+                    className="border px-3 py-1 rounded text-sm bg-dark-800"
                     onClick={() => {
                       if (googleConfig) loadPlayersFromGoogle(googleConfig);
                     }}
@@ -703,10 +703,10 @@ export default function BoardPage() {
               </div>
 
               {sidebarMode === "objects" ? (
-                <div className="border rounded p-3 mb-3 bg-white">
+                <div className="border rounded p-3 mb-3 bg-dark-800">
                   <div className="text-xs font-semibold mb-2">Drag onto the board</div>
 
-                  <div className="text-xs text-gray-600 mb-2">Maroon (1–11)</div>
+                  <div className="text-xs text-dark-300 mb-2">Maroon (1–11)</div>
                   <div className="flex flex-wrap gap-2 mb-3">
                     {Array.from({ length: 11 }).map((_, i) => {
                       const label = String(i + 1);
@@ -731,7 +731,7 @@ export default function BoardPage() {
                     })}
                   </div>
 
-                  <div className="text-xs text-gray-600 mb-2">Blue (1–11)</div>
+                  <div className="text-xs text-dark-300 mb-2">Blue (1–11)</div>
                   <div className="flex flex-wrap gap-2 mb-3">
                     {Array.from({ length: 11 }).map((_, i) => {
                       const label = String(i + 1);
@@ -756,35 +756,35 @@ export default function BoardPage() {
                     })}
                   </div>
 
-                  <div className="text-xs text-gray-600 mb-2">Ball</div>
+                  <div className="text-xs text-dark-300 mb-2">Ball</div>
                   <div className="flex items-center gap-2">
                     <div
                       draggable
                       onDragStart={(e) => onTokenDragStart(e, { tokenType: "ball" })}
-                      className="w-11 h-11 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center border bg-white select-none"
+                      className="w-11 h-11 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center border bg-dark-800 select-none"
                       title="Soccer ball"
                     >
                       <span style={{ fontSize: 24 }}>⚽</span>
                     </div>
-                    <div className="text-xs text-gray-600">Drag onto canvas</div>
+                    <div className="text-xs text-dark-300">Drag onto canvas</div>
                   </div>
                 </div>
               ) : null}
 
               {/* Background upload */}
-              <div className="border rounded p-3 mb-3 bg-white">
+              <div className="border rounded p-3 mb-3 bg-dark-800">
                 <div className="text-xs font-semibold mb-2">Background</div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
+                    className="border px-3 py-1 rounded text-sm bg-dark-800"
                     onClick={() => fileInputRef.current?.click()}
                   >
                     Upload image
                   </button>
                   <button
                     type="button"
-                    className="border px-3 py-1 rounded text-sm bg-white"
+                    className="border px-3 py-1 rounded text-sm bg-dark-800"
                     onClick={() => {
                       setBackgroundUrl("");
                       setDirty(true);
@@ -810,7 +810,7 @@ export default function BoardPage() {
 
               {/* Filters (players mode only) */}
               {sidebarMode === "players" ? (
-                <div className="border rounded p-3 mb-3 bg-white relative z-30">
+                <div className="border rounded p-3 mb-3 bg-dark-800 relative z-30">
                   <div className="text-xs font-semibold mb-2">Filters</div>
 
                 <input
@@ -870,7 +870,7 @@ export default function BoardPage() {
 
                   <button
                     type="button"
-                    className="text-xs underline text-gray-600 mt-2"
+                    className="text-xs underline text-dark-300 mt-2"
                     onClick={() =>
                       setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
                     }
@@ -886,7 +886,7 @@ export default function BoardPage() {
                   {playersError && <div className="text-sm text-red-600">{playersError}</div>}
 
                   {!playersLoading && !playersError && players.length > 0 && (
-                    <div className="text-xs text-gray-600 mb-2">
+                    <div className="text-xs text-dark-300 mb-2">
                       Showing {filteredPlayers.length} of {players.length}
                     </div>
                   )}
@@ -896,7 +896,7 @@ export default function BoardPage() {
                       {filteredPlayers.map((p, idx) => (
                         <div
                           key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-                          className="border rounded bg-white cursor-grab active:cursor-grabbing"
+                          className="border rounded bg-dark-800 cursor-grab active:cursor-grabbing"
                           draggable
                           onDragStart={(e) => onPlayerDragStart(e, p)}
                         >
@@ -904,7 +904,7 @@ export default function BoardPage() {
                             <div className="flex gap-2">
                               <button
                                 type="button"
-                                className="w-12 h-12 rounded overflow-hidden bg-gray-200 flex-shrink-0 border"
+                                className="w-12 h-12 rounded overflow-hidden bg-dark-700 flex-shrink-0 border"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (p.pictureProxyUrl) {
@@ -932,12 +932,12 @@ export default function BoardPage() {
 
                               <div className="min-w-0">
                                 <div className="font-medium truncate">{p.name}</div>
-                                <div className="text-xs text-gray-700">
+                                <div className="text-xs text-dark-200">
                                   Grade: {p.grade || "?"} • Pos: {p.position || "?"}
                                   {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
                                   {p.returning || "?"}
                                 </div>
-                                <div className="text-xs text-gray-700">
+                                <div className="text-xs text-dark-200">
                                   Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
                                   {p.likelihoodPrimary || "?"}
                                 </div>
@@ -945,7 +945,7 @@ export default function BoardPage() {
                             </div>
 
                             {p.notes ? (
-                              <div className="text-xs text-gray-600 mt-1">{p.notes}</div>
+                              <div className="text-xs text-dark-300 mt-1">{p.notes}</div>
                             ) : null}
                           </div>
                         </div>
@@ -956,10 +956,10 @@ export default function BoardPage() {
               ) : null}
             </aside>
           ) : (
-            <aside className="w-12 shrink-0 border-r bg-gray-50 relative z-30 flex flex-col items-center py-3">
+            <aside className="w-12 shrink-0 border-r bg-dark-900 relative z-30 flex flex-col items-center py-3">
               <button
                 type="button"
-                className="border px-2 py-1 rounded text-xs bg-white rotate-90"
+                className="border px-2 py-1 rounded text-xs bg-dark-800 rotate-90"
                 onClick={() => setSidebarCollapsed(false)}
                 title="Show roster"
               >
@@ -999,7 +999,7 @@ export default function BoardPage() {
       {/* Photo modal (roster thumbnail) */}
       {photoModal ? (
         <div
-          className="fixed inset-0 z-[999] bg-black/80 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[999] bg-maroon-800/80 flex items-center justify-center p-4"
           onClick={() => setPhotoModal(null)}
         >
           <div className="w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
@@ -1017,7 +1017,7 @@ export default function BoardPage() {
             <img
               src={photoModal.url}
               alt={`${photoModal.name} large`}
-              className="w-full max-h-[80vh] object-contain rounded-lg bg-black"
+              className="w-full max-h-[80vh] object-contain rounded-lg bg-maroon-800"
             />
           </div>
         </div>
@@ -1026,11 +1026,11 @@ export default function BoardPage() {
       {/* Player modal (clicked on canvas) */}
       {playerModal ? (
         <div
-          className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4"
+          className="fixed inset-0 z-[1000] bg-maroon-800/80 flex items-center justify-center p-4"
           onClick={() => setPlayerModal(null)}
         >
           <div
-            className="w-full max-w-5xl bg-white rounded-xl overflow-hidden"
+            className="w-full max-w-5xl bg-dark-800 rounded-xl overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 py-3 border-b">
@@ -1038,7 +1038,7 @@ export default function BoardPage() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  className="border px-3 py-1 rounded text-sm bg-white"
+                  className="border px-3 py-1 rounded text-sm bg-dark-800"
                   onClick={() => {
                     removePlacedCard(playerModal.id);
                     setPlayerModal(null);
@@ -1057,7 +1057,7 @@ export default function BoardPage() {
             </div>
 
             <div className="p-4 flex gap-4">
-              <div className="w-48 h-48 bg-gray-100 rounded overflow-hidden flex items-center justify-center shrink-0">
+              <div className="w-48 h-48 bg-dark-800 rounded overflow-hidden flex items-center justify-center shrink-0">
                 {playerModal.player.pictureUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -1067,44 +1067,44 @@ export default function BoardPage() {
                     draggable={false}
                   />
                 ) : (
-                  <div className="text-3xl font-bold text-gray-800">
+                  <div className="text-3xl font-bold text-dark-100">
                     {(playerModal.player.name || "?").slice(0, 2).toUpperCase()}
                   </div>
                 )}
               </div>
 
               <div className="min-w-0 flex-1">
-                <div className="text-sm text-gray-800 mb-1">
+                <div className="text-sm text-dark-100 mb-1">
                   <span className="font-semibold">Grade:</span> {playerModal.player.grade || "?"}
                 </div>
-                <div className="text-sm text-gray-800 mb-1">
+                <div className="text-sm text-dark-100 mb-1">
                   <span className="font-semibold">Position:</span>{" "}
                   {playerModal.player.pos1 || "?"}
                   {playerModal.player.pos2 ? ` / ${playerModal.player.pos2}` : ""}
                 </div>
-                <div className="text-sm text-gray-800 mb-1">
+                <div className="text-sm text-dark-100 mb-1">
                   <span className="font-semibold">Returning:</span>{" "}
                   {playerModal.player.returning || "?"}
                 </div>
-                <div className="text-sm text-gray-800 mb-1">
+                <div className="text-sm text-dark-100 mb-1">
                   <span className="font-semibold">Primary:</span>{" "}
                   {playerModal.player.primary || "?"}
                 </div>
-                <div className="text-sm text-gray-800 mb-1">
+                <div className="text-sm text-dark-100 mb-1">
                   <span className="font-semibold">Likelihood:</span>{" "}
                   {playerModal.player.likelihood || "?"}
                 </div>
 
                 {playerModal.player.notes ? (
                   <div className="mt-3">
-                    <div className="text-xs font-semibold text-gray-700 mb-1">Notes</div>
-                    <div className="text-sm text-gray-800 whitespace-pre-wrap">
+                    <div className="text-xs font-semibold text-dark-200 mb-1">Notes</div>
+                    <div className="text-sm text-dark-100 whitespace-pre-wrap">
                       {playerModal.player.notes}
                     </div>
                   </div>
                 ) : null}
 
-                <div className="mt-4 text-xs text-gray-500">
+                <div className="mt-4 text-xs text-dark-400">
                   Tip: resize the card using the bottom-right handle on the card.
                 </div>
               </div>
@@ -1114,16 +1114,16 @@ export default function BoardPage() {
       ) : null}
           {/* Share modal */}
       {shareOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-white shadow-lg border">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-maroon-800/40 p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-dark-800 shadow-lg border">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <div>
                 <div className="text-lg font-semibold">Share Board</div>
-                <div className="text-sm text-gray-600">Add email addresses who should have access to this board.</div>
+                <div className="text-sm text-dark-300">Add email addresses who should have access to this board.</div>
               </div>
               <button
                 type="button"
-                className="w-8 h-8 rounded-full border hover:bg-gray-50"
+                className="w-8 h-8 rounded-full border hover:bg-dark-900"
                 onClick={() => setShareOpen(false)}
                 title="Close"
               >
@@ -1152,7 +1152,7 @@ export default function BoardPage() {
                   />
                   <button
                     type="button"
-                    className="border px-3 py-2 rounded bg-white"
+                    className="border px-3 py-2 rounded bg-dark-800"
                     onClick={() => {
                       const val = shareInput.trim();
                       if (!val) return;
@@ -1163,24 +1163,24 @@ export default function BoardPage() {
                     Add
                   </button>
                 </div>
-                <div className="text-xs text-gray-500 mt-1">Tip: press Enter to add.</div>
+                <div className="text-xs text-dark-400 mt-1">Tip: press Enter to add.</div>
               </div>
 
               <div>
                 <div className="text-sm font-medium mb-2">Shared with</div>
                 {shareEmails.length === 0 ? (
-                  <div className="text-sm text-gray-600">No one yet.</div>
+                  <div className="text-sm text-dark-300">No one yet.</div>
                 ) : (
                   <div className="flex flex-wrap gap-2">
                     {shareEmails.map((em) => (
                       <span
                         key={em}
-                        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-gray-50"
+                        className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-dark-900"
                       >
                         <span className="max-w-[320px] truncate">{em}</span>
                         <button
                           type="button"
-                          className="w-6 h-6 rounded-full border hover:bg-white"
+                          className="w-6 h-6 rounded-full border hover:bg-dark-800"
                           title="Remove"
                           onClick={() => setShareEmails((cur) => cur.filter((x) => x !== em))}
                         >
@@ -1193,12 +1193,12 @@ export default function BoardPage() {
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">
-                <button type="button" className="border px-4 py-2 rounded bg-white" onClick={() => setShareOpen(false)}>
+                <button type="button" className="border px-4 py-2 rounded bg-dark-800" onClick={() => setShareOpen(false)}>
                   Cancel
                 </button>
                 <button
                   type="button"
-                  className="rounded bg-black text-white px-4 py-2 disabled:opacity-60"
+                  className="rounded bg-maroon-800 text-white px-4 py-2 disabled:opacity-60"
                   onClick={saveSharing}
                   disabled={shareSaving}
                 >
@@ -1236,7 +1236,7 @@ function DropdownMultiSelect({
     <div className="mb-2 relative">
       <button
         type="button"
-        className="w-full border rounded px-2 py-1 text-sm flex items-center justify-between bg-white"
+        className="w-full border rounded px-2 py-1 text-sm flex items-center justify-between bg-dark-800"
         onMouseDown={(e) => e.stopPropagation()}
         onClick={onOpen}
       >
@@ -1244,17 +1244,17 @@ function DropdownMultiSelect({
           {label}
           {selectedCount ? ` (${selectedCount})` : ""}
         </span>
-        <span className="text-gray-500">{open ? "▲" : "▼"}</span>
+        <span className="text-dark-400">{open ? "▲" : "▼"}</span>
       </button>
 
       {open ? (
         <div
-          className="mt-1 w-full bg-white border rounded shadow p-2 max-h-56 overflow-auto relative z-40"
+          className="mt-1 w-full bg-dark-800 border rounded shadow p-2 max-h-56 overflow-auto relative z-40"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => e.stopPropagation()}
         >
           {options.length === 0 ? (
-            <div className="text-xs text-gray-500">No options</div>
+            <div className="text-xs text-dark-400">No options</div>
           ) : (
             <div className="space-y-1">
               {options.map((o) => (
