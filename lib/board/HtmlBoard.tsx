@@ -163,6 +163,8 @@ export function HtmlBoard({
   onToolChange,
   objectsLocked = false,
   cardSizeMode = "large",
+  className,
+  onClick,
 }: {
   editMode: boolean;
   placed: PlacedPlayer[];
@@ -179,6 +181,8 @@ export function HtmlBoard({
   onToolChange?: (t: BoardTool) => void;
   objectsLocked?: boolean;
   cardSizeMode?: "large" | "medium" | "small";
+  className?: string;
+  onClick?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
