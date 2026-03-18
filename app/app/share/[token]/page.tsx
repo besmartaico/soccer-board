@@ -40,8 +40,6 @@ const PLAYER_DRAG_MIME = "application/x-soccerboard-player";
 const OBJECT_DRAG_MIME = "application/x-soccerboard-object";
 const BG_BUCKET = "board-backgrounds";
 
-export default function BoardPage() {
-
 export default function SharePage({ params }: { params: Promise<{ token: string }> }) {
   // Share-specific state
   const [token, setToken] = useState("");
