@@ -1047,13 +1047,6 @@ function DropdownMultiSelect({
   );
 
 }
-  label: string;
-  options: { value: string; label: string }[];
-  selected: string[];
-  open: boolean;
-  onOpen: (e: React.MouseEvent) => void;
-  onToggle: (value: string) => void;
-}) {
   const selectedCount = selected.length;
 
   return (
