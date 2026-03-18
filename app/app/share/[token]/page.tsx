@@ -165,10 +165,6 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
   }
 
-  useEffect(() => {
-    loadBoard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardId]);
 
   
 
