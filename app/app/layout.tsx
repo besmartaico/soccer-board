@@ -63,8 +63,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="min-h-screen bg-white">
-      <header className="border-b bg-white">
+    <div className="min-h-screen bg-dark-900">
+      <header className="border-b border-dark-700 bg-dark-900">
         <div className="px-6 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 min-w-0">
             <Link href="/app/teams" className="font-semibold whitespace-nowrap">
@@ -76,10 +76,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-3">
-            {email ? <span className="text-sm text-gray-600 max-w-[220px] truncate">{email}</span> : null}
+            {email ? <span className="text-sm text-dark-300 max-w-[220px] truncate">{email}</span> : null}
             <button
               type="button"
-              className="border rounded px-3 py-1 text-sm bg-white hover:bg-gray-50"
+              className="border rounded px-3 py-1 text-sm bg-dark-900 hover:bg-dark-900"
               onClick={logout}
               title="Log out"
             >
