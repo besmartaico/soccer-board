@@ -61,6 +61,7 @@ export default function BoardPage() {
 
   const [myRole, setMyRole] = useState<UserRole>("viewer");
   const [editMode, setEditMode] = useState<boolean>(false);
+  const [objectsLocked, setObjectsLocked] = useState<boolean>(false);
 
   const canEdit = myRole === "admin" || myRole === "editor";
   const isAdmin = myRole === "admin";
@@ -983,6 +984,7 @@ export default function BoardPage() {
                 setDirty(true);
               }}
               tool={tool}
+              objectsLocked={objectsLocked}
               onToolChange={(t) => setTool(t)}
               cardSizeMode={cardSizeMode}
               playerDragMime={PLAYER_DRAG_MIME}
