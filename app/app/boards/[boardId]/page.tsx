@@ -623,6 +623,14 @@ export default function BoardPage() {
               Note
             </button>
 
+            <button
+              className={`rounded-md border px-3 py-1 text-sm ${objectsLocked ? "bg-yellow-500 text-black border-yellow-400" : "bg-dark-800 text-white border-gray-600"}`}
+              onClick={() => setObjectsLocked(v => !v)}
+              title={objectsLocked ? "Unlock lanes, text and notes" : "Lock lanes, text and notes (players still moveable)"}
+            >
+              {objectsLocked ? "🔒 Locked" : "🔓 Lock Objects"}
+            </button>
+
             <select
               className="border rounded px-2 py-1 text-sm bg-dark-800"
               value={cardSizeMode}
