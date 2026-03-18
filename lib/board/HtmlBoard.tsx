@@ -368,7 +368,7 @@ export function HtmlBoard({
           h: DEFAULT_H,
           player: p,
         };
-        onPlacedChangeRef.current([...placedRef.current, next]);
+        onPlacedChangeRef.current([...placedRef.current.filter(function(pp){return pp.player && pp.player.id !== next.player.id;}), next]);
       } catch {}
       return;
     }
