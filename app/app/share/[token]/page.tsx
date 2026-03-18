@@ -348,7 +348,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
       {/* Top bar */}
       <div className="flex items-center justify-between px-6 py-4 border-b bg-dark-800 relative z-40">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="text-2xl font-bold truncate">{board ? board.name : "Board"}</div>
+          <div className="text-2xl font-bold truncate">{label || "Board"}</div>
 
           <button
             type="button"
@@ -457,8 +457,8 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
           <Link className="underline" href="/app/teams">
             Teams
           </Link>
-          {board ? (
-            <Link className="underline" href={`/app/teams/${board.team_id}`}>Boards</Link>
+          {false ? (
+            <Link className="underline" href={`/app/teams/${sharedBoardId}`}>Boards</Link>
           ) : (
             <Link className="underline" href="/app/teams">Boards</Link>
           )}
