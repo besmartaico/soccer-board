@@ -98,7 +98,6 @@ export default function BoardPage() {
   const [shareEmails, setShareEmails] = useState<string[]>([]);
   const [shareInput, setShareInput] = useState("");
   const [shareSaving, setShareSaving] = useState(false);
-  const [shareLinkTab, setShareLinkTab] = useState<"email"|"link">("email");
   const [shareLinkMode, setShareLinkMode] = useState<"view"|"edit">("view");
   const [shareLinkPassword, setShareLinkPassword] = useState("");
   const [shareLinkUrl, setShareLinkUrl] = useState("");
@@ -1140,10 +1139,6 @@ export default function BoardPage() {
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <div>
                 <div className="text-lg font-semibold">Share Board</div>
-                <div className="flex gap-1 mt-3 border-b border-dark-600">
-                  <button onClick={() => setShareLinkTab("email")} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${shareLinkTab === "email" ? "border-yellow-500 text-white" : "border-transparent text-dark-300 hover:text-white"}`}>📧 Email Access</button>
-                  <button onClick={() => setShareLinkTab("link")} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${shareLinkTab === "link" ? "border-yellow-500 text-white" : "border-transparent text-dark-300 hover:text-white"}`}>🔗 Share Link</button>
-                </div>
               </div>
               <button
                 type="button"
@@ -1274,7 +1269,7 @@ export default function BoardPage() {
               </div>
             </div>
               )}
-            {shareLinkTab === "link" && (
+            {shareTab === "link" && (
               <div className="px-5 py-4 flex flex-col gap-4">
                 <div>
                   <label className="text-sm text-dark-300 block mb-1">Access Mode</label>
