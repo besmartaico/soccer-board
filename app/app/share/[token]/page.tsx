@@ -32,9 +32,9 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
     if (!res.ok) { setError(data.error || "Invalid link"); setStatus("error"); return; }
     setBoardName(data.boardName || "Shared Board");
     setMode(data.mode || "view");
-    const bd = data.data || {};
+    const bd = (data.data?.htmlBoard || data.data) as Record<string, unknown>;
     setBoardData(bd);
-    setPlaced((bd.placed as PlacedPlayer[]) || []);
+    setPlaced(((bd.placedPlayers || bd.placed) as PlacedPlayer[]) || []);
     setObjects((bd.objects as BoardObject[]) || []);
     setStatus("ready");
   }
