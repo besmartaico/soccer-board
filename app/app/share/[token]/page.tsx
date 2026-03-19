@@ -211,9 +211,9 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
             <div className="flex-1 overflow-y-auto">
               {filteredPlayers.map(p => (
                 <div key={p.id}
-                  draggable={editMode && !objectsLocked}
+                  draggable={editMode}
                   onDragStart={e => { e.dataTransfer.setData(PLAYER_DRAG_MIME, JSON.stringify(p)); e.dataTransfer.setData("text/plain", p.id); }}
-                  className={`flex items-center gap-2 px-2 py-1.5 border-b border-dark-700 ${editMode && !objectsLocked ? "cursor-grab" : ""} hover:bg-dark-700 ${placedIds.has(p.id) ? "opacity-50" : ""}`}>
+                  className={`flex items-center gap-2 px-2 py-1.5 border-b border-dark-700 ${editMode ? "cursor-grab" : ""} hover:bg-dark-700 ${placedIds.has(p.id) ? "opacity-50" : ""}`}>
                   {(p.pictureProxyUrl || p.picture) ? (
                     <img src={p.pictureProxyUrl || p.picture} alt={p.name} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
                   ) : (
@@ -233,7 +233,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
 
         <div className="flex-1 overflow-hidden" ref={boardRef}>
           <HtmlBoard
-            editMode={editMode && !objectsLocked}
+            editMode={editMode}
             placed={placedPlayers}
             onPlacedChange={(next) => { setPlacedPlayers(next); setDirty(true); }}
             playerDragMime={PLAYER_DRAG_MIME}
