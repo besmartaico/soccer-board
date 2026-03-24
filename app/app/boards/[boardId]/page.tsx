@@ -115,7 +115,7 @@ export default function BoardPage() {
   const [playerModal, setPlayerModal] = useState<PlacedPlayer | null>(null);
 
   // UI
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
   const [sidebarMode, setSidebarMode] = useState<"players" | "objects">("players");
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -552,11 +552,11 @@ export default function BoardPage() {
   }
 
   return (
-    <main className="h-screen overflow-hidden">
+    <main className="h-[100dvh] overflow-hidden">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-6 py-4 border-b bg-dark-800 relative z-40">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 border-b bg-dark-800 relative z-40">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="text-2xl font-bold truncate">{board ? board.name : "Board"}</div>
+          <div className="text-lg md:text-2xl font-bold truncate max-w-[120px] md:max-w-none">{board ? board.name : "Board"}</div>
 
           <button
             type="button"
@@ -572,7 +572,7 @@ export default function BoardPage() {
 
           <button
             type="button"
-            className="border px-3 py-1 rounded text-sm bg-dark-800"
+            className="border px-2 py-0.5 rounded text-xs md:text-sm bg-dark-800"
             onClick={() => loadBoard()}
             disabled={saving}
           >
