@@ -965,7 +965,7 @@ export function HtmlBoard({
                   key={o.id}
                   className={`absolute select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
                   style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1 }}
-                  onPointerDown={(e) => { if (objectsLockedRef.current) return; beginMoveAny(e, o.id); }}
+                  onPointerDown={(e) => { if (objectsLockedRef.current) return; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); beginMoveAny(e, o.id); }}
                 >
                   <div
                     className="w-full h-full rounded-full flex items-center justify-center"
