@@ -8,7 +8,9 @@ function getSupabaseAdmin() {
     process.env.NEXT_PUBLIC_SUPABASE_URL ||
     "";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-  return createClient(url, key);
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -20,16 +22,32 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
-    const supabase = getSupabaseAdmin();
-    const { data, error } = await supabase
+
+    // Authenticate user from Bearer token
+    const authHeader = req.headers.get("authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const supabaseAdmin = getSupabaseAdmin();
+    const { data: userData, error: userErr } = await supabaseAdmin.auth.getUser(token);
+    if (userErr || !userData?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    const userId = userData.user.id;
+
+    const { data, error } = await supabaseAdmin
       .from("boards")
       .insert({
         team_id: teamId,
         name,
+        created_by: userId,
         data: { htmlBoard: { placedPlayers: [], objects: [] } },
       })
       .select()
       .single();
+
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
