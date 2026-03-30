@@ -1,0 +1,43 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import type { NextRequest } from "next/server";
+
+function getSupabaseAdmin() {
+  const url =
+    process.env.SUPABASE_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL ||
+    "";
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+  return createClient(url, key);
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { teamId, name } = await req.json();
+    if (!teamId || !name) {
+      return NextResponse.json(
+        { error: "teamId and name required" },
+        { status: 400 }
+      );
+    }
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase
+      .from("boards")
+      .insert({
+        team_id: teamId,
+        name,
+        data: { htmlBoard: { placedPlayers: [], objects: [] } },
+      })
+      .select()
+      .single();
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json(data, { status: 201 });
+  } catch (e: unknown) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Unknown error" },
+      { status: 500 }
+    );
+  }
+}
