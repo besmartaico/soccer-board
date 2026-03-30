@@ -37,13 +37,34 @@ export async function POST(req: NextRequest) {
     }
     const userId = userData.user.id;
 
+    // Copy google config from an existing board on this team so the new board
+    // automatically loads players from the same sheet
+    let googleConfig: { sheetId: string; range: string } | null = null;
+    const { data: existingBoards } = await supabaseAdmin
+      .from("boards")
+      .select("data")
+      .eq("team_id", teamId)
+      .limit(5);
+    if (existingBoards) {
+      for (const b of existingBoards) {
+        const gc = (b.data as { google?: { sheetId?: string; range?: string } } | null)?.google;
+        if (gc?.sheetId && gc?.range) {
+          googleConfig = { sheetId: gc.sheetId, range: gc.range };
+          break;
+        }
+      }
+    }
+
     const { data, error } = await supabaseAdmin
       .from("boards")
       .insert({
         team_id: teamId,
         name,
         created_by: userId,
-        data: { htmlBoard: { placedPlayers: [], objects: [] } },
+        data: {
+          htmlBoard: { placedPlayers: [], objects: [] },
+          ...(googleConfig ? { google: googleConfig } : {}),
+        },
       })
       .select()
       .single();
