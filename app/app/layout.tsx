@@ -1,52 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { getMyRole } from "@/lib/roles";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const [userEmail, setUserEmail] = useState<string | null>(null);
-  const [role, setRole] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const mounted = useRef(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      const user = data.session?.user;
-      if (user) {
-        setUserEmail(user.email ?? null);
-        getMyRole().then(r => setRole(r));
+    mounted.current = true;
+    async function load() {
+      const { data } = await supabase.auth.getUser();
+      if (!mounted.current) return;
+      setEmail(data.user?.email ?? null);
+      if (data.user) {
+        const role = await getMyRole();
+        if (!mounted.current) return;
+        setIsAdmin(role === "admin");
       }
-    });
+    }
+    load();
+    return () => { mounted.current = false; };
   }, []);
 
   // Close drawer on navigation
   useEffect(() => { setDrawerOpen(false); }, [pathname]);
 
-  const navLinks = (
-    <>
-      <Link href="/app/teams" style={linkStyle(pathname.startsWith("/app/teams"))}>Teams</Link>
-      <Link href="/app/boards" style={linkStyle(pathname.startsWith("/app/boards"))}>Boards</Link>
-      {role === "admin" && (
-        <Link href="/app/admin" style={linkStyle(pathname.startsWith("/app/admin"))}>Admin</Link>
-      )}
-    </>
-  );
-
-  function linkStyle(active: boolean) {
-    return {
-      color: active ? "#fff" : "#9ca3af",
-      textDecoration: "none",
-      fontWeight: active ? 700 : 400,
-      fontSize: "15px",
-      padding: "8px 4px",
-      borderBottom: active ? "2px solid #fff" : "2px solid transparent",
-    } as React.CSSProperties;
-  }
-
-  function drawerLinkStyle(active: boolean) {
+  function drawerLinkStyle(active: boolean): React.CSSProperties {
     return {
       display: "block",
       color: active ? "#fff" : "#9ca3af",
@@ -56,34 +42,23 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       padding: "14px 24px",
       borderLeft: active ? "3px solid #fff" : "3px solid transparent",
       background: active ? "rgba(255,255,255,0.07)" : "transparent",
-    } as React.CSSProperties;
+    };
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: "#0a0a0a", color: "#fff" }}>
-
-      {/* ── Desktop top nav ── */}
-      <nav className="desktop-only" style={{
-        background: "#111",
-        borderBottom: "1px solid #1f1f1f",
-        padding: "0 24px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        height: "52px",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "24px" }}>
-          <span style={{ fontWeight: 800, fontSize: "16px", color: "#fff", marginRight: "8px" }}>
-            ⚽ Lone Peak Soccer
-          </span>
-          {navLinks}
+    <div>
+      {/* ── Desktop nav ── */}
+      <nav className="desktop-only bg-dark-800 border-b border-dark-700 px-6 py-3 flex items-center justify-between relative z-40">
+        <div className="flex items-center gap-6">
+          <span className="font-bold text-lg text-white mr-2">Lone Peak Soccer</span>
+          <Link href="/app/teams" className={`text-sm font-medium ${pathname.startsWith("/app/teams") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Teams</Link>
+          <Link href="/app/boards" className={`text-sm font-medium ${pathname.startsWith("/app/boards") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Boards</Link>
+          {isAdmin && <Link href="/app/admin" className={`text-sm font-medium ${pathname.startsWith("/app/admin") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Admin</Link>}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          {userEmail && <span style={{ color: "#6b7280", fontSize: "13px" }}>{userEmail}</span>}
-          <button
-            onClick={async () => { await supabase.auth.signOut(); window.location.href = "/login"; }}
-            style={{ background: "transparent", border: "1px solid #333", color: "#9ca3af", padding: "5px 12px", borderRadius: "6px", cursor: "pointer", fontSize: "13px" }}
-          >
+        <div className="flex items-center gap-3">
+          {email && <span className="text-gray-400 text-sm">{email}</span>}
+          <button onClick={async () => { await supabase.auth.signOut(); window.location.href = "/login"; }}
+            className="border border-dark-600 text-gray-400 px-3 py-1 rounded text-sm hover:bg-dark-700">
             Logout
           </button>
         </div>
@@ -91,63 +66,42 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* ── Mobile top bar ── */}
       <div className="mobile-only" style={{
-        background: "#111",
-        borderBottom: "1px solid #1f1f1f",
-        padding: "0 16px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        height: "52px",
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
+        background:"#111", borderBottom:"1px solid #1f1f1f",
+        padding:"0 16px", display:"flex", alignItems:"center",
+        justifyContent:"space-between", height:"52px",
+        position:"sticky", top:0, zIndex:50,
       }}>
-        <button
-          onClick={() => setDrawerOpen(true)}
-          style={{ background: "transparent", border: "none", color: "#fff", fontSize: "22px", cursor: "pointer", padding: "4px 8px", lineHeight: 1 }}
-          aria-label="Open menu"
-        >
-          ☰
-        </button>
-        <span style={{ fontWeight: 800, fontSize: "15px", color: "#fff" }}>⚽ LP Soccer</span>
-        <button
-          onClick={async () => { await supabase.auth.signOut(); window.location.href = "/login"; }}
-          style={{ background: "transparent", border: "1px solid #333", color: "#9ca3af", padding: "5px 10px", borderRadius: "6px", cursor: "pointer", fontSize: "12px" }}
-        >
+        <button onClick={() => setDrawerOpen(true)}
+          style={{background:"transparent",border:"none",color:"#fff",fontSize:"22px",cursor:"pointer",padding:"4px 8px",lineHeight:1}}
+          aria-label="Open menu">☰</button>
+        <span style={{fontWeight:800,fontSize:"15px",color:"#fff"}}>⚽ LP Soccer</span>
+        <button onClick={async () => { await supabase.auth.signOut(); window.location.href = "/login"; }}
+          style={{background:"transparent",border:"1px solid #333",color:"#9ca3af",padding:"5px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px"}}>
           Logout
         </button>
       </div>
 
-      {/* ── Mobile drawer overlay ── */}
+      {/* ── Mobile drawer ── */}
       {drawerOpen && (
-        <div className="mobile-only" style={{ position: "fixed", inset: 0, zIndex: 200 }}>
-          {/* Backdrop */}
-          <div
-            onClick={() => setDrawerOpen(false)}
-            style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.65)" }}
-          />
-          {/* Drawer */}
-          <div style={{
-            position: "absolute", left: 0, top: 0, bottom: 0, width: "280px",
-            background: "#111", borderRight: "1px solid #1f1f1f",
-            display: "flex", flexDirection: "column",
-          }}>
-            <div style={{ padding: "20px 24px 12px", borderBottom: "1px solid #1f1f1f" }}>
-              <div style={{ fontWeight: 800, fontSize: "17px", color: "#fff" }}>⚽ LP Soccer</div>
-              {userEmail && <div style={{ color: "#6b7280", fontSize: "12px", marginTop: "4px" }}>{userEmail}</div>}
+        <div className="mobile-only" style={{position:"fixed",inset:0,zIndex:200}}>
+          <div onClick={() => setDrawerOpen(false)}
+            style={{position:"absolute",inset:0,background:"rgba(0,0,0,0.65)"}} />
+          <div style={{position:"absolute",left:0,top:0,bottom:0,width:"280px",
+            background:"#111",borderRight:"1px solid #1f1f1f",
+            display:"flex",flexDirection:"column"}}>
+            <div style={{padding:"20px 24px 12px",borderBottom:"1px solid #1f1f1f"}}>
+              <div style={{fontWeight:800,fontSize:"17px",color:"#fff"}}>⚽ LP Soccer</div>
+              {email && <div style={{color:"#6b7280",fontSize:"12px",marginTop:"4px"}}>{email}</div>}
             </div>
-            <nav style={{ flex: 1, paddingTop: "8px" }}>
+            <nav style={{flex:1,paddingTop:"8px"}}>
               <Link href="/app/teams" style={drawerLinkStyle(pathname.startsWith("/app/teams"))}>Teams</Link>
               <Link href="/app/boards" style={drawerLinkStyle(pathname.startsWith("/app/boards"))}>Boards</Link>
-              {role === "admin" && (
-                <Link href="/app/admin" style={drawerLinkStyle(pathname.startsWith("/app/admin"))}>Admin</Link>
-              )}
+              {isAdmin && <Link href="/app/admin" style={drawerLinkStyle(pathname.startsWith("/app/admin"))}>Admin</Link>}
             </nav>
           </div>
         </div>
       )}
 
-      {/* ── Page content ── */}
       <main>{children}</main>
     </div>
   );
