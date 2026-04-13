@@ -871,7 +871,8 @@ export function HtmlBoard({
                   style={{flex:1,height:'4px',cursor:'pointer'}}
                 />
                 <button onClick={() => setZoom(1)} style={{color:'#9ca3af',fontSize:'12px',background:'transparent',border:'1px solid #374151',borderRadius:'4px',padding:'3px 7px',cursor:'pointer'}}>↺</button>
-              </div>        )}
+              </div>
+            )}
       </div>
 
       <div ref={wrapperRef} className="relative" style={{ width: scaledW, height: scaledH }}>
