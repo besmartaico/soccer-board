@@ -793,7 +793,7 @@ export function HtmlBoard({
               −
             </button>
 
-            <div className="flex flex-col desktop-only">
+            <div className="flex flex-col">
               <div className="text-xs text-gray-700 font-semibold mb-1 flex items-center justify-between gap-2">
                 <span>Zoom: {zoomPct}%</span>
                 <button
@@ -837,27 +837,6 @@ export function HtmlBoard({
               100%
             </button>
           </div>
-              <div
-                className="mobile-only"
-                style={{position:'fixed',bottom:0,left:0,right:0,background:'#1a1a1a',borderTop:'1px solid #2a2a2a',padding:'8px 16px',zIndex:40,display:'flex',alignItems:'center',gap:'10px'}}
-              >
-                <span style={{color:'#9ca3af',fontSize:'12px',whiteSpace:'nowrap',minWidth:'40px'}}>{zoomPct}%</span>
-                <input
-                  type="range"
-                  min={25}
-                  max={200}
-                  value={zoomPct}
-                  onChange={e => setZoom(+e.target.value / 100)}
-                  style={{flex:1,height:'4px',cursor:'pointer'}}
-                />
-                <button
-                  type="button"
-                  onClick={() => setZoom(1)}
-                  style={{color:'#9ca3af',fontSize:'12px',background:'transparent',border:'1px solid #374151',borderRadius:'4px',padding:'3px 8px',cursor:'pointer'}}
-                >
-                  1x
-                </button>
-              </div>
         )}
       </div>
 
