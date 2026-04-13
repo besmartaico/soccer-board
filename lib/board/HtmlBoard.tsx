@@ -67,8 +67,6 @@ function getEffectiveCardSize(mode: "large" | "medium" | "small", p: PlacedPlaye
   return { w, h };
 }
 
-
-
 function clamp(n: number, min: number, max: number) {
   return Math.max(min, Math.min(max, n));
 }
@@ -87,14 +85,13 @@ function normalizeGrade(g?: string) {
   return n;
 }
 
-function gradeColor(grade?: string): { bg: string; text: string } {
-  switch ((grade || "").trim()) {
-    case "9":  return { bg: "#616161", text: "#ffffff" };
-    case "10": return { bg: "#000000", text: "#ffffff" };
-    case "11": return { bg: "#6A0D24", text: "#ffffff" };
-    case "12": return { bg: "#EFBF04", text: "#ffffff" };
-    default:   return { bg: "#37474F", text: "#ffffff" };
-  }
+function gradeColor(grade?: string) {
+  const g = normalizeGrade(grade);
+  if (g === 12) return "#74213c";
+  if (g === 11) return "#c7b782";
+  if (g === 10) return "#808080";
+  if (g === 9) return "#000000";
+  return "#d1d5db";
 }
 
 function isDark(hex: string) {
@@ -128,8 +125,6 @@ type DragState = {
   mode: "move" | "resize" | "box";
   startX: number;
   startY: number;
-  startClientX: number;
-  startClientY: number;
   moved: boolean;
   lastClientX: number;
   lastClientY: number;
@@ -142,8 +137,6 @@ type AvatarTapState = {
   playerId: string;
   startX: number;
   startY: number;
-  startClientX: number;
-  startClientY: number;
   moved: boolean;
 };
 
@@ -161,10 +154,7 @@ export function HtmlBoard({
   onObjectsChange,
   tool = "select",
   onToolChange,
-  objectsLocked = false,
   cardSizeMode = "large",
-  className,
-  onClick,
 }: {
   editMode: boolean;
   placed: PlacedPlayer[];
@@ -179,10 +169,7 @@ export function HtmlBoard({
   onObjectsChange?: (next: BoardObject[]) => void;
   tool?: BoardTool;
   onToolChange?: (t: BoardTool) => void;
-  objectsLocked?: boolean;
   cardSizeMode?: "large" | "medium" | "small";
-  className?: string;
-  onClick?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -192,8 +179,6 @@ export function HtmlBoard({
   const [zoom, setZoom] = useState(1);
   const zoomRef = useRef(1);
   useEffect(() => void (zoomRef.current = zoom), [zoom]);
-  const objectsLockedRef = useRef(objectsLocked);
-  useEffect(() => void (objectsLockedRef.current = objectsLocked), [objectsLocked]);
 
   // Zoom UI state
   const [zoomUiCollapsed, setZoomUiCollapsed] = useState(false);
@@ -243,11 +228,6 @@ export function HtmlBoard({
 
   const onObjectsChangeRef = useRef(onObjectsChange);
   useEffect(() => void (onObjectsChangeRef.current = onObjectsChange), [onObjectsChange]);
-  const toolRef = useRef(tool);
-  useEffect(() => void (toolRef.current = tool), [tool]);
-  const onToolChangeRef = useRef(onToolChange);
-  useEffect(() => void (onToolChangeRef.current = onToolChange), [onToolChange]);
-
 
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -368,7 +348,7 @@ export function HtmlBoard({
           h: DEFAULT_H,
           player: p,
         };
-        onPlacedChangeRef.current([...placedRef.current.filter(function(pp){return pp.player && pp.player.id !== next.player.id;}), next]);
+        onPlacedChangeRef.current([...placedRef.current, next]);
       } catch {}
       return;
     }
@@ -438,8 +418,6 @@ export function HtmlBoard({
       mode: "move",
       startX: e.clientX,
       startY: e.clientY,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
       moved: false,
       lastClientX: e.clientX,
       lastClientY: e.clientY,
@@ -475,8 +453,6 @@ export function HtmlBoard({
       mode: "resize",
       startX: e.clientX,
       startY: e.clientY,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
       moved: false,
       lastClientX: e.clientX,
       lastClientY: e.clientY,
@@ -496,8 +472,6 @@ export function HtmlBoard({
       playerId,
       startX: e.clientX,
       startY: e.clientY,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
       moved: false,
     };
 
@@ -579,8 +553,6 @@ export function HtmlBoard({
       mode: "box",
       startX: x,
       startY: y,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
       moved: false,
       lastClientX: e.clientX,
       lastClientY: e.clientY,
@@ -761,25 +733,6 @@ export function HtmlBoard({
           }
         }
       }
-
-        // Tool-based creation on canvas click
-        if (toolRef.current && toolRef.current !== "select" && !dragRef.current?.moved) {
-          const pos = dragRef.current ? { x: dragRef.current.startClientX || e.clientX, y: dragRef.current.startClientY || e.clientY } : { x: e.clientX, y: e.clientY };
-          const bpos = clientToBoard(pos.x, pos.y);
-          const bx = bpos.x; const by = bpos.y;
-          const id2 = `obj_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-          const t = toolRef.current;
-          let newObj2: BoardObject | null = null;
-          if (t === "lane") newObj2 = { id: id2, kind: "lane", x: clamp(bx-150,0,canvasWidth-300), y: clamp(by-150,0,canvasHeight-300), w: 300, h: 300, text: "Lane" };
-          else if (t === "text") newObj2 = { id: id2, kind: "text", x: clamp(bx-80,0,canvasWidth-160), y: clamp(by-20,0,canvasHeight-40), w: 160, h: 40, text: "Label" };
-          else if (t === "note") newObj2 = { id: id2, kind: "note", x: clamp(bx-80,0,canvasWidth-160), y: clamp(by-50,0,canvasHeight-100), w: 160, h: 100, text: "Note", color: "#222222" };
-          if (newObj2) {
-            onObjectsChangeRef.current?.([...objectsRef.current, newObj2]);
-            selectSingleImmediate(newObj2.id);
-            onToolChangeRef.current?.("select");
-          }
-        }
-
       dragRef.current = null;
     }
 
@@ -790,13 +743,13 @@ export function HtmlBoard({
   }
 
   const bgStyle: React.CSSProperties = useMemo(() => {
-    if (!backgroundUrl) return { backgroundColor: "#1a1a1a" };
+    if (!backgroundUrl) return { backgroundColor: "#fff" };
     return {
       backgroundImage: `url(${backgroundUrl})`,
       backgroundSize: "contain",
       backgroundRepeat: "no-repeat",
       backgroundPosition: "top left",
-      backgroundColor: "#1a1a1a",
+      backgroundColor: "#fff",
     };
   }, [backgroundUrl]);
 
@@ -808,7 +761,8 @@ export function HtmlBoard({
   return (
     <div
       ref={scrollRef}
-      className="w-full h-full min-w-0 min-h-0 overflow-auto relative" style={{ backgroundColor: "#1a1a1a", WebkitOverflowScrolling: "touch" }}
+      className="w-full h-full min-w-0 min-h-0 overflow-auto bg-white relative"
+      style={{ WebkitOverflowScrolling: "touch" }}
     >
       {/* Fixed Zoom UI: bottom-left of visible viewport */}
       <div
@@ -820,54 +774,74 @@ export function HtmlBoard({
         {zoomUiCollapsed ? (
           <button
             type="button"
-            className="bg-dark-800/95 border border-dark-600 rounded-xl shadow px-3 py-2 flex items-center gap-2 hover:bg-dark-700"
+            className="bg-white/95 border rounded-xl shadow px-3 py-2 flex items-center gap-2 hover:bg-gray-50"
             onClick={() => setZoomUiCollapsed(false)}
             title="Show zoom controls"
           >
-            <span className="text-sm font-semibold text-dark-200">Zoom</span>
-            <span className="text-xs text-dark-300">{zoomPct}%</span>
+            <span className="text-sm font-semibold text-gray-800">Zoom</span>
+            <span className="text-xs text-gray-600">{zoomPct}%</span>
             <span className="text-gray-700">▴</span>
           </button>
         ) : (
-          <div className="bg-dark-800/95 border border-dark-700 rounded-xl shadow px-3 py-2 flex items-center gap-2">
+          <div className="bg-white/95 border rounded-xl shadow px-3 py-2 flex items-center gap-2">
             <button
               type="button"
-              className="w-9 h-9 rounded-lg border border-dark-600 bg-dark-700 hover:bg-dark-600 text-dark-100 text-lg"
+              className="w-9 h-9 rounded-lg border bg-white hover:bg-gray-50 text-lg"
               onClick={() => setZoomCentered(zoomRef.current / 1.1)}
               title="Zoom out"
             >
               −
             </button>
 
-            <div className="flex flex-col">
-              <div className="flex flex-col desktop-only">
-                <div className="text-xs text-dark-300 font-semibold mb-1 flex items-center justify-between gap-2">
-                  <span>Zoom: {zoomPct}%</span>
-                  <button
-                    type="button"
-                    onClick={() => setZoom(1)}
-                    className="rounded border px-2 py-0.5 text-xs bg-dark-800 hover:bg-dark-700"
-                  >
-                    100%
-                  </button>
-                </div>
-                <div className="flex gap-1">
-                  <button type="button" onClick={() => setZoom(z => Math.max(0.25, z - 0.1))} className="rounded-md border px-2 py-1 text-sm bg-dark-800">-</button>
-                  <input
-                    type="range" min={25} max={200} value={zoomPct}
-                    onChange={e => setZoom(+e.target.value / 100)}
-                    className="flex-1"
-                    style={{}}
-                  />
-                  <button type="button" onClick={() => setZoom(z => Math.min(2, z + 0.1))} className="rounded-md border px-2 py-1 text-sm bg-dark-800">+</button>
-                </div>
+            <div className="flex flex-col desktop-only">
+              <div className="text-xs text-gray-700 font-semibold mb-1 flex items-center justify-between gap-2">
+                <span>Zoom: {zoomPct}%</span>
+                <button
+                  type="button"
+                  className="text-gray-600 hover:text-gray-900 px-1"
+                  onClick={() => setZoomUiCollapsed(true)}
+                  title="Collapse"
+                >
+                  ▾
+                </button>
               </div>
-              {/* Mobile zoom slider - pinned to bottom */}
+              <input
+                type="range"
+                min={Math.round(ZOOM_MIN * 100)}
+                max={Math.round(ZOOM_MAX * 100)}
+                step={5}
+                value={zoomPct}
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  if (Number.isFinite(v)) setZoomCentered(v / 100);
+                }}
+                style={{ width: 160 }}
+              />
+            </div>
+
+            <button
+              type="button"
+              className="w-9 h-9 rounded-lg border bg-white hover:bg-gray-50 text-lg"
+              onClick={() => setZoomCentered(zoomRef.current * 1.1)}
+              title="Zoom in"
+            >
+              +
+            </button>
+
+            <button
+              type="button"
+              className="ml-1 text-xs px-2 py-1 rounded border bg-white hover:bg-gray-50"
+              onClick={() => setZoomCentered(1)}
+              title="Reset zoom"
+            >
+              100%
+            </button>
+          </div>
               <div
                 className="mobile-only"
                 style={{position:'fixed',bottom:0,left:0,right:0,background:'#1a1a1a',borderTop:'1px solid #2a2a2a',padding:'8px 16px',zIndex:40,display:'flex',alignItems:'center',gap:'10px'}}
               >
-                <span style={{color:'#9ca3af',fontSize:'12px',whiteSpace:'nowrap',minWidth:'36px'}}>{zoomPct}%</span>
+                <span style={{color:'#9ca3af',fontSize:'12px',whiteSpace:'nowrap',minWidth:'40px'}}>{zoomPct}%</span>
                 <input
                   type="range"
                   min={25}
@@ -877,12 +851,14 @@ export function HtmlBoard({
                   style={{flex:1,height:'4px',cursor:'pointer'}}
                 />
                 <button
+                  type="button"
                   onClick={() => setZoom(1)}
-                  style={{color:'#9ca3af',fontSize:'12px',background:'transparent',border:'1px solid #374151',borderRadius:'4px',padding:'3px 7px',cursor:'pointer'}}
+                  style={{color:'#9ca3af',fontSize:'12px',background:'transparent',border:'1px solid #374151',borderRadius:'4px',padding:'3px 8px',cursor:'pointer'}}
                 >
-                  reset
+                  1x
                 </button>
               </div>
+        )}
       </div>
 
       <div ref={wrapperRef} className="relative" style={{ width: scaledW, height: scaledH }}>
@@ -964,7 +940,7 @@ export function HtmlBoard({
                   key={o.id}
                   className={`absolute select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
                   style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1 }}
-                  onPointerDown={(e) => { if (objectsLockedRef.current) return; (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); beginMoveAny(e, o.id); }}
+                  onPointerDown={(e) => beginMoveAny(e, o.id)}
                 >
                   <div
                     className="w-full h-full rounded-full flex items-center justify-center"
@@ -985,7 +961,7 @@ export function HtmlBoard({
 
                   {editMode && (isSelected || isActive) ? (
                     <div
-                      className="absolute rounded bg-dark-600/90 border border-dark-400 shadow"
+                      className="absolute rounded bg-white/90 border shadow"
                       style={{
                         width: RESIZE_HANDLE,
                         height: RESIZE_HANDLE,
@@ -993,7 +969,7 @@ export function HtmlBoard({
                         bottom: -RESIZE_HANDLE / 2,
                         cursor: "nwse-resize",
                       }}
-                      onPointerDown={(e) => { if (objectsLockedRef.current) return; beginResizeAny(e, o.id); }}
+                      onPointerDown={(e) => beginResizeAny(e, o.id)}
                       title="Resize"
                     />
                   ) : null}
@@ -1007,7 +983,7 @@ export function HtmlBoard({
                   key={o.id}
                   className={`absolute rounded-xl border bg-white/60 ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${isActive ? "ring-blue-600/70" : ""}`}
                   style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 1, backdropFilter: "blur(2px)" }}
-                  onPointerDown={(e) => { if (objectsLockedRef.current) return; beginMoveAny(e, o.id); }}
+                  onPointerDown={(e) => beginMoveAny(e, o.id)}
                 >
                   <div className="px-3 py-2 text-sm font-semibold text-gray-800 flex items-center justify-between select-none">
                     <div className="min-w-0 truncate">{o.title || ""}</div>
@@ -1017,26 +993,16 @@ export function HtmlBoard({
                     <div
                       className="absolute right-0 bottom-0 rounded-tl bg-black/10"
                       style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, cursor: "nwse-resize", touchAction: "none" }}
-                      onPointerDown={(e) => { if (objectsLockedRef.current) return; beginResizeAny(e, o.id); }}
+                      onPointerDown={(e) => beginResizeAny(e, o.id)}
                       title="Resize"
                     />
                   ) : null}
-
-                {editMode && !objectsLocked && (
-                  <button
-                    className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center rounded-bl text-xs font-bold leading-none"
-                    style={{ background: "#6A0D24", color: "#fff", zIndex: 20, lineHeight: 1, fontSize: 14, cursor: "pointer" }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.stopPropagation(); onObjectsChange?.(objects.filter(x => x.id !== o.id)); }}
-                    title="Delete"
-                  >×</button>
-                )}
                 </div>
               );
             }
 
             const isNote = o.kind === "note";
-            const bg = isNote ? o.color || "#222222" : "transparent";
+            const bg = isNote ? o.color || "#fff7b2" : "transparent";
 
             return (
               <div
@@ -1047,7 +1013,6 @@ export function HtmlBoard({
                 style={{ left: o.x, top: o.y, width: o.w, height: o.h, zIndex: 2, background: bg }}
                 onPointerDown={(e) => {
                   if (isEditing) return;
-                  if (objectsLockedRef.current) return;
                   beginMoveAny(e, o.id);
                 }}
                 onDoubleClick={(e) => {
@@ -1105,20 +1070,10 @@ export function HtmlBoard({
                   <div
                     className="absolute right-0 bottom-0 rounded-tl bg-black/10"
                     style={{ width: RESIZE_HANDLE, height: RESIZE_HANDLE, cursor: "nwse-resize", touchAction: "none" }}
-                    onPointerDown={(e) => { if (objectsLockedRef.current) return; beginResizeAny(e, o.id); }}
+                    onPointerDown={(e) => beginResizeAny(e, o.id)}
                     title="Resize"
                   />
                 ) : null}
-
-                {editMode && !objectsLocked && (
-                  <button
-                    className="absolute top-0 right-0 w-5 h-5 flex items-center justify-center rounded-bl text-xs font-bold leading-none"
-                    style={{ background: "#6A0D24", color: "#fff", zIndex: 20, lineHeight: 1, fontSize: 14, cursor: "pointer" }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.stopPropagation(); onObjectsChange?.(objects.filter(x => x.id !== o.id)); }}
-                    title="Delete"
-                  >×</button>
-                )}
               </div>
             );
           })}
@@ -1133,12 +1088,12 @@ export function HtmlBoard({
             const h = sz.h;
 
             const gc = gradeColor(p.player.grade);
-            const dark = isDark(gc.bg);
+            const dark = isDark(gc);
 
             return (
               <div
                 key={p.id}
-                className={`absolute rounded-2xl border shadow-sm overflow-hidden select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
+                className={`absolute rounded-2xl border shadow-sm overflow-hidden bg-white select-none ${isSelected ? "ring-2 ring-blue-500/50" : ""} ${
                   isActive ? "ring-blue-600/70" : ""
                 }`}
                 style={{ left: p.x, top: p.y, width: w, height: h, zIndex: 5 }}
@@ -1148,7 +1103,7 @@ export function HtmlBoard({
                   {/* ✅ Avatar zone: tap/click opens player details */}
                   <div
                     className="flex items-center justify-center"
-                    style={{ width: h, background: gc.bg, color: dark ? "#fff" : "#111827", cursor: onOpenPlayer ? "pointer" : "default" }}
+                    style={{ width: h, background: gc, color: dark ? "#fff" : "#111827", cursor: onOpenPlayer ? "pointer" : "default" }}
                     title={onOpenPlayer ? "Tap to view player" : undefined}
                     onPointerDown={(e) => onAvatarPointerDown(e, p.id)}
                     onPointerMove={onAvatarPointerMove}
@@ -1163,10 +1118,10 @@ export function HtmlBoard({
                     )}
                   </div>
 
-                  <div className="flex-1 min-w-0 px-3 py-2" style={{ background: gc.bg }}>
-                    <div className="font-semibold truncate" style={{ color: gc.text }}>{p.player.name || "Player"}</div>
-                    <div className="text-xs truncate" style={{ color: gc.text, opacity: 0.85 }}>{buildLine1(p.player)}</div>
-                    <div className="text-xs truncate" style={{ color: gc.text, opacity: 0.85 }}>{buildLine2(p.player)}</div>
+                  <div className="flex-1 min-w-0 px-3 py-2">
+                    <div className="font-semibold text-gray-900 truncate">{p.player.name || "Player"}</div>
+                    <div className="text-xs text-gray-600 truncate">{buildLine1(p.player)}</div>
+                    <div className="text-xs text-gray-600 truncate">{buildLine2(p.player)}</div>
                   </div>
                 </div>
 
@@ -1185,4 +1140,4 @@ export function HtmlBoard({
       </div>
     </div>
   );
-    }
+}
