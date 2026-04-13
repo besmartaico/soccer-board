@@ -863,16 +863,26 @@ export function HtmlBoard({
                 </div>
               </div>
               {/* Mobile zoom slider - pinned to bottom */}
-              <div className="mobile-only" style={{position:'fixed',bottom:0,left:0,right:0,background:'#1a1a1a',borderTop:'1px solid #2a2a2a',padding:'8px 16px',zIndex:40,display:'flex',alignItems:'center',gap:'10px'}}>
+              <div
+                className="mobile-only"
+                style={{position:'fixed',bottom:0,left:0,right:0,background:'#1a1a1a',borderTop:'1px solid #2a2a2a',padding:'8px 16px',zIndex:40,display:'flex',alignItems:'center',gap:'10px'}}
+              >
                 <span style={{color:'#9ca3af',fontSize:'12px',whiteSpace:'nowrap',minWidth:'36px'}}>{zoomPct}%</span>
                 <input
-                  type="range" min={25} max={200} value={zoomPct}
+                  type="range"
+                  min={25}
+                  max={200}
+                  value={zoomPct}
                   onChange={e => setZoom(+e.target.value / 100)}
                   style={{flex:1,height:'4px',cursor:'pointer'}}
                 />
-                <button onClick={() => setZoom(1)} style={{color:'#9ca3af',fontSize:'12px',background:'transparent',border:'1px solid #374151',borderRadius:'4px',padding:'3px 7px',cursor:'pointer'}}>↺</button>
+                <button
+                  onClick={() => setZoom(1)}
+                  style={{color:'#9ca3af',fontSize:'12px',background:'transparent',border:'1px solid #374151',borderRadius:'4px',padding:'3px 7px',cursor:'pointer'}}
+                >
+                  reset
+                </button>
               </div>
-            )}
       </div>
 
       <div ref={wrapperRef} className="relative" style={{ width: scaledW, height: scaledH }}>
