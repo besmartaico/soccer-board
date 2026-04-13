@@ -523,7 +523,7 @@ export function HtmlBoard({
     }
 
     // View mode panning (mouse/pen)
-    if (!editMode) {
+    if (true) { // pan in both view and edit mode when on canvas background
       if (e.target !== canvasRef.current) return;
       if (e.pointerType === "touch") return;
       const sc = getScroll();
