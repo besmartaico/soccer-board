@@ -857,7 +857,7 @@ export function HtmlBoard({
                     type="range" min={25} max={200} value={zoomPct}
                     onChange={e => setZoom(+e.target.value / 100)}
                     className="flex-1"
-                    style={{accentColor:'#9d2235'}}
+                    style={{}}
                   />
                   <button type="button" onClick={() => setZoom(z => Math.min(2, z + 0.1))} className="rounded-md border px-2 py-1 text-sm bg-dark-800">+</button>
                 </div>
@@ -868,7 +868,7 @@ export function HtmlBoard({
                 <input
                   type="range" min={25} max={200} value={zoomPct}
                   onChange={e => setZoom(+e.target.value / 100)}
-                  style={{flex:1,accentColor:'#9d2235',height:'4px',cursor:'pointer'}}
+                  style={{flex:1,height:'4px',cursor:'pointer'}}
                 />
                 <button onClick={() => setZoom(1)} style={{color:'#9ca3af',fontSize:'12px',background:'transparent',border:'1px solid #374151',borderRadius:'4px',padding:'3px 7px',cursor:'pointer'}}>↺</button>
               </div>        )}
