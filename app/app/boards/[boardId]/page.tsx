@@ -710,10 +710,10 @@ export default function BoardPage() {
               <div style={{position:'absolute',top:'100%',right:0,left:0,background:'#1a1a1a',border:'1px solid #2a2a2a',borderTop:'none',zIndex:50,display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',padding:'10px'}}>
                 <button onClick={()=>{loadBoard();setMobileMoreOpen(false)}} disabled={saving} style={mobileMenuBtn()}>↻ Reload</button>
                 <button onClick={()=>{setShareOpen(true);setMobileMoreOpen(false)}} style={mobileMenuBtn()}>⤴ Share</button>
-                <button onClick={()=>{setTool(tool==='select'?'pointer':'select');setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='select')}>⬚ Select</button>
-                <button onClick={()=>{setTool(tool==='lane'?'pointer':'lane');setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='lane')}>▦ Lane</button>
-                <button onClick={()=>{setTool(tool==='text'?'pointer':'text');setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='text')}>T Text</button>
-                <button onClick={()=>{setTool(tool==='note'?'pointer':'note');setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='note')}>📝 Note</button>
+                <button onClick={()=>{setTool(('select'?'pointer':'select) as BoardTool);setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='select')}>⬚ Select</button>
+                <button onClick={()=>{setTool(('lane'?'pointer':'lane) as BoardTool);setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='lane')}>▦ Lane</button>
+                <button onClick={()=>{setTool(('text'?'pointer':'text) as BoardTool);setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='text')}>T Text</button>
+                <button onClick={()=>{setTool(('note'?'pointer':'note) as BoardTool);setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='note')}>📝 Note</button>
                 <button onClick={()=>{setObjectsLocked(!objectsLocked);setMobileMoreOpen(false)}} style={mobileMenuBtn(objectsLocked)}>🔒 {objectsLocked?'Locked':'Lock'}</button>
                 <button onClick={()=>{setCardSizeMode(cardSizeMode==='large'?'medium':cardSizeMode==='medium'?'small':'large');setMobileMoreOpen(false)}} style={mobileMenuBtn()}>📋 Cards</button>
               </div>
