@@ -582,23 +582,7 @@ export default function BoardPage() {
           <option value="medium">Cards: Medium</option>
           <option value="small">Cards: Small</option>
         </select>
-      </div>
-        <div className="desktop-only flex items-center gap-3" style={{display:'none'}}>
-          <Link className="underline" href="/app/teams">
-            Teams
-          </Link>
-          {board ? (
-            <Link className="underline" href={`/app/teams/${board.team_id}`}>Boards</Link>
-          ) : (
-            <Link className="underline" href="/app/teams">Boards</Link>
-          )}
-          {isAdmin ? (
-            <Link className="underline" href="/app/admin/users">Admin</Link>
-          ) : null}
-        </div>
-      </div>
-
-      {error && <div className="px-6 py-3 text-red-600 border-b relative z-40">{error}</div>}
+      </div>      {error && <div className="px-6 py-3 text-red-600 border-b relative z-40">{error}</div>}
 
       {loading ? (
         <div className="p-6">Loading...</div>
