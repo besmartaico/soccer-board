@@ -840,50 +840,38 @@ export function HtmlBoard({
             </button>
 
             <div className="flex flex-col">
-              <div className="text-xs text-dark-300 font-semibold mb-1 flex items-center justify-between gap-2">
-                <span>Zoom: {zoomPct}%</span>
-                <button
-                  type="button"
-                  className="text-dark-400 hover:text-dark-100 px-1"
-                  onClick={() => setZoomUiCollapsed(true)}
-                  title="Collapse"
-                >
-                  ▾
-                </button>
+              <div className="flex flex-col desktop-only">
+                <div className="text-xs text-dark-300 font-semibold mb-1 flex items-center justify-between gap-2">
+                  <span>Zoom: {zoomPct}%</span>
+                  <button
+                    type="button"
+                    onClick={() => setZoom(1)}
+                    className="rounded border px-2 py-0.5 text-xs bg-dark-800 hover:bg-dark-700"
+                  >
+                    100%
+                  </button>
+                </div>
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => setZoom(z => Math.max(0.25, z - 0.1))} className="rounded-md border px-2 py-1 text-sm bg-dark-800">-</button>
+                  <input
+                    type="range" min={25} max={200} value={zoomPct}
+                    onChange={e => setZoom(+e.target.value / 100)}
+                    className="flex-1"
+                    style={{accentColor:'#9d2235'}}
+                  />
+                  <button type="button" onClick={() => setZoom(z => Math.min(2, z + 0.1))} className="rounded-md border px-2 py-1 text-sm bg-dark-800">+</button>
+                </div>
               </div>
-              <input
-                type="range"
-                min={Math.round(ZOOM_MIN * 100)}
-                max={Math.round(ZOOM_MAX * 100)}
-                step={5}
-                value={zoomPct}
-                onChange={(e) => {
-                  const v = Number(e.target.value);
-                  if (Number.isFinite(v)) setZoomCentered(v / 100);
-                }}
-                style={{ width: 160 }}
-              />
-            </div>
-
-            <button
-              type="button"
-              className="w-9 h-9 rounded-lg border border-dark-600 bg-dark-700 hover:bg-dark-600 text-dark-100 text-lg"
-              onClick={() => setZoomCentered(zoomRef.current * 1.1)}
-              title="Zoom in"
-            >
-              +
-            </button>
-
-            <button
-              type="button"
-              className="ml-1 text-xs px-2 py-1 rounded border border-dark-600 bg-dark-700 hover:bg-dark-600 text-dark-100"
-              onClick={() => setZoomCentered(1)}
-              title="Reset zoom"
-            >
-              100%
-            </button>
-          </div>
-        )}
+              {/* Mobile zoom slider - pinned to bottom */}
+              <div className="mobile-only" style={{position:'fixed',bottom:0,left:0,right:0,background:'#1a1a1a',borderTop:'1px solid #2a2a2a',padding:'8px 16px',zIndex:40,display:'flex',alignItems:'center',gap:'10px'}}>
+                <span style={{color:'#9ca3af',fontSize:'12px',whiteSpace:'nowrap',minWidth:'36px'}}>{zoomPct}%</span>
+                <input
+                  type="range" min={25} max={200} value={zoomPct}
+                  onChange={e => setZoom(+e.target.value / 100)}
+                  style={{flex:1,accentColor:'#9d2235',height:'4px',cursor:'pointer'}}
+                />
+                <button onClick={() => setZoom(1)} style={{color:'#9ca3af',fontSize:'12px',background:'transparent',border:'1px solid #374151',borderRadius:'4px',padding:'3px 7px',cursor:'pointer'}}>↺</button>
+              </div>        )}
       </div>
 
       <div ref={wrapperRef} className="relative" style={{ width: scaledW, height: scaledH }}>
