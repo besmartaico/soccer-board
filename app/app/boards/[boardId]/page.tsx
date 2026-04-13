@@ -706,7 +706,7 @@ export default function BoardPage() {
             <button type="button" onClick={() => setTool((tool==='note'?'pointer':'note') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='note'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>📝 Note</button>
             <button type="button" onClick={() => setObjectsLocked(l => !l)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:objectsLocked?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>{objectsLocked ? '🔒 Locked' : '🔓 Lock'}</button>
           </div>
-        <div className="desktop-only flex items-center" style={{display:'none'}} gap-3">
+        <div className="desktop-only flex items-center gap-3" style={{display:'none'}}>
           <Link className="underline" href="/app/teams">
             Teams
           </Link>
