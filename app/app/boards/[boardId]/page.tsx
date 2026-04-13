@@ -562,150 +562,27 @@ export default function BoardPage() {
 
   return (
     <main className="h-[100dvh] overflow-hidden">
-      {/* Top bar */}
-      <div className="desktop-only flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 border-b bg-dark-800 relative z-40">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="text-lg md:text-2xl font-bold truncate max-w-[120px] md:max-w-none">{board ? board.name : "Board"}</div>
-
-          <button
-            type="button"
-            className={`border px-3 py-1 rounded text-sm ${
-              dirty ? "bg-maroon-800 text-white" : "bg-dark-800 text-dark-200"
-            }`}
-            onClick={saveBoard}
-            disabled={!dirty || saving}
-            title={dirty ? "Save changes" : "No changes to save"}
-          >
-            {saving ? "Saving..." : dirty ? "Save" : "Saved"}
-          </button>
-
-          <button
-            type="button"
-            className="border px-2 py-0.5 rounded text-xs md:text-sm bg-dark-800"
-            onClick={() => loadBoard()}
-            disabled={saving}
-          >
-            Reload
-          </button>
-
-{canEdit ? (
-  <button
-    type="button"
-    className={`border px-3 py-1 rounded text-sm ${
-      editMode ? "bg-maroon-800 text-white" : "bg-dark-800 text-dark-200"
-    }`}
-    onClick={() => {
-      setEditMode((v) => {
-        const next = !v;
-        if (!next) setTool("select");
-        return next;
-      });
-    }}
-    title={editMode ? "Switch to View mode (lock the canvas)" : "Switch to Edit mode"}
-  >
-    {editMode ? "Edit" : "View"}
-  </button>
-) : (
-  <span className="text-xs px-2 py-1 rounded bg-dark-800 text-dark-200">View only</span>
-)}
-
-          <button
-            type="button"
-            className="border px-3 py-1 rounded text-sm bg-dark-800"
-            onClick={() => setShareOpen(true)}
-            disabled={!board}
-            title="Share this board"
-          >
-            Share
-          </button>
-
-          <div className="w-px h-6 bg-dark-600" />
-
-          <div className="flex items-center gap-2">
-            <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "select" ? "bg-dark-800" : "bg-dark-800"}`}
-              onClick={() => setTool("select")}
-              title="Select / Move"
-              type="button"
-            >
-              Select
-            </button>
-            <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "lane" ? "bg-dark-800" : "bg-dark-800"}`}
-              onClick={() => { if (!editMode) return; setTool("lane"); } }
-              title="Add a swim lane (click on board to place)"
-              type="button"
-              disabled={!editMode}
-            >
-              Lane
-            </button>
-            <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "text" ? "bg-dark-800" : "bg-dark-800"}`}
-              onClick={() => { if (!editMode) return; setTool("text"); } }
-              title="Add a text box (click on board to place)"
-              type="button"
-              disabled={!editMode}
-            >
-              Text
-            </button>
-            <button
-              className={`rounded-md border px-3 py-1 text-sm ${tool === "note" ? "bg-dark-800" : "bg-dark-800"}`}
-              onClick={() => { if (!editMode) return; setTool("note"); } }
-              title="Add a sticky note (click on board to place)"
-              type="button"
-              disabled={!editMode}
-            >
-              Note
-            </button>
-
-            <button
-              className={`rounded-md border px-3 py-1 text-sm ${objectsLocked ? "bg-yellow-500 text-black border-yellow-400" : "bg-dark-800 text-white border-gray-600"}`}
-              onClick={() => setObjectsLocked(v => !v)}
-              title={objectsLocked ? "Unlock lanes, text and notes" : "Lock lanes, text and notes (players still moveable)"}
-            >
-              {objectsLocked ? "🔒 Locked" : "🔓 Lock Objects"}
-            </button>
-
-            <select
-              className="border rounded px-2 py-1 text-sm bg-dark-800"
-              value={cardSizeMode}
-              onChange={(e) => { setCardSizeMode(e.target.value as any); setDirty(true); }}
-              title="Card size"
-            >
-              <option value="large">Cards: Large</option>
-              <option value="medium">Cards: Medium</option>
-              <option value="small">Cards: Small</option>
-            </select>
-          </div>
-        </div>
-          {/* Mobile scrollable toolbar */}
-          <div
-            style={{overflowX:'auto',WebkitOverflowScrolling:'touch',display:'flex',flexDirection:'row',alignItems:'center',gap:'6px',padding:'6px 8px',background:'#1c1c1c',borderBottom:'1px solid #2a2a2a',minHeight:'44px'}}
-          >
-            <button
-              type="button"
-              onClick={saveBoard}
-              disabled={!dirty || saving}
-              style={{flexShrink:0,padding:'6px 12px',borderRadius:'6px',fontSize:'13px',fontWeight:600,background:dirty?'#9d2235':'#2a2a2a',color:dirty?'#fff':'#666',border:'none',cursor:dirty?'pointer':'default',whiteSpace:'nowrap'}}
-            >
-              {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditMode(m => !m)}
-              style={{flexShrink:0,padding:'6px 12px',borderRadius:'6px',fontSize:'13px',fontWeight:600,background:editMode?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}
-            >
-              {editMode ? '✏ Editing' : '✏ Edit'}
-            </button>
-            <div style={{width:'1px',height:'28px',background:'#3a3a3a',flexShrink:0}} />
-            <button type="button" onClick={loadBoard} disabled={saving} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>↻ Reload</button>
-            <button type="button" onClick={() => setShareOpen(true)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>⤴ Share</button>
-            <button type="button" onClick={() => setTool((tool==='select'?'pointer':'select') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='select'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>⬚ Select</button>
-            <button type="button" onClick={() => setTool((tool==='lane'?'pointer':'lane') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='lane'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>▦ Lane</button>
-            <button type="button" onClick={() => setTool((tool==='text'?'pointer':'text') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='text'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>T Text</button>
-            <button type="button" onClick={() => setTool((tool==='note'?'pointer':'note') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='note'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>📝 Note</button>
-            <button type="button" onClick={() => setObjectsLocked(l => !l)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:objectsLocked?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>{objectsLocked ? '🔒 Locked' : '🔓 Lock'}</button>
-          </div>
+            {/* ═══ Unified Toolbar ═══ */}
+      <div style={{display:'flex',alignItems:'center',gap:'4px',padding:'6px 10px',background:'#0f172a',borderBottom:'1px solid #1e3a5f',overflowX:'auto',overflowY:'hidden',WebkitOverflowScrolling:'touch',scrollbarWidth:'none',flexShrink:0,zIndex:40,minHeight:'46px'}}>
+        <span style={{fontWeight:700,fontSize:'14px',color:'#60a5fa',paddingRight:'8px',whiteSpace:'nowrap',flexShrink:0}}>{board ? board.name : 'Board'}</span>
+        <div style={{width:'1px',height:'22px',background:'#1e3a5f',flexShrink:0,marginRight:'2px'}}/>
+        <button type="button" onClick={saveBoard} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:dirty?'#1d4ed8':'#1e293b',color:dirty?'#fff':'#64748b',border:'1px solid '+(dirty?'#3b82f6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>{saving?'Saving…':dirty?'● Save':'✓ Saved'}</button>
+        <button type="button" onClick={()=>setEditMode(m=>!m)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:editMode?'#dc2626':'#1e293b',color:'#fff',border:'1px solid '+(editMode?'#ef4444':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>{editMode?'✏ Editing':'✏ Edit'}</button>
+        <button type="button" onClick={loadBoard} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:'#1e293b',color:'#94a3b8',border:'1px solid #334155',cursor:'pointer',whiteSpace:'nowrap'}}>↻ Reload</button>
+        <button type="button" onClick={()=>setShareOpen(true)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:'#1e293b',color:'#94a3b8',border:'1px solid #334155',cursor:'pointer',whiteSpace:'nowrap'}}>⤴ Share</button>
+        <div style={{width:'1px',height:'22px',background:'#1e3a5f',flexShrink:0}}/>
+        <button type="button" onClick={()=>setTool((tool==='select'?'pointer':'select') as BoardTool)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:tool==='select'?'#7c3aed':'#1e293b',color:'#fff',border:'1px solid '+(tool==='select'?'#8b5cf6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>⬜ Select</button>
+        <button type="button" onClick={()=>setTool((tool==='lane'?'pointer':'lane') as BoardTool)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:tool==='lane'?'#7c3aed':'#1e293b',color:'#fff',border:'1px solid '+(tool==='lane'?'#8b5cf6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>▦ Lane</button>
+        <button type="button" onClick={()=>setTool((tool==='text'?'pointer':'text') as BoardTool)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:tool==='text'?'#7c3aed':'#1e293b',color:'#fff',border:'1px solid '+(tool==='text'?'#8b5cf6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>T Text</button>
+        <button type="button" onClick={()=>setTool((tool==='note'?'pointer':'note') as BoardTool)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:tool==='note'?'#7c3aed':'#1e293b',color:'#fff',border:'1px solid '+(tool==='note'?'#8b5cf6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>📝 Note</button>
+        <button type="button" onClick={()=>setObjectsLocked(l=>!l)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:objectsLocked?'#b45309':'#1e293b',color:'#fff',border:'1px solid '+(objectsLocked?'#d97706':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>🔒 {objectsLocked?'Locked':'Lock'}</button>
+        <div style={{width:'1px',height:'22px',background:'#1e3a5f',flexShrink:0}}/>
+        <select value={cardSizeMode} onChange={e=>setCardSizeMode(e.target.value as any)} style={{flexShrink:0,padding:'5px 8px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:'#1e293b',color:'#94a3b8',border:'1px solid #334155',cursor:'pointer'}}>
+          <option value="large">Cards: Large</option>
+          <option value="medium">Cards: Medium</option>
+          <option value="small">Cards: Small</option>
+        </select>
+      </div>
         <div className="desktop-only flex items-center gap-3" style={{display:'none'}}>
           <Link className="underline" href="/app/teams">
             Teams
