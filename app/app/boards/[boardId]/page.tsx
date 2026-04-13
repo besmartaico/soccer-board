@@ -108,7 +108,6 @@ export default function BoardPage() {
   const [generatedLink, setGeneratedLink] = useState("");
   const [linkGenerating, setLinkGenerating] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
-  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
 
   // Modals
@@ -552,7 +551,6 @@ export default function BoardPage() {
     setDirty(true);
   }
 
-  function mobileMenuBtn(active?: boolean): React.CSSProperties {
     return {
       padding: '10px 6px', borderRadius: '8px', border: 'none',
       background: active ? '#9d2235' : '#374151',
@@ -679,60 +677,35 @@ export default function BoardPage() {
           </div>
         </div>
 
-          {/* ── Mobile compact toolbar ── */}
-          <div className="mobile-only" style={{position:'relative',zIndex:30}}>
-            <div style={{display:'flex',alignItems:'center',gap:'8px',padding:'8px 12px',background:'#1a1a1a',borderBottom:'1px solid #2a2a2a'}}>
-              {/* Save */}
-              <button
-                onClick={saveBoard}
-                disabled={!dirty || saving}
-                style={{flex:1,padding:'9px 0',borderRadius:'8px',border:'none',background:dirty?'#9d2235':'#374151',color:'#fff',fontWeight:700,fontSize:'14px',cursor:dirty?'pointer':'not-allowed',opacity:(!dirty||saving)?0.5:1}}
-              >
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-              {/* Edit toggle */}
-              <button
-                onClick={() => setEditMode(!editMode)}
-                style={{flex:1,padding:'9px 0',borderRadius:'8px',border:'none',background:editMode?'#9d2235':'#374151',color:'#fff',fontWeight:700,fontSize:'14px',cursor:'pointer'}}
-              >
-                {editMode ? '✏ Editing' : '✏ Edit'}
-              </button>
-              {/* More ⋯ */}
-              <button
-                onClick={() => setMobileMoreOpen(v => !v)}
-                style={{padding:'9px 14px',borderRadius:'8px',border:'none',background:'#374151',color:'#fff',fontWeight:700,fontSize:'18px',cursor:'pointer',lineHeight:1}}
-              >
-                ⋯
-              </button>
-            </div>
-            {/* Dropdown menu */}
-            {mobileMoreOpen && (
-              <div style={{position:'absolute',top:'100%',right:0,left:0,background:'#1a1a1a',border:'1px solid #2a2a2a',borderTop:'none',zIndex:50,display:'grid',gridTemplateColumns:'1fr 1fr',gap:'6px',padding:'10px'}}>
-                <button onClick={()=>{loadBoard();setMobileMoreOpen(false)}} disabled={saving} style={mobileMenuBtn()}>↻ Reload</button>
-                <button onClick={()=>{setShareOpen(true);setMobileMoreOpen(false)}} style={mobileMenuBtn()}>⤴ Share</button>
-                <button onClick={()=>{setTool((tool==='select'?'pointer':'select') as BoardTool);setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='select')}>⬚ Select</button>
-                <button onClick={()=>{setTool((tool==='lane'?'pointer':'lane') as BoardTool);setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='lane')}>▦ Lane</button>
-                <button onClick={()=>{setTool((tool==='text'?'pointer':'text') as BoardTool);setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='text')}>T Text</button>
-                <button onClick={()=>{setTool((tool==='note'?'pointer':'note') as BoardTool);setMobileMoreOpen(false)}} style={mobileMenuBtn(tool==='note')}>📝 Note</button>
-                <button onClick={()=>{setObjectsLocked(!objectsLocked);setMobileMoreOpen(false)}} style={mobileMenuBtn(objectsLocked)}>🔒 {objectsLocked?'Locked':'Lock'}</button>
-                <button onClick={()=>{setCardSizeMode(cardSizeMode==='large'?'medium':cardSizeMode==='medium'?'small':'large');setMobileMoreOpen(false)}} style={mobileMenuBtn()}>📋 Cards</button>
-              </div>
-            )}
+          {/* Mobile scrollable toolbar */}
+          <div
+            className="mobile-only"
+            style={{overflowX:'auto',WebkitOverflowScrolling:'touch',display:'flex',flexDirection:'row',alignItems:'center',gap:'6px',padding:'6px 8px',background:'#1c1c1c',borderBottom:'1px solid #2a2a2a',minHeight:'44px'}}
+          >
+            <button
+              type="button"
+              onClick={saveBoard}
+              disabled={!dirty || saving}
+              style={{flexShrink:0,padding:'6px 12px',borderRadius:'6px',fontSize:'13px',fontWeight:600,background:dirty?'#9d2235':'#2a2a2a',color:dirty?'#fff':'#666',border:'none',cursor:dirty?'pointer':'default',whiteSpace:'nowrap'}}
+            >
+              {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditMode(m => !m)}
+              style={{flexShrink:0,padding:'6px 12px',borderRadius:'6px',fontSize:'13px',fontWeight:600,background:editMode?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}
+            >
+              {editMode ? '✏ Editing' : '✏ Edit'}
+            </button>
+            <div style={{width:'1px',height:'28px',background:'#3a3a3a',flexShrink:0}} />
+            <button type="button" onClick={loadBoard} disabled={saving} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>↻ Reload</button>
+            <button type="button" onClick={() => setShareOpen(true)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>⤴ Share</button>
+            <button type="button" onClick={() => setTool((tool==='select'?'pointer':'select') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='select'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>⬚ Select</button>
+            <button type="button" onClick={() => setTool((tool==='lane'?'pointer':'lane') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='lane'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>▦ Lane</button>
+            <button type="button" onClick={() => setTool((tool==='text'?'pointer':'text') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='text'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>T Text</button>
+            <button type="button" onClick={() => setTool((tool==='note'?'pointer':'note') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='note'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>📝 Note</button>
+            <button type="button" onClick={() => setObjectsLocked(l => !l)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:objectsLocked?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>{objectsLocked ? '🔒 Locked' : '🔓 Lock'}</button>
           </div>
-        <div className="desktop-only flex items-center gap-3">
-          <Link className="underline" href="/app/teams">
-            Teams
-          </Link>
-          {board ? (
-            <Link className="underline" href={`/app/teams/${board.team_id}`}>Boards</Link>
-          ) : (
-            <Link className="underline" href="/app/teams">Boards</Link>
-          )}
-          {isAdmin ? (
-            <Link className="underline" href="/app/admin/users">Admin</Link>
-          ) : null}
-        </div>
-      </div>
 
       {error && <div className="px-6 py-3 text-red-600 border-b relative z-40">{error}</div>}
 
