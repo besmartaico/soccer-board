@@ -244,7 +244,6 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
             onObjectsChange={(next) => { setBoardObjects(next); setDirty(true); }}
             tool={tool}
             onToolChange={setTool}
-            objectsLocked={objectsLocked}
             cardSizeMode={cardSizeMode}
           />
         </div>
