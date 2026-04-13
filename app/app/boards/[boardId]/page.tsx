@@ -1067,7 +1067,6 @@ export default function BoardPage() {
                 setDirty(true);
               }}
               tool={tool}
-              objectsLocked={objectsLocked}
               onToolChange={(t) => setTool(t)}
               cardSizeMode={cardSizeMode}
               playerDragMime={PLAYER_DRAG_MIME}
