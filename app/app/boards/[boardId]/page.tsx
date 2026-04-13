@@ -108,6 +108,7 @@ export default function BoardPage() {
   const [generatedLink, setGeneratedLink] = useState("");
   const [linkGenerating, setLinkGenerating] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
 
 
   // Modals
@@ -551,6 +552,7 @@ export default function BoardPage() {
     setDirty(true);
   }
 
+  function mobileMenuBtn(active?: boolean): React.CSSProperties {
     return {
       padding: '10px 6px', borderRadius: '8px', border: 'none',
       background: active ? '#9d2235' : '#374151',
@@ -676,7 +678,6 @@ export default function BoardPage() {
             </select>
           </div>
         </div>
-
           {/* Mobile scrollable toolbar */}
           <div
             className="mobile-only"
@@ -706,6 +707,20 @@ export default function BoardPage() {
             <button type="button" onClick={() => setTool((tool==='note'?'pointer':'note') as BoardTool)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:tool==='note'?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>📝 Note</button>
             <button type="button" onClick={() => setObjectsLocked(l => !l)} style={{flexShrink:0,padding:'6px 10px',borderRadius:'6px',fontSize:'13px',background:objectsLocked?'#9d2235':'#2a2a2a',color:'#fff',border:'none',cursor:'pointer',whiteSpace:'nowrap'}}>{objectsLocked ? '🔒 Locked' : '🔓 Lock'}</button>
           </div>
+        <div className="desktop-only flex items-center gap-3">
+          <Link className="underline" href="/app/teams">
+            Teams
+          </Link>
+          {board ? (
+            <Link className="underline" href={`/app/teams/${board.team_id}`}>Boards</Link>
+          ) : (
+            <Link className="underline" href="/app/teams">Boards</Link>
+          )}
+          {isAdmin ? (
+            <Link className="underline" href="/app/admin/users">Admin</Link>
+          ) : null}
+        </div>
+      </div>
 
       {error && <div className="px-6 py-3 text-red-600 border-b relative z-40">{error}</div>}
 
