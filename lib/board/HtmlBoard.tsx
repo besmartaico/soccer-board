@@ -142,6 +142,7 @@ type AvatarTapState = {
 
 export function HtmlBoard({
   editMode,
+  objectsLocked = false,
   placed,
   onPlacedChange,
   playerDragMime,
@@ -157,6 +158,7 @@ export function HtmlBoard({
   cardSizeMode = "large",
 }: {
   editMode: boolean;
+  objectsLocked?: boolean;
   placed: PlacedPlayer[];
   onPlacedChange: (next: PlacedPlayer[]) => void;
   playerDragMime: string;
@@ -329,7 +331,7 @@ export function HtmlBoard({
   }
 
   function onDrop(e: React.DragEvent) {
-    if (!editMode) return;
+    if (!editMode || objectsLocked) return;
     e.preventDefault();
     setIsDragOver(false);
 
@@ -382,7 +384,7 @@ export function HtmlBoard({
   }
 
   function beginMoveAny(e: React.PointerEvent, id: string) {
-    if (!editMode) return;
+    if (!editMode || objectsLocked) return;
 
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -427,7 +429,7 @@ export function HtmlBoard({
   }
 
   function beginResizeAny(e: React.PointerEvent, id: string) {
-    if (!editMode) return;
+    if (!editMode || objectsLocked) return;
 
     e.stopPropagation();
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
@@ -570,7 +572,7 @@ export function HtmlBoard({
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (!editMode) return;
+      if (!editMode || objectsLocked) return;
       if (editingIdRef.current) return;
       if (e.key !== "Delete" && e.key !== "Backspace") return;
 
