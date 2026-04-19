@@ -1,1263 +1,452 @@
 "use client";
-
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
-import type { UserRole } from "@/lib/roles";
-import { HtmlBoard, type PlacedPlayer, type BoardObject, type BoardTool } from "@/lib/board/HtmlBoard";
+import { HtmlBoard, type PlacedPlayer, type BoardObject, type BoardTool, type PlayerPayload } from "@/lib/board/HtmlBoard";
 
-type BoardRow = {
-  id: string;
-  team_id: string;
-  name: string;
-  data: any;
-  created_at: string;
-};
+const PLAYER_DRAG_MIME = "application/x-lp-player";
+const OBJECT_DRAG_MIME = "application/x-lp-object";
+const BG_BUCKET        = "board-backgrounds";
 
-type GoogleConfig = {
-  sheetId: string;
-  range: string;
-};
-
+type BoardRow = { id: string; name: string; team_id: string; data: any; };
 type PlayerRow = {
-  id: string;
-  name: string;
-  grade: string;
-  position: string;
-  secondaryPosition: string;
-  returning: string;
-  likelihoodPrimary: string;
-  potentialPrimary: string;
-  notes: string;
-  picture: string;
+  id: string; name: string; grade: string; position: string;
+  secondaryPosition: string; returning: string; likelihoodPrimary: string;
+  potentialPrimary: string; notes: string; picture: string;
   pictureProxyUrl?: string;
 };
+type GoogleConfig = { sheetId: string; range: string; };
 
-type Filters = {
-  search: string;
-  grade: string[];
-  returning: string[];
-  primary: string[];
-  likelihood: string[];
-};
-
-const PLAYER_DRAG_MIME = "application/x-soccerboard-player";
-const OBJECT_DRAG_MIME = "application/x-soccerboard-object";
-const BG_BUCKET = "board-backgrounds";
+function gradeColor(grade?: string) {
+  const g = parseInt((grade ?? "").replace(/[^0-9]/g,""), 10);
+  if (g===12) return "#7f1630";
+  if (g===11) return "#1a1a1a";
+  if (g===10) return "#6b7280";
+  if (g===9)  return "#e5e7eb";
+  return "#1e3a5f";
+}
+function gradeText(grade?: string) {
+  const g = parseInt((grade ?? "").replace(/[^0-9]/g,""), 10);
+  return g===9 ? "#111827" : "#ffffff";
+}
 
 export default function BoardPage() {
-  const router = useRouter();
-  const params = useParams();
+  const params    = useParams();
+  const router    = useRouter();
+  const boardId   = Array.isArray(params.boardId) ? params.boardId[0] : (params.boardId ?? "");
 
-  const raw = (params as any)?.boardId;
-  const boardId: string | null =
-    typeof raw === "string" ? raw : Array.isArray(raw) ? raw[0] : null;
+  // Board state
+  const [board,          setBoard]          = useState<BoardRow|null>(null);
+  const [loading,        setLoading]        = useState(true);
+  const [error,          setError]          = useState<string|null>(null);
+  const [myRole,         setMyRole]         = useState("viewer");
+  const [editMode,       setEditMode]       = useState(false);
+  const [objectsLocked,  setObjectsLocked]  = useState(false);
+  const [dirty,          setDirty]          = useState(false);
+  const [saving,         setSaving]         = useState(false);
 
+  // Board data
+  const [placedPlayers,  setPlacedPlayers]  = useState<PlacedPlayer[]>([]);
+  const [boardObjects,   setBoardObjects]   = useState<BoardObject[]>([]);
+  const [backgroundUrl,  setBackgroundUrl]  = useState<string|null>(null);
+  const [cardSizeMode,   setCardSizeMode]   = useState<"large"|"medium"|"small">("medium");
+  const [tool,           setTool]           = useState<BoardTool>("pointer");
 
-  const [board, setBoard] = useState<BoardRow | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const [myRole, setMyRole] = useState<UserRole>("viewer");
-  const [editMode, setEditMode] = useState<boolean>(false);
-  const [objectsLocked, setObjectsLocked] = useState<boolean>(true);
-
-  const canEdit = myRole === "admin" || myRole === "editor";
-  const isAdmin = myRole === "admin";
-
-  // Google player data
-  const [googleConfig, setGoogleConfig] = useState<GoogleConfig | null>(null);
+  // Roster
+  const [googleConfig,   setGoogleConfig]   = useState<GoogleConfig|null>(null);
+  const [players,        setPlayers]        = useState<PlayerRow[]>([]);
   const [playersLoading, setPlayersLoading] = useState(false);
-  const [playersError, setPlayersError] = useState<string | null>(null);
-  const [players, setPlayers] = useState<PlayerRow[]>([]);
+  const [playersError,   setPlayersError]   = useState("");
+  const [sidebarOpen,    setSidebarOpen]    = useState(true);
+  const [searchQuery,    setSearchQuery]    = useState("");
+  const [gradeFilter,    setGradeFilter]    = useState<string>("all");
 
-  // Filters
-  const [filters, setFilters] = useState<Filters>({
-    search: "",
-    grade: [],
-    returning: [],
-    primary: [],
-    likelihood: [],
-  });
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+  // Sheet config editing
+  const [showSheetEdit,  setShowSheetEdit]  = useState(false);
+  const [sheetIdInput,   setSheetIdInput]   = useState("");
+  const [sheetRangeInput,setSheetRangeInput]= useState("Sheet1!A:I");
 
-  // Board state (manual save)
-  const [placedPlayers, setPlacedPlayers] = useState<PlacedPlayer[]>([]);
-  const [boardObjects, setBoardObjects] = useState<BoardObject[]>([]);
-  const [tool, setTool] = useState<BoardTool>("select");
-  const [cardSizeMode, setCardSizeMode] = useState<"large" | "medium" | "small">("large");
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const bgInputRef = useRef<HTMLInputElement>(null);
 
-  // Background
-  const [backgroundUrl, setBackgroundUrl] = useState<string>("");
-
-  // Sharing
-  const [shareOpen, setShareOpen] = useState(false);
-  const [shareEmails, setShareEmails] = useState<string[]>([]);
-  const [shareInput, setShareInput] = useState("");
-  const [shareSaving, setShareSaving] = useState(false);
-  const [shareLinkMode, setShareLinkMode] = useState<"view"|"edit">("view");
-  const [shareLinkPassword, setShareLinkPassword] = useState("");
-  const [shareLinkUrl, setShareLinkUrl] = useState("");
-  const [shareLinkLoading, setShareLinkLoading] = useState(false);
-  const [shareTab, setShareTab] = useState<"email"|"link">("email");
-  const [linkMode, setLinkMode] = useState<"view"|"edit">("view");
-  const [linkPassword, setLinkPassword] = useState("");
-  const [generatedLink, setGeneratedLink] = useState("");
-  const [linkGenerating, setLinkGenerating] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
-  const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
-
-
-  // Modals
-  const [photoModal, setPhotoModal] = useState<{ url: string; name: string } | null>(null);
-  const [playerModal, setPlayerModal] = useState<PlacedPlayer | null>(null);
-
-  // UI
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth < 768);
-  const [sidebarMode, setSidebarMode] = useState<"players" | "objects">("players");
-
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Close dropdowns if user clicks elsewhere
-  useEffect(() => {
-    const onDown = () => setOpenDropdown(null);
-    window.addEventListener("mousedown", onDown);
-    return () => window.removeEventListener("mousedown", onDown);
-  }, []);
+  // ── Load board ──────────────────────────────────────────────────────────────
+  useEffect(() => { if (boardId) loadBoard(); }, [boardId]);
 
   async function loadBoard() {
     setLoading(true);
     setError(null);
-
-    if (!boardId) {
-      setError("Missing board id in URL.");
-      setLoading(false);
-      return;
-    }
-
-    const { data: userResp } = await supabase.auth.getUser();
-    if (!userResp.user) {
-      router.push("/login");
-      return;
-    }
-
-    // IMPORTANT: board may be accessed via team membership OR via email-based share.
-    // We must use the server route so shared users (not in team_members yet) can load.
-    const { data: sess } = await supabase.auth.getSession();
-    const token = sess.session?.access_token;
-    if (!token) {
-      setError("Missing session token.");
-      setLoading(false);
-      return;
-    }
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { router.push("/login"); return; }
 
     const res = await fetch(`/api/boards/${boardId}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-      cache: "no-store",
+      headers: { Authorization: `Bearer ${session.access_token}` },
     });
-
-    const json = await res.json().catch(() => null);
+    const json = await res.json().catch(() => ({}));
     if (!res.ok || !json?.success) {
       setError(json?.error ?? "Failed to load board");
       setLoading(false);
       return;
     }
 
-    const role = (json.role ?? "viewer") as UserRole;
+    const row: BoardRow = json.board;
+    const role: string  = json.role ?? "viewer";
     setMyRole(role);
     setEditMode(role === "admin" || role === "editor");
-
-    const row = json.board as BoardRow;
     setBoard(row);
 
-    // Google config
-    const gc = row?.data?.google;
-    if (gc?.sheetId && gc?.range) setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
-    else setGoogleConfig(null);
-
-    // placed + background
     const hb = row?.data?.htmlBoard ?? {};
-    setPlacedPlayers(Array.isArray(hb.placedPlayers) ? hb.placedPlayers : []);
-    setBoardObjects(Array.isArray(hb.objects) ? hb.objects : []);
-    setBackgroundUrl(typeof hb.backgroundUrl === "string" ? hb.backgroundUrl : "");
+    setPlacedPlayers(hb.placed      ?? []);
+    setBoardObjects (hb.objects     ?? []);
+    setBackgroundUrl(hb.backgroundUrl ?? null);
+    setCardSizeMode (hb.cardSizeMode  ?? "medium");
 
-    const csm = hb?.cardSizeMode;
-    if (csm === "large" || csm === "medium" || csm === "small") setCardSizeMode(csm);
-    else setCardSizeMode("large");
-
-    // sharing
-    const sh = row?.data?.sharing ?? {};
-    setShareEmails(Array.isArray(sh.emails) ? sh.emails : []);
-
-    setDirty(false);
-
+    const gc = row?.data?.googleConfig;
+    if (gc?.sheetId && gc?.range) {
+      setGoogleConfig({ sheetId: gc.sheetId, range: gc.range });
+    }
     setLoading(false);
   }
 
-  useEffect(() => {
-    loadBoard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [boardId]);
+  // ── Load players from Google Sheet ──────────────────────────────────────────
+  useEffect(() => { if (googleConfig) loadPlayers(); }, [googleConfig]);
 
-  async function loadPlayersFromGoogle(cfg: GoogleConfig) {
-    setPlayersError(null);
+  async function loadPlayers() {
+    if (!googleConfig) return;
     setPlayersLoading(true);
-    setPlayers([]);
-
+    setPlayersError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
     try {
-      const url = `/api/google/sheet?sheetId=${encodeURIComponent(cfg.sheetId)}&range=${encodeURIComponent(
-        cfg.range
-      )}`;
-
-      const res = await fetch(url, { cache: "no-store" });
-      const json = await res.json();
-
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.error ?? "Failed to load player sheet");
-      }
-
-      const values: string[][] = json.values ?? [];
-      if (values.length === 0) {
-        setPlayers([]);
-        return;
-      }
-
-      const header = values[0];
-      const rows = values.slice(1);
-
-      const col = (name: string) => header.findIndex((h) => (h ?? "").trim() === name);
-
-      const idxId = col("ID");
-      const idxName = col("Student Name");
-      const idxGrade = col("Grade");
-      const idxPicture = col("Picture");
-      const idxReturning = col("Returning Player");
-      const idxPos = col("Position");
-      const idxSecPos = col("Secondary Position");
-      const idxPotentialPrimary = col("Potential Team Primary");
-      const idxLikelihoodPrimary = col("Likelihood Primary");
-      const idxNotes = col("Jeff's Notes");
-
-      const parsed: PlayerRow[] = rows
-        .filter((r) => r && r.length > 0 && (r[idxName] ?? "").trim() !== "")
-        .map((r) => {
-          const rawPic = (r[idxPicture] ?? "").toString();
-          const normalized = normalizePictureUrl(rawPic);
-          const proxy = normalized ? `/api/image-proxy?url=${encodeURIComponent(normalized)}` : "";
-
-          return {
-            id: (r[idxId] ?? "").toString(),
-            name: (r[idxName] ?? "").toString(),
-            grade: (r[idxGrade] ?? "").toString(),
-            picture: rawPic,
-            pictureProxyUrl: proxy || undefined,
-            returning: (r[idxReturning] ?? "").toString(),
-            position: (r[idxPos] ?? "").toString(),
-            secondaryPosition: (r[idxSecPos] ?? "").toString(),
-            potentialPrimary: (r[idxPotentialPrimary] ?? "").toString(),
-            likelihoodPrimary: (r[idxLikelihoodPrimary] ?? "").toString(),
-            notes: (r[idxNotes] ?? "").toString(),
-          };
-        });
-
+      const res = await fetch(
+        `/api/google/sheet?sheetId=${encodeURIComponent(googleConfig.sheetId)}&range=${encodeURIComponent(googleConfig.range)}`,
+        { headers: { Authorization: `Bearer ${session.access_token}` } }
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) { setPlayersError(json?.error ?? "Failed to load roster"); return; }
+      const rows: string[][] = json.values ?? [];
+      if (rows.length < 2) { setPlayers([]); return; }
+      const headers = rows[0].map((h: string) => h.toLowerCase().trim());
+      const col = (name: string) => headers.indexOf(name);
+      const parsed: PlayerRow[] = rows.slice(1)
+        .filter(r => r.some(c => c?.trim()))
+        .map(r => ({
+          id:                r[col("id")]                ?? r[0] ?? Math.random().toString(36).slice(2),
+          name:              r[col("name")]              ?? r[1] ?? "",
+          grade:             r[col("grade")]             ?? r[2] ?? "",
+          position:          r[col("position")]          ?? r[3] ?? "",
+          secondaryPosition: r[col("secondaryposition")] ?? r[4] ?? "",
+          returning:         r[col("returning")]         ?? r[5] ?? "",
+          likelihoodPrimary: r[col("likelihood")]        ?? r[6] ?? "",
+          potentialPrimary:  r[col("potential")]         ?? r[7] ?? "",
+          notes:             r[col("notes")]             ?? r[8] ?? "",
+          picture:           r[col("picture")]           ?? r[9] ?? "",
+        }));
       setPlayers(parsed);
-
-      // Also refresh any already-placed cards on the canvas
-      setPlacedPlayers((cur) => {
-        if (!Array.isArray(cur) || cur.length === 0) return cur;
-        const byId = new Map(parsed.map((p) => [String(p.id), p] as const));
-        return cur.map((pp) => {
-          const pid = String((pp as any)?.player?.id ?? "");
-          const hit = byId.get(pid);
-          if (!hit) return pp;
-          return {
-            ...pp,
-            player: {
-              ...(pp as any).player,
-              id: hit.id,
-              name: hit.name,
-              grade: hit.grade,
-              returning: hit.returning,
-              primary: hit.potentialPrimary,
-              likelihood: hit.likelihoodPrimary,
-              pos1: hit.position,
-              pos2: hit.secondaryPosition,
-              notes: hit.notes,
-              pictureUrl: hit.pictureProxyUrl || "",
-            },
-          } as any;
-        });
-      });
     } catch (e: any) {
-      console.error(e);
-      setPlayersError(e?.message ?? "Failed to load players");
+      setPlayersError(e?.message ?? "Error loading roster");
     } finally {
       setPlayersLoading(false);
     }
   }
 
-  useEffect(() => {
-    if (!googleConfig) return;
-    loadPlayersFromGoogle(googleConfig);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [googleConfig?.sheetId, googleConfig?.range]);
-
-  const gradeOptions = useMemo(
-    () =>
-      uniq(players.map((p) => (p.grade ?? "").trim())).sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      ),
-    [players]
-  );
-  const returningOptions = useMemo(
-    () => uniq(players.map((p) => (p.returning ?? "").trim())).sort(),
-    [players]
-  );
-  const primaryOptions = useMemo(
-    () => uniq(players.map((p) => (p.potentialPrimary ?? "").trim())).sort(),
-    [players]
-  );
-  const likelihoodOptions = useMemo(
-    () =>
-      uniq(players.map((p) => (p.likelihoodPrimary ?? "").trim())).sort((a, b) =>
-        a.localeCompare(b, undefined, { numeric: true })
-      ),
-    [players]
-  );
-
-  const filteredPlayers = useMemo(() => {
-    const s = filters.search.trim().toLowerCase();
-    return players.filter((p) => {
-      if (s) {
-        const hay = `${p.name} ${p.position} ${p.secondaryPosition} ${p.notes}`.toLowerCase();
-        if (!hay.includes(s)) return false;
-      }
-      if (filters.grade.length && !filters.grade.includes((p.grade ?? "").trim())) return false;
-      if (filters.returning.length && !filters.returning.includes((p.returning ?? "").trim()))
-        return false;
-      if (filters.primary.length && !filters.primary.includes((p.potentialPrimary ?? "").trim()))
-        return false;
-      if (
-        filters.likelihood.length &&
-        !filters.likelihood.includes((p.likelihoodPrimary ?? "").trim())
-      )
-        return false;
-      return true;
-    });
-  }, [players, filters]);
-
-  function toggleMulti(key: keyof Omit<Filters, "search">, value: string) {
-    setFilters((f) => {
-      const set = new Set(f[key]);
-      if (set.has(value)) set.delete(value);
-      else set.add(value);
-      return { ...f, [key]: Array.from(set) as any };
-    });
-  }
-
-  function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
-    if (!canEdit || !editMode) {
-      e.preventDefault();
-      return;
-    }
-
-    const payload = {
-      id: p.id,
-      name: p.name,
-      grade: p.grade,
-      returning: p.returning,
-      primary: p.potentialPrimary,
-      likelihood: p.likelihoodPrimary,
-      pos1: p.position,
-      pos2: p.secondaryPosition,
-      notes: p.notes,
-      pictureUrl: p.pictureProxyUrl || "",
-    };
-
-    const json = JSON.stringify(payload);
-    e.dataTransfer.setData(PLAYER_DRAG_MIME, json);
-    e.dataTransfer.setData("application/json", json);
-    e.dataTransfer.setData("text/plain", json);
-    e.dataTransfer.effectAllowed = "copy";
-  }
-
-  function onTokenDragStart(
-    e: React.DragEvent,
-    token: { tokenType: "circle" | "ball"; tokenColor?: string; tokenLabel?: string }
-  ) {
-    if (!canEdit || !editMode) {
-      e.preventDefault();
-      return;
-    }
-
-    const payload = {
-      __type: "token",
-      tokenType: token.tokenType,
-      tokenColor: token.tokenColor,
-      tokenLabel: token.tokenLabel,
-    };
-
-    const json = JSON.stringify(payload);
-    e.dataTransfer.setData(OBJECT_DRAG_MIME, json);
-    e.dataTransfer.setData("application/json", json);
-    e.dataTransfer.setData("text/plain", json);
-    e.dataTransfer.effectAllowed = "copy";
-  }
-
-  async function generateShareLink() {
-    setShareLinkLoading(true);
-    setShareLinkUrl("");
-    try {
-      const res = await fetch(`/api/boards/${raw}/share-link`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode: shareLinkMode, password: shareLinkPassword || undefined }),
-      });
-      const data = await res.json();
-      if (res.ok) setShareLinkUrl(`${window.location.origin}/app/share/${data.token}`);
-    } finally {
-      setShareLinkLoading(false);
-    }
-  }
-
-  async function saveSharing() {
-    if (!boardId || !board) return;
-    setShareSaving(true);
-    setError(null);
-
-    try {
-      const cleaned = Array.from(
-        new Set(
-          shareEmails
-            .map((e) => e.trim().toLowerCase())
-            .filter(Boolean)
-        )
-      );
-
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess.session?.access_token;
-      if (!token) throw new Error("Missing session token.");
-
-      const res = await fetch(`/api/boards/${boardId}/share`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ emails: cleaned }),
-      });
-
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.success) {
-        throw new Error(json?.error || "Failed to save sharing settings.");
-      }
-
-      if (Array.isArray(json?.notFound) && json.notFound.length) {
-        // Not fatal: sharing list is saved; these users simply don't exist yet.
-        console.warn("Share emails not found in auth:", json.notFound);
-      }
-
-      if (json?.warning) {
-        console.warn(json.warning);
-      }
-
-      if (json?.board) {
-        setBoard(json.board);
-        const emails = (json.board?.data?.sharing?.emails ?? cleaned) as string[];
-        setShareEmails(Array.isArray(emails) ? emails : cleaned);
-      } else {
-        setShareEmails(cleaned);
-      }
-
-      setShareOpen(false);
-    } catch (e: any) {
-      setError(e?.message ?? "Failed to save sharing settings.");
-    } finally {
-      setShareSaving(false);
-    }
-  }
-
+  // ── Save ────────────────────────────────────────────────────────────────────
   async function saveBoard() {
-    if (!boardId) return;
     if (!board) return;
-
     setSaving(true);
-    setError(null);
-
-    try {
-      const prevData = board?.data && typeof board.data === "object" ? board.data : {};
-
-      const nextData = {
-        ...prevData,
-        google: prevData.google ?? undefined,
-        htmlBoard: {
-          placedPlayers: placedPlayers,
-          objects: boardObjects,
-          backgroundUrl: backgroundUrl || "",
-          cardSizeMode: cardSizeMode,
-        },
-      };
-
-      const { error } = await supabase.from("boards").update({ data: nextData }).eq("id", boardId);
-      if (error) throw new Error(error.message);
-
-      setBoard({ ...board, data: nextData });
-      setDirty(false);
-    } catch (e: any) {
-      console.error(e);
-      setError(e?.message ?? "Failed to save board.");
-    } finally {
-      setSaving(false);
-    }
+    const nextData = {
+      ...board.data,
+      htmlBoard: { placed: placedPlayers, objects: boardObjects, backgroundUrl, cardSizeMode },
+      googleConfig,
+    };
+    const { error: err } = await supabase.from("boards")
+      .update({ data: nextData }).eq("id", boardId);
+    if (err) { setError(err.message); } else { setDirty(false); }
+    setSaving(false);
   }
 
-  async function onSelectBackgroundFile(file: File) {
-    if (!boardId) return;
+  // ── Mark dirty on data changes ──────────────────────────────────────────────
+  function updatePlaced(next: PlacedPlayer[]) { setPlacedPlayers(next); setDirty(true); }
+  function updateObjects(next: BoardObject[])  { setBoardObjects(next);  setDirty(true); }
 
-    setError(null);
-
-    try {
-      const ext = file.name.split(".").pop() || "png";
-      const path = `boards/${boardId}/${Date.now()}-${Math.random().toString(16).slice(2)}.${ext}`;
-
-      const up = await supabase.storage.from(BG_BUCKET).upload(path, file, {
-        cacheControl: "3600",
-        upsert: false,
-        contentType: file.type || undefined,
-      });
-
-      if (up.error) {
-        throw new Error(`Storage upload failed: ${up.error.message}.`);
-      }
-
-      const pub = supabase.storage.from(BG_BUCKET).getPublicUrl(path);
-      const url = pub.data.publicUrl;
-
-      setBackgroundUrl(url);
-      setDirty(true);
-    } catch (e: any) {
-      console.error(e);
-      setError(e?.message ?? "Failed to upload background.");
-    }
+  // ── Player drag start (from roster sidebar) ─────────────────────────────────
+  function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
+    const payload: PlayerPayload = {
+      id: p.id, name: p.name, grade: p.grade,
+      pos1: p.position, pos2: p.secondaryPosition,
+      likelihood: p.likelihoodPrimary, notes: p.notes,
+      pictureUrl: p.picture || p.pictureProxyUrl,
+    };
+    e.dataTransfer.setData(PLAYER_DRAG_MIME, JSON.stringify(payload));
+    e.dataTransfer.effectAllowed = "copy";
   }
 
-  function removePlacedCard(id: string) {
-    setPlacedPlayers((cur) => cur.filter((p) => p.id !== id));
+  // ── Add player to board (tap button — mobile) ───────────────────────────────
+  function addPlayerToBoard(p: PlayerRow) {
+    const payload: PlayerPayload = {
+      id: p.id, name: p.name, grade: p.grade,
+      pos1: p.position, pos2: p.secondaryPosition,
+      likelihood: p.likelihoodPrimary, notes: p.notes,
+      pictureUrl: p.picture || p.pictureProxyUrl,
+    };
+    const existing = placedPlayers.find(pp => pp.player.id === payload.id);
+    if (existing) return; // already on board
+    const newPlaced: PlacedPlayer = {
+      id: Math.random().toString(36).slice(2),
+      player: payload,
+      x: 100 + placedPlayers.length * 10,
+      y: 100 + placedPlayers.length * 10,
+    };
+    updatePlaced([...placedPlayers, newPlaced]);
+  }
+
+  // ── Background upload ────────────────────────────────────────────────────────
+  async function onBgFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const ext  = file.name.split(".").pop();
+    const path = `${boardId}/bg.${ext}`;
+    const { error: upErr } = await supabase.storage.from(BG_BUCKET).upload(path, file, { upsert: true });
+    if (upErr) { setError(upErr.message); return; }
+    const { data: { publicUrl } } = supabase.storage.from(BG_BUCKET).getPublicUrl(path);
+    setBackgroundUrl(publicUrl);
     setDirty(true);
   }
 
-  function mobileMenuBtn(active?: boolean): React.CSSProperties {
-    return {
-      padding: '10px 6px', borderRadius: '8px', border: 'none',
-      background: active ? '#9d2235' : '#374151',
-      color: '#fff', fontWeight: 600, fontSize: '13px', cursor: 'pointer',
-    };
+  // ── Save sheet config ────────────────────────────────────────────────────────
+  function saveSheetConfig() {
+    if (!sheetIdInput.trim()) return;
+    const gc = { sheetId: sheetIdInput.trim(), range: sheetRangeInput.trim() || "Sheet1!A:I" };
+    setGoogleConfig(gc);
+    setShowSheetEdit(false);
+    setDirty(true);
   }
 
+  // ── Filtered players ─────────────────────────────────────────────────────────
+  const filteredPlayers = players.filter(p => {
+    const matchSearch = !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchGrade  = gradeFilter === "all" || p.grade === gradeFilter;
+    return matchSearch && matchGrade;
+  });
+  const allGrades = [...new Set(players.map(p=>p.grade).filter(Boolean))].sort();
+  const canEdit = myRole === "admin" || myRole === "editor";
+  // ── Tool button style helper ─────────────────────────────────────────────────
+  const toolBtn = (active: boolean, color = "#7c3aed") => ({
+    padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600,
+    background: active ? color : "#1e293b",
+    color: active ? "#fff" : "#94a3b8",
+    border: `1px solid ${active ? color : "#334155"}`,
+    cursor: "pointer", whiteSpace: "nowrap" as const, flexShrink: 0,
+  });
+
+  // ── Render ───────────────────────────────────────────────────────────────────
+  if (loading) return (
+    <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{color:"#64748b",fontSize:16}}>Loading board…</div>
+    </div>
+  );
+
+  if (error && !board) return (
+    <div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column",gap:12}}>
+      <div style={{color:"#f87171",fontSize:16}}>{error}</div>
+      <Link href="/app/teams" style={{color:"#3b82f6",fontSize:14}}>← Back to Teams</Link>
+    </div>
+  );
+
   return (
-    <main className="h-[100dvh] overflow-hidden">
-            {/* ═══ Unified Toolbar ═══ */}
-      <div style={{display:'flex',alignItems:'center',gap:'4px',padding:'6px 10px',background:'#0f172a',borderBottom:'1px solid #1e3a5f',overflowX:'auto',overflowY:'hidden',WebkitOverflowScrolling:'touch',scrollbarWidth:'none',flexShrink:0,zIndex:40,minHeight:'46px'}}>
-        <span style={{fontWeight:700,fontSize:'14px',color:'#60a5fa',paddingRight:'8px',whiteSpace:'nowrap',flexShrink:0}}>{board ? board.name : 'Board'}</span>
-        <div style={{width:'1px',height:'22px',background:'#1e3a5f',flexShrink:0,marginRight:'2px'}}/>
-        <button type="button" onClick={saveBoard} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:dirty?'#1d4ed8':'#1e293b',color:dirty?'#fff':'#64748b',border:'1px solid '+(dirty?'#3b82f6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>{saving?'Saving…':dirty?'● Save':'✓ Saved'}</button>
-        <button type="button" onClick={()=>setEditMode(m=>!m)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:editMode?'#dc2626':'#1e293b',color:'#fff',border:'1px solid '+(editMode?'#ef4444':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>{editMode?'✏ Editing':'✏ Edit'}</button>
-        <button type="button" onClick={loadBoard} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:'#1e293b',color:'#94a3b8',border:'1px solid #334155',cursor:'pointer',whiteSpace:'nowrap'}}>↻ Reload</button>
-        <button type="button" onClick={()=>setShareOpen(true)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:'#1e293b',color:'#94a3b8',border:'1px solid #334155',cursor:'pointer',whiteSpace:'nowrap'}}>⤴ Share</button>
-        <div style={{width:'1px',height:'22px',background:'#1e3a5f',flexShrink:0}}/>
-        <button type="button" onClick={()=>setTool((tool==='select'?'pointer':'select') as BoardTool)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:tool==='select'?'#7c3aed':'#1e293b',color:'#fff',border:'1px solid '+(tool==='select'?'#8b5cf6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>⬜ Select</button>
-        <button type="button" onClick={()=>setTool((tool==='lane'?'pointer':'lane') as BoardTool)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:tool==='lane'?'#7c3aed':'#1e293b',color:'#fff',border:'1px solid '+(tool==='lane'?'#8b5cf6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>▦ Lane</button>
-        <button type="button" onClick={()=>setTool((tool==='text'?'pointer':'text') as BoardTool)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:tool==='text'?'#7c3aed':'#1e293b',color:'#fff',border:'1px solid '+(tool==='text'?'#8b5cf6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>T Text</button>
-        <button type="button" onClick={()=>setTool((tool==='note'?'pointer':'note') as BoardTool)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:tool==='note'?'#7c3aed':'#1e293b',color:'#fff',border:'1px solid '+(tool==='note'?'#8b5cf6':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>📝 Note</button>
-        <button type="button" onClick={()=>setObjectsLocked(l=>!l)} style={{flexShrink:0,padding:'5px 11px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:objectsLocked?'#b45309':'#1e293b',color:'#fff',border:'1px solid '+(objectsLocked?'#d97706':'#334155'),cursor:'pointer',whiteSpace:'nowrap'}}>🔒 {objectsLocked?'Locked':'Lock'}</button>
-        <div style={{width:'1px',height:'22px',background:'#1e3a5f',flexShrink:0}}/>
-        <select value={cardSizeMode} onChange={e=>setCardSizeMode(e.target.value as any)} style={{flexShrink:0,padding:'5px 8px',borderRadius:'6px',fontSize:'12px',fontWeight:600,background:'#1e293b',color:'#94a3b8',border:'1px solid #334155',cursor:'pointer'}}>
+    <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#0f172a",overflow:"hidden"}}>
+
+      {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
+      <div style={{display:"flex",alignItems:"center",gap:4,padding:"6px 10px",background:"#0f172a",borderBottom:"1px solid #1e3a5f",overflowX:"auto",flexShrink:0,WebkitOverflowScrolling:"touch" as any,scrollbarWidth:"none" as any}}>
+
+        {/* Board name */}
+        <Link href={`/app/boards?team=${board?.team_id}`} style={{color:"#64748b",textDecoration:"none",fontSize:12,flexShrink:0}}>←</Link>
+        <span style={{color:"#60a5fa",fontWeight:700,fontSize:13,flexShrink:0,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{board?.name}</span>
+
+        <div style={{width:1,height:20,background:"#1e3a5f",flexShrink:0,margin:"0 4px"}}/>
+
+        {/* Save */}
+        {canEdit && (
+          <button onClick={saveBoard} disabled={saving}
+            style={{...toolBtn(dirty,"#1d4ed8"), opacity: saving ? 0.6 : 1}}>
+            {saving ? "Saving…" : dirty ? "● Save" : "✓ Saved"}
+          </button>
+        )}
+
+        {/* Edit toggle */}
+        {canEdit && (
+          <button onClick={()=>setEditMode(m=>!m)} style={toolBtn(editMode,"#dc2626")}>
+            {editMode ? "✏ Editing" : "✏ Edit"}
+          </button>
+        )}
+
+        {/* Reload */}
+        <button onClick={()=>{ loadBoard(); if(googleConfig) loadPlayers(); }} style={toolBtn(false)}>↻ Reload</button>
+
+        <div style={{width:1,height:20,background:"#1e3a5f",flexShrink:0,margin:"0 4px"}}/>
+
+        {/* Tools — only in edit mode */}
+        {editMode && !objectsLocked && (<>
+          <button onClick={()=>setTool(t=>t==="select"?"pointer":"select")} style={toolBtn(tool==="select")}>⬚ Select</button>
+          <button onClick={()=>setTool(t=>t==="lane"?"pointer":"lane")}     style={toolBtn(tool==="lane")}>▦ Lane</button>
+          <button onClick={()=>setTool(t=>t==="text"?"pointer":"text")}     style={toolBtn(tool==="text")}>T Text</button>
+          <button onClick={()=>setTool(t=>t==="note"?"pointer":"note")}     style={toolBtn(tool==="note")}>📝 Note</button>
+          <div style={{width:1,height:20,background:"#1e3a5f",flexShrink:0,margin:"0 4px"}}/>
+        </>)}
+
+        {/* Lock */}
+        {canEdit && (
+          <button onClick={()=>{ setObjectsLocked(l=>!l); if(tool!=="pointer") setTool("pointer"); }}
+            style={toolBtn(objectsLocked,"#b45309")}>
+            {objectsLocked ? "🔒 Locked" : "🔓 Lock"}
+          </button>
+        )}
+
+        <div style={{width:1,height:20,background:"#1e3a5f",flexShrink:0,margin:"0 4px"}}/>
+
+        {/* Card size */}
+        <select value={cardSizeMode} onChange={e=>{ setCardSizeMode(e.target.value as any); setDirty(true); }}
+          style={{padding:"5px 8px",background:"#1e293b",color:"#94a3b8",border:"1px solid #334155",borderRadius:7,fontSize:12,cursor:"pointer",flexShrink:0}}>
           <option value="large">Cards: Large</option>
           <option value="medium">Cards: Medium</option>
           <option value="small">Cards: Small</option>
         </select>
-      </div>      {error && <div className="px-6 py-3 text-red-600 border-b relative z-40">{error}</div>}
 
-      {loading ? (
-        <div className="p-6">Loading...</div>
-      ) : (
-        <div className="flex h-[calc(100vh-73px)] min-w-0">
-          {/* Left sidebar */}
-          {!sidebarCollapsed ? (
-            <aside className="w-96 shrink-0 border-r p-4 overflow-auto bg-dark-900 relative z-30">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-semibold">
-                  {sidebarMode === "players" ? "Roster" : "Objects"}
+        {/* Roster toggle */}
+        <button onClick={()=>setSidebarOpen(s=>!s)} style={toolBtn(sidebarOpen,"#0f766e")}>
+          👥 Roster
+        </button>
+
+        {/* Background */}
+        {canEdit && (<>
+          <button onClick={()=>bgInputRef.current?.click()} style={toolBtn(false)}>🖼 BG</button>
+          {backgroundUrl && <button onClick={()=>{ setBackgroundUrl(null); setDirty(true); }} style={toolBtn(false)}>✕ BG</button>}
+          <input ref={bgInputRef} type="file" accept="image/*" style={{display:"none"}} onChange={onBgFileChange}/>
+        </>)}
+
+        {/* Sheet config */}
+        {canEdit && (
+          <button onClick={()=>{ setSheetIdInput(googleConfig?.sheetId??""); setSheetRangeInput(googleConfig?.range??"Sheet1!A:I"); setShowSheetEdit(true); }}
+            style={toolBtn(!!googleConfig,"#059669")}>
+            📊 Sheet
+          </button>
+        )}
+      </div>
+
+      {/* ── Main content ─────────────────────────────────────────────────────── */}
+      <div style={{flex:1,display:"flex",overflow:"hidden",minHeight:0}}>
+
+        {/* ── Roster Sidebar ───────────────────────────────────────────────── */}
+        {sidebarOpen && (
+          <div style={{width:220,flexShrink:0,background:"#1e293b",borderRight:"1px solid #1e3a5f",display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{padding:"10px 12px",borderBottom:"1px solid #1e3a5f",flexShrink:0}}>
+              <input type="text" placeholder="Search players…" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
+                style={{width:"100%",padding:"7px 10px",background:"#0f172a",border:"1px solid #334155",borderRadius:7,color:"#f1f5f9",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
+              <select value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)}
+                style={{marginTop:6,width:"100%",padding:"6px 8px",background:"#0f172a",border:"1px solid #334155",borderRadius:7,color:"#94a3b8",fontSize:12,outline:"none"}}>
+                <option value="all">All Grades</option>
+                {allGrades.map(g=><option key={g} value={g}>Grade {g}</option>)}
+              </select>
+            </div>
+
+            <div style={{flex:1,overflowY:"auto",padding:"8px 8px"}}>
+              {!googleConfig ? (
+                <div style={{padding:"20px 8px",textAlign:"center"}}>
+                  <p style={{color:"#64748b",fontSize:12,margin:"0 0 10px"}}>No roster source configured.</p>
+                  {canEdit && <button onClick={()=>setShowSheetEdit(true)} style={{padding:"7px 12px",background:"#059669",color:"#fff",border:"none",borderRadius:6,fontSize:12,cursor:"pointer"}}>Add Sheet</button>}
                 </div>
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center border rounded overflow-hidden bg-dark-800">
-                    <button
-                      type="button"
-                      className={`px-2 py-1 text-xs ${sidebarMode === "players" ? "bg-dark-800 font-semibold" : ""}`}
-                      onClick={() => setSidebarMode("players")}
-                      title="Show players"
-                    >
-                      Players
-                    </button>
-                    <button
-                      type="button"
-                      className={`px-2 py-1 text-xs ${sidebarMode === "objects" ? "bg-dark-800 font-semibold" : ""}`}
-                      onClick={() => setSidebarMode("objects")}
-                      title="Show objects"
-                    >
-                      Objects
-                    </button>
+              ) : playersLoading ? (
+                <div style={{padding:16,color:"#64748b",fontSize:12,textAlign:"center"}}>Loading roster…</div>
+              ) : playersError ? (
+                <div style={{padding:12,color:"#f87171",fontSize:12}}>{playersError}</div>
+              ) : filteredPlayers.length === 0 ? (
+                <div style={{padding:16,color:"#64748b",fontSize:12,textAlign:"center"}}>No players found</div>
+              ) : filteredPlayers.map(p => {
+                const bg  = gradeColor(p.grade);
+                const fg  = gradeText(p.grade);
+                const onBoard = placedPlayers.some(pp=>pp.player.id===p.id);
+                return (
+                  <div key={p.id}
+                    draggable={editMode && !objectsLocked}
+                    onDragStart={e=>onPlayerDragStart(e,p)}
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"6px 8px",marginBottom:4,background:bg,borderRadius:8,cursor:editMode&&!objectsLocked?"grab":"default",opacity:onBoard?0.5:1,border:"1px solid rgba(255,255,255,0.1)"}}>
+                    {/* Photo */}
+                    <div style={{width:28,height:28,borderRadius:"50%",background:"rgba(255,255,255,0.15)",overflow:"hidden",flexShrink:0}}>
+                      {p.picture && <img src={p.picture} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";}}/>}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{color:fg,fontWeight:700,fontSize:11,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name}</div>
+                      <div style={{color:fg,fontSize:10,opacity:0.7}}>{p.position}{p.grade?" · Gr."+p.grade:""}</div>
+                    </div>
+                    {/* Add to board button for mobile */}
+                    {editMode && !objectsLocked && !onBoard && (
+                      <button onClick={()=>addPlayerToBoard(p)}
+                        title="Add to board"
+                        style={{flexShrink:0,width:20,height:20,borderRadius:"50%",background:"rgba(255,255,255,0.2)",border:"none",color:fg,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,fontWeight:700}}>+</button>
+                    )}
+                    {onBoard && <span style={{color:fg,fontSize:10,opacity:0.5,flexShrink:0}}>✓</span>}
                   </div>
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-dark-800"
-                    onClick={() => setSidebarCollapsed(true)}
-                  >
-                    Collapse
-                  </button>
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-dark-800"
-                    onClick={() => {
-                      if (googleConfig) loadPlayersFromGoogle(googleConfig);
-                    }}
-                    disabled={!googleConfig}
-                  >
-                    Refresh
-                  </button>
-                </div>
+                );
+              })}
+            </div>
+
+            {/* Reload roster */}
+            {googleConfig && (
+              <div style={{padding:"8px 12px",borderTop:"1px solid #1e3a5f",flexShrink:0}}>
+                <button onClick={loadPlayers} style={{width:"100%",padding:"7px",background:"#1e3a5f",color:"#94a3b8",border:"1px solid #334155",borderRadius:7,fontSize:12,cursor:"pointer"}}>
+                  ↻ Reload Roster
+                </button>
               </div>
+            )}
+          </div>
+        )}
 
-              {sidebarMode === "objects" ? (
-                <div className="border rounded p-3 mb-3 bg-dark-800">
-                  <div className="text-xs font-semibold mb-2">Drag onto the board</div>
-
-                  <div className="text-xs text-dark-300 mb-2">Maroon (1–11)</div>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {Array.from({ length: 11 }).map((_, i) => {
-                      const label = String(i + 1);
-                      return (
-                        <div
-                          key={`maroon-${label}`}
-                          draggable
-                          onDragStart={(e) =>
-                            onTokenDragStart(e, {
-                              tokenType: "circle",
-                              tokenColor: "#7f1d1d",
-                              tokenLabel: label,
-                            })
-                          }
-                          className="w-10 h-10 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center text-white font-semibold select-none"
-                          style={{ background: "#7f1d1d" }}
-                          title={`Maroon ${label}`}
-                        >
-                          {label}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="text-xs text-dark-300 mb-2">Blue (1–11)</div>
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {Array.from({ length: 11 }).map((_, i) => {
-                      const label = String(i + 1);
-                      return (
-                        <div
-                          key={`blue-${label}`}
-                          draggable
-                          onDragStart={(e) =>
-                            onTokenDragStart(e, {
-                              tokenType: "circle",
-                              tokenColor: "#1d4ed8",
-                              tokenLabel: label,
-                            })
-                          }
-                          className="w-10 h-10 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center text-white font-semibold select-none"
-                          style={{ background: "#1d4ed8" }}
-                          title={`Blue ${label}`}
-                        >
-                          {label}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="text-xs text-dark-300 mb-2">Ball</div>
-                  <div className="flex items-center gap-2">
-                    <div
-                      draggable
-                      onDragStart={(e) => onTokenDragStart(e, { tokenType: "ball" })}
-                      className="w-11 h-11 rounded-full cursor-grab active:cursor-grabbing flex items-center justify-center border bg-dark-800 select-none"
-                      title="Soccer ball"
-                    >
-                      <span style={{ fontSize: 24 }}>⚽</span>
-                    </div>
-                    <div className="text-xs text-dark-300">Drag onto canvas</div>
-                  </div>
-                </div>
-              ) : null}
-
-              {/* Background upload */}
-              <div className="border rounded p-3 mb-3 bg-dark-800">
-                <div className="text-xs font-semibold mb-2">Background</div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-dark-800"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Upload image
-                  </button>
-                  <button
-                    type="button"
-                    className="border px-3 py-1 rounded text-sm bg-dark-800"
-                    onClick={() => {
-                      setBackgroundUrl("");
-                      setDirty(true);
-                    }}
-                    disabled={!backgroundUrl}
-                  >
-                    Clear
-                  </button>
-                </div>
-
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) onSelectBackgroundFile(f);
-                    e.currentTarget.value = "";
-                  }}
-                />
-              </div>
-
-              {/* Filters (players mode only) */}
-              {sidebarMode === "players" ? (
-                <div className="border rounded p-3 mb-3 bg-dark-800 relative z-30">
-                  <div className="text-xs font-semibold mb-2">Filters</div>
-
-                <input
-                  className="w-full border rounded px-2 py-1 text-sm mb-2"
-                  placeholder="Search name / notes / position"
-                  value={filters.search}
-                  onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
-                />
-
-                <DropdownMultiSelect
-                  label="Grade"
-                  options={gradeOptions.map((g) => ({ value: g, label: `Grade ${g}` }))}
-                  selected={filters.grade}
-                  open={openDropdown === "grade"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "grade" ? null : "grade"));
-                  }}
-                  onToggle={(v) => toggleMulti("grade", v)}
-                />
-
-                <DropdownMultiSelect
-                  label="Returning"
-                  options={returningOptions.map((r) => ({ value: r, label: r }))}
-                  selected={filters.returning}
-                  open={openDropdown === "returning"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "returning" ? null : "returning"));
-                  }}
-                  onToggle={(v) => toggleMulti("returning", v)}
-                />
-
-                <DropdownMultiSelect
-                  label="Primary"
-                  options={primaryOptions.map((p) => ({ value: p, label: p }))}
-                  selected={filters.primary}
-                  open={openDropdown === "primary"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "primary" ? null : "primary"));
-                  }}
-                  onToggle={(v) => toggleMulti("primary", v)}
-                />
-
-                <DropdownMultiSelect
-                  label="Likelihood"
-                  options={likelihoodOptions.map((l) => ({ value: l, label: l }))}
-                  selected={filters.likelihood}
-                  open={openDropdown === "likelihood"}
-                  onOpen={(e) => {
-                    e.stopPropagation();
-                    setOpenDropdown((v) => (v === "likelihood" ? null : "likelihood"));
-                  }}
-                  onToggle={(v) => toggleMulti("likelihood", v)}
-                />
-
-                  <button
-                    type="button"
-                    className="text-xs underline text-dark-300 mt-2"
-                    onClick={() =>
-                      setFilters({ search: "", grade: [], returning: [], primary: [], likelihood: [] })
-                    }
-                  >
-                    Clear filters
-                  </button>
-                </div>
-              ) : null}
-
-              {sidebarMode === "players" ? (
-                <>
-                  {playersLoading && <div className="text-sm">Loading players…</div>}
-                  {playersError && <div className="text-sm text-red-600">{playersError}</div>}
-
-                  {!playersLoading && !playersError && players.length > 0 && (
-                    <div className="text-xs text-dark-300 mb-2">
-                      Showing {filteredPlayers.length} of {players.length}
-                    </div>
-                  )}
-
-                  {!playersLoading && !playersError && filteredPlayers.length > 0 && (
-                    <div className="space-y-2">
-                      {filteredPlayers.map((p, idx) => (
-                        <div
-                          key={`${p.id || "noid"}-${p.name || "noname"}-${idx}`}
-                          className="border rounded bg-dark-800 cursor-grab active:cursor-grabbing"
-                          draggable
-                          onDragStart={(e) => onPlayerDragStart(e, p)}
-                        >
-                          <div className="p-2">
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                className="w-12 h-12 rounded overflow-hidden bg-dark-700 flex-shrink-0 border"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (p.pictureProxyUrl) {
-                                    const u = `${p.pictureProxyUrl}${
-                                      p.pictureProxyUrl.includes("?") ? "&" : "?"
-                                    }ts=${Date.now()}`;
-                                    setPhotoModal({ url: u, name: p.name });
-                                  }
-                                }}
-                                draggable={false}
-                                title="Click to enlarge"
-                              >
-                                {p.pictureProxyUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={p.pictureProxyUrl}
-                                    alt={`${p.name} photo`}
-                                    width={48}
-                                    height={48}
-                                    style={{ width: 48, height: 48, objectFit: "cover" }}
-                                    draggable={false}
-                                  />
-                                ) : null}
-                              </button>
-
-                              <div className="min-w-0">
-                                <div className="font-medium truncate">{p.name}</div>
-                                <div className="text-xs text-dark-200">
-                                  Grade: {p.grade || "?"} • Pos: {p.position || "?"}
-                                  {p.secondaryPosition ? ` / ${p.secondaryPosition}` : ""} • Returning:{" "}
-                                  {p.returning || "?"}
-                                </div>
-                                <div className="text-xs text-dark-200">
-                                  Primary: {p.potentialPrimary || "?"} • Likelihood:{" "}
-                                  {p.likelihoodPrimary || "?"}
-                                </div>
-                              </div>
-                            </div>
-
-                            {p.notes ? (
-                              <div className="text-xs text-dark-300 mt-1">{p.notes}</div>
-                            ) : null}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </>
-              ) : null}
-            </aside>
-          ) : (
-            <aside className="w-12 shrink-0 border-r bg-dark-900 relative z-30 flex flex-col items-center py-3">
-              <button
-                type="button"
-                className="border px-2 py-1 rounded text-xs bg-dark-800 rotate-90"
-                onClick={() => setSidebarCollapsed(false)}
-                title="Show roster"
-              >
-                Show
-              </button>
-            </aside>
+        {/* ── Board Canvas ──────────────────────────────────────────────────── */}
+        <div style={{flex:1,minWidth:0,overflow:"hidden",position:"relative"}}>
+          {error && (
+            <div style={{position:"absolute",top:8,left:"50%",transform:"translateX(-50%)",background:"#7f1d1d",color:"#fca5a5",padding:"8px 16px",borderRadius:8,fontSize:13,zIndex:50}}>
+              {error}
+            </div>
           )}
+          <HtmlBoard
+            editMode={editMode}
+            objectsLocked={objectsLocked}
+            placed={placedPlayers}
+            onPlacedChange={updatePlaced}
+            objects={boardObjects}
+            onObjectsChange={updateObjects}
+            tool={tool}
+            onToolChange={setTool}
+            cardSizeMode={cardSizeMode}
+            playerDragMime={PLAYER_DRAG_MIME}
+            objectDragMime={OBJECT_DRAG_MIME}
+            backgroundUrl={backgroundUrl}
+            onAddPlayerToBoard={addPlayerToBoard}
+          />
+        </div>
+      </div>
 
-          {/* Board */}
-          <section className="flex-1 min-w-0 relative z-0">
-            <HtmlBoard
-              editMode={editMode}
-              placed={placedPlayers}
-              onPlacedChange={(next) => {
-                setPlacedPlayers(next);
-                setDirty(true);
-              }}
-              objects={boardObjects}
-              onObjectsChange={(next) => {
-                setBoardObjects(next);
-                setDirty(true);
-              }}
-              tool={tool}
-              onToolChange={(t) => setTool(t)}
-              cardSizeMode={cardSizeMode}
-              playerDragMime={PLAYER_DRAG_MIME}
-              objectDragMime={OBJECT_DRAG_MIME}
-              backgroundUrl={backgroundUrl || undefined}
-              onOpenPlayer={(pp) => setPlayerModal(pp)}
-              canvasWidth={3000}
-              canvasHeight={2000}
-            />
-          </section>
+      {/* ── Sheet Config Modal ───────────────────────────────────────────────── */}
+      {showSheetEdit && (
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:20}} onClick={()=>setShowSheetEdit(false)}>
+          <div style={{background:"#1e293b",borderRadius:14,padding:28,width:"100%",maxWidth:460,border:"1px solid #334155"}} onClick={e=>e.stopPropagation()}>
+            <h3 style={{color:"#f1f5f9",fontSize:18,fontWeight:700,margin:"0 0 20px"}}>📊 Google Sheet Roster</h3>
+            <label style={{display:"block",color:"#94a3b8",fontSize:12,fontWeight:600,marginBottom:5}}>SHEET ID</label>
+            <input type="text" value={sheetIdInput} onChange={e=>setSheetIdInput(e.target.value)}
+              placeholder="Paste the Google Sheet ID from the URL"
+              style={{width:"100%",padding:"9px 12px",background:"#0f172a",border:"1px solid #334155",borderRadius:7,color:"#f1f5f9",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:12}}/>
+            <label style={{display:"block",color:"#94a3b8",fontSize:12,fontWeight:600,marginBottom:5}}>RANGE</label>
+            <input type="text" value={sheetRangeInput} onChange={e=>setSheetRangeInput(e.target.value)}
+              placeholder="Sheet1!A:I"
+              style={{width:"100%",padding:"9px 12px",background:"#0f172a",border:"1px solid #334155",borderRadius:7,color:"#f1f5f9",fontSize:13,outline:"none",boxSizing:"border-box",marginBottom:16}}/>
+            <p style={{color:"#475569",fontSize:11,margin:"0 0 20px"}}>The sheet ID is the long string in the Google Sheets URL between /d/ and /edit</p>
+            <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
+              <button onClick={()=>setShowSheetEdit(false)} style={{padding:"9px 18px",background:"transparent",color:"#94a3b8",border:"1px solid #334155",borderRadius:8,fontSize:14,cursor:"pointer"}}>Cancel</button>
+              <button onClick={saveSheetConfig} disabled={!sheetIdInput.trim()}
+                style={{padding:"9px 20px",background:"#059669",color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer"}}>Save & Load</button>
+            </div>
+          </div>
         </div>
       )}
-
-      {/* Photo modal (roster thumbnail) */}
-      {photoModal ? (
-        <div
-          className="fixed inset-0 z-[999] bg-maroon-800/80 flex items-center justify-center p-4"
-          onClick={() => setPhotoModal(null)}
-        >
-          <div className="w-full max-w-5xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-white font-semibold truncate">{photoModal.name}</div>
-              <button
-                type="button"
-                className="text-white underline text-sm"
-                onClick={() => setPhotoModal(null)}
-              >
-                Close
-              </button>
-            </div>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={photoModal.url}
-              alt={`${photoModal.name} large`}
-              className="w-full max-h-[80vh] object-contain rounded-lg bg-maroon-800"
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {/* Player modal (clicked on canvas) */}
-      {playerModal ? (
-        <div
-          className="fixed inset-0 z-[1000] bg-maroon-800/80 flex items-center justify-center p-4"
-          onClick={() => setPlayerModal(null)}
-        >
-          <div
-            className="w-full max-w-5xl bg-dark-800 rounded-xl overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b">
-              <div className="font-semibold truncate">{playerModal.player.name}</div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  className="border px-3 py-1 rounded text-sm bg-dark-800"
-                  onClick={() => {
-                    removePlacedCard(playerModal.id);
-                    setPlayerModal(null);
-                  }}
-                >
-                  Remove from board
-                </button>
-                <button
-                  type="button"
-                  className="underline text-sm"
-                  onClick={() => setPlayerModal(null)}
-                >
-                  Close
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 flex gap-4">
-              <div className="w-48 h-48 bg-dark-800 rounded overflow-hidden flex items-center justify-center shrink-0">
-                {playerModal.player.pictureUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={playerModal.player.pictureUrl}
-                    alt={`${playerModal.player.name} photo`}
-                    className="w-full h-full object-cover"
-                    draggable={false}
-                  />
-                ) : (
-                  <div className="text-3xl font-bold text-dark-100">
-                    {(playerModal.player.name || "?").slice(0, 2).toUpperCase()}
-                  </div>
-                )}
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <div className="text-sm text-dark-100 mb-1">
-                  <span className="font-semibold">Grade:</span> {playerModal.player.grade || "?"}
-                </div>
-                <div className="text-sm text-dark-100 mb-1">
-                  <span className="font-semibold">Position:</span>{" "}
-                  {playerModal.player.pos1 || "?"}
-                  {playerModal.player.pos2 ? ` / ${playerModal.player.pos2}` : ""}
-                </div>
-                <div className="text-sm text-dark-100 mb-1">
-                  <span className="font-semibold">Returning:</span>{" "}
-                  {playerModal.player.returning || "?"}
-                </div>
-                <div className="text-sm text-dark-100 mb-1">
-                  <span className="font-semibold">Primary:</span>{" "}
-                  {playerModal.player.primary || "?"}
-                </div>
-                <div className="text-sm text-dark-100 mb-1">
-                  <span className="font-semibold">Likelihood:</span>{" "}
-                  {playerModal.player.likelihood || "?"}
-                </div>
-
-                {playerModal.player.notes ? (
-                  <div className="mt-3">
-                    <div className="text-xs font-semibold text-dark-200 mb-1">Notes</div>
-                    <div className="text-sm text-dark-100 whitespace-pre-wrap">
-                      {playerModal.player.notes}
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="mt-4 text-xs text-dark-400">
-                  Tip: resize the card using the bottom-right handle on the card.
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
-          {/* Share modal */}
-      {shareOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-maroon-800/40 p-4">
-          <div className="w-full max-w-xl rounded-2xl bg-dark-800 shadow-lg border">
-            <div className="flex items-center justify-between px-5 py-4 border-b">
-              <div>
-                <div className="text-lg font-semibold">Share Board</div>
-                <div className="flex gap-2 mt-2 border-b border-dark-600">
-                  <button onClick={() => setShareTab("email")} className={`px-4 py-1.5 text-sm font-medium border-b-2 -mb-px ${shareTab === "email" ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>📧 Email</button>
-                  <button onClick={() => setShareTab("link")} className={`px-4 py-1.5 text-sm font-medium border-b-2 -mb-px ${shareTab === "link" ? "border-white text-white" : "border-transparent text-gray-400 hover:text-white"}`}>🔗 Share Link</button>
-                </div>
-              </div>
-              <button className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-dark-700" onClick={() => setShareOpen(false)}>✕</button>
-            </div>
-
-            {shareTab === "email" && (
-              <div className="p-5 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium mb-1">Email address</label>
-                  <div className="flex gap-2">
-                    <input
-                      className="flex-1 border rounded px-3 py-2 bg-dark-700 text-sm focus:outline-none focus:ring-1 focus:ring-white"
-                      placeholder="name@example.com"
-                      value={shareInput}
-                      onChange={e => setShareInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); if (shareInput.trim()) { setShareEmails(cur => [...cur, shareInput.trim()]); setShareInput(""); } } }}
-                    />
-                    <button
-                      className="rounded bg-dark-600 px-3 py-2 text-sm hover:bg-dark-500"
-                      onClick={() => { if (shareInput.trim()) { setShareEmails(cur => [...cur, shareInput.trim()]); setShareInput(""); } }}
-                    >Add</button>
-                  </div>
-                  <div className="text-xs text-dark-400 mt-1">Tip: press Enter to add.</div>
-                </div>
-
-                <div>
-                  <div className="text-sm font-medium mb-2">Shared with</div>
-                  {shareEmails.length === 0 ? (
-                    <div className="text-sm text-dark-300">No one yet.</div>
-                  ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {shareEmails.map((em) => (
-                        <span
-                          key={em}
-                          className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm bg-dark-700"
-                        >
-                          <span className="max-w-[320px] truncate">{em}</span>
-                          <button
-                            type="button"
-                            className="w-6 h-6 rounded-full border hover:bg-dark-800"
-                            onClick={() => setShareEmails((cur) => cur.filter((x) => x !== em))}
-                          >
-                            ×
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button type="button" className="border px-4 py-2 rounded bg-dark-800" onClick={() => setShareOpen(false)}>Cancel</button>
-                  <button
-                    type="button"
-                    className="rounded bg-maroon-800 text-white px-4 py-2 disabled:opacity-60"
-                    onClick={saveSharing}
-                    disabled={shareSaving}
-                  >{shareSaving ? "Saving..." : "Save"}</button>
-                </div>
-              </div>
-            )}
-
-            {shareTab === "link" && (
-              <div className="px-5 py-4 flex flex-col gap-4">
-                <div>
-                  <label className="text-sm text-dark-300 block mb-1">Access Mode</label>
-                  <div className="flex gap-2">
-                    <button onClick={() => setShareLinkMode("view")} className={`flex-1 py-2 rounded text-sm font-medium ${shareLinkMode === "view" ? "bg-dark-600 text-white ring-1 ring-yellow-500" : "bg-dark-700 text-dark-300 hover:text-white"}`}>👁️ View Only</button>
-                    <button onClick={() => setShareLinkMode("edit")} className={`flex-1 py-2 rounded text-sm font-medium ${shareLinkMode === "edit" ? "bg-dark-600 text-white ring-1 ring-yellow-500" : "bg-dark-700 text-dark-300 hover:text-white"}`}>✏️ Can Edit</button>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm text-dark-300 block mb-1">Password (optional)</label>
-                  <input type="password" value={shareLinkPassword} onChange={e => setShareLinkPassword(e.target.value)} placeholder="Leave blank for no password" className="w-full rounded border border-dark-600 bg-dark-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-yellow-500" />
-                </div>
-                <button onClick={generateShareLink} disabled={shareLinkLoading} className="w-full bg-yellow-600 hover:bg-yellow-500 disabled:opacity-50 text-black font-semibold py-2 rounded text-sm">
-                  {shareLinkLoading ? "Generating..." : "Generate Link"}
-                </button>
-                {shareLinkUrl && (
-                  <div className="rounded bg-dark-700 border border-dark-600 p-3 flex items-center gap-2">
-                    <input readOnly value={shareLinkUrl} className="flex-1 bg-transparent text-xs text-dark-200 outline-none truncate" />
-                    <button onClick={() => navigator.clipboard.writeText(shareLinkUrl)} className="text-xs bg-dark-600 hover:bg-dark-500 text-white px-2 py-1 rounded whitespace-nowrap">Copy</button>
-                  </div>
-                )}
-              </div>
-            )}
-
-          </div>
-        </div>
-      ) : null}
-
-    </main>
-  );
-}
-
-/** Dropdown multi-select */
-function DropdownMultiSelect({
-  label,
-  options,
-  selected,
-  open,
-  onOpen,
-  onToggle,
-}: {
-  label: string;
-  options: { value: string; label: string }[];
-  selected: string[];
-  open: boolean;
-  onOpen: (e: React.MouseEvent) => void;
-  onToggle: (value: string) => void;
-}) {
-  const selectedCount = selected.length;
-
-  return (
-    <div className="mb-2 relative">
-      <button
-        type="button"
-        className="w-full border rounded px-2 py-1 text-sm flex items-center justify-between bg-dark-800"
-        onMouseDown={(e) => e.stopPropagation()}
-        onClick={onOpen}
-      >
-        <span>
-          {label}
-          {selectedCount ? ` (${selectedCount})` : ""}
-        </span>
-        <span className="text-dark-400">{open ? "▲" : "▼"}</span>
-      </button>
-
-      {open ? (
-        <div
-          className="mt-1 w-full bg-dark-800 border rounded shadow p-2 max-h-56 overflow-auto relative z-40"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {options.length === 0 ? (
-            <div className="text-xs text-dark-400">No options</div>
-          ) : (
-            <div className="space-y-1">
-              {options.map((o) => (
-                <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selected.includes(o.value)}
-                    onChange={() => onToggle(o.value)}
-                  />
-                  <span>{o.label}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-      ) : null}
     </div>
   );
-}
-
-function uniq(arr: string[]) {
-  const out: string[] = [];
-  const set = new Set<string>();
-  for (const a of arr) {
-    const v = (a ?? "").trim();
-    if (!v) continue;
-    if (set.has(v)) continue;
-    set.add(v);
-    out.push(v);
-  }
-  return out;
-}
-
-/**
- * Normalize Google Drive links into a "direct-ish" image URL.
- */
-function normalizePictureUrl(raw: string) {
-  const s = (raw ?? "").trim();
-  if (!s) return "";
-
-  try {
-    const u = new URL(s);
-
-    // /file/d/<id>/
-    const m = u.pathname.match(/\/file\/d\/([^/]+)/);
-    if (m && m[1]) return `https://drive.google.com/uc?export=view&id=${m[1]}`;
-
-    // /thumbnail?id=...
-    if (u.hostname === "drive.google.com" && u.pathname === "/thumbnail") {
-      let id = u.searchParams.get("id") ?? "";
-      if (id.includes("=") && !id.includes("%3D")) {
-        id = id.split("=")[0];
-      }
-      if (id) {
-        const sz = u.searchParams.get("sz") || "w1000";
-        return `https://drive.google.com/thumbnail?id=${id}&sz=${encodeURIComponent(sz)}`;
-      }
-    }
-
-    // ?id=<id>
-    const idParam = u.searchParams.get("id");
-    if (idParam) {
-      const id = idParam.includes("=") ? idParam.split("=")[0] : idParam;
-      return `https://drive.google.com/uc?export=view&id=${id}`;
-    }
-
-    return u.toString();
-  } catch {
-    return "";
-  }
 }
