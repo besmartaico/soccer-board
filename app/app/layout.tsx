@@ -48,9 +48,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div>
       {/* ── Desktop nav ── */}
-      <nav className="desktop-only bg-dark-800 border-b border-dark-700 px-6 py-3 flex items-center justify-between relative z-40">
+      <nav className="desktop-only bg-[#161b27] border-b border-[#2a1520]-700 px-6 py-3 flex items-center justify-between relative z-40">
         <div className="flex items-center gap-6">
-          <span className="font-bold text-lg text-white mr-2">Lone Peak Soccer</span>
+          <span className="font-bold text-lg text-white mr-2">BeSmart Boards</span>
           <Link href="/app/teams" className={`text-sm font-medium ${pathname.startsWith("/app/teams") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Teams</Link>
           <Link href="/app/boards" className={`text-sm font-medium ${pathname.startsWith("/app/boards") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Boards</Link>
           {isAdmin && <Link href="/app/admin" className={`text-sm font-medium ${pathname.startsWith("/app/admin") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Admin</Link>}
@@ -58,7 +58,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-3">
           {email && <span className="text-gray-400 text-sm">{email}</span>}
           <button onClick={async () => { await supabase.auth.signOut(); window.location.href = "/login"; }}
-            className="border border-dark-600 text-gray-400 px-3 py-1 rounded text-sm hover:bg-dark-700">
+            className="border border-[#2a1520]-600 text-gray-400 px-3 py-1 rounded text-sm hover:bg-dark-700">
             Logout
           </button>
         </div>
@@ -74,7 +74,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <button onClick={() => setDrawerOpen(true)}
           style={{background:"transparent",border:"none",color:"#fff",fontSize:"22px",cursor:"pointer",padding:"4px 8px",lineHeight:1}}
           aria-label="Open menu">☰</button>
-        <span style={{fontWeight:800,fontSize:"15px",color:"#fff"}}>⚽ LP Soccer</span>
+        <span style={{fontWeight:800,fontSize:"15px",color:"#fff"}}>⚽ BeSmart Boards</span>
         <button onClick={async () => { await supabase.auth.signOut(); window.location.href = "/login"; }}
           style={{background:"transparent",border:"1px solid #333",color:"#9ca3af",padding:"5px 10px",borderRadius:"6px",cursor:"pointer",fontSize:"12px"}}>
           Logout
@@ -90,7 +90,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             background:"#111",borderRight:"1px solid #1f1f1f",
             display:"flex",flexDirection:"column"}}>
             <div style={{padding:"20px 24px 12px",borderBottom:"1px solid #1f1f1f"}}>
-              <div style={{fontWeight:800,fontSize:"17px",color:"#fff"}}>⚽ LP Soccer</div>
+              <div style={{fontWeight:800,fontSize:"17px",color:"#fff"}}>⚽ BeSmart Boards</div>
               {email && <div style={{color:"#6b7280",fontSize:"12px",marginTop:"4px"}}>{email}</div>}
             </div>
             <nav style={{flex:1,paddingTop:"8px"}}>
