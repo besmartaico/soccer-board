@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -18,7 +18,7 @@ const SHEET_EXAMPLE = `Required Google Sheet columns (Row 1 = headers):
   H: notes      — Scouting notes
   I: picture    — Photo URL (optional)`;
 
-export default function BoardsPage() {
+function BoardsPageInner() {
   const router = useRouter();
   const params = useSearchParams();
   const teamId = params.get("team") ?? "";
@@ -222,5 +222,13 @@ export default function BoardsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function BoardsPage() {
+  return (
+    <Suspense fallback={<div style={{minHeight:"100vh",background:"#0f172a",display:"flex",alignItems:"center",justifyContent:"center",color:"#64748b"}}>Loading…</div>}>
+      <BoardsPageInner />
+    </Suspense>
   );
 }
