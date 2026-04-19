@@ -170,31 +170,29 @@ export default function BoardPage() {
 
   // ── Player drag start (from roster sidebar) ─────────────────────────────────
   function onPlayerDragStart(e: React.DragEvent, p: PlayerRow) {
-    const payload: PlayerPayload = {
-      id: p.id, name: p.name, grade: p.grade,
-      pos1: p.position, pos2: p.secondaryPosition,
-      likelihood: p.likelihoodPrimary, notes: p.notes,
-      pictureUrl: p.picture || p.pictureProxyUrl,
-    };
+    const payload = rowToPayload(p);
     e.dataTransfer.setData(PLAYER_DRAG_MIME, JSON.stringify(payload));
     e.dataTransfer.effectAllowed = "copy";
   }
 
   // ── Add player to board (tap button — mobile) ───────────────────────────────
-  function addPlayerToBoard(p: PlayerRow) {
-    const payload: PlayerPayload = {
+  function rowToPayload(p: PlayerRow): PlayerPayload {
+    return {
       id: p.id, name: p.name, grade: p.grade,
       pos1: p.position, pos2: p.secondaryPosition,
       likelihood: p.likelihoodPrimary, notes: p.notes,
       pictureUrl: p.picture || p.pictureProxyUrl,
     };
+  }
+
+  function addPlayerToBoard(payload: PlayerPayload) {
     const existing = placedPlayers.find(pp => pp.player.id === payload.id);
-    if (existing) return; // already on board
+    if (existing) return;
     const newPlaced: PlacedPlayer = {
       id: Math.random().toString(36).slice(2),
       player: payload,
-      x: 100 + placedPlayers.length * 10,
-      y: 100 + placedPlayers.length * 10,
+      x: 100 + placedPlayers.length * 15,
+      y: 100 + placedPlayers.length * 15,
     };
     updatePlaced([...placedPlayers, newPlaced]);
   }
@@ -379,7 +377,7 @@ export default function BoardPage() {
                     </div>
                     {/* Add to board button for mobile */}
                     {editMode && !objectsLocked && !onBoard && (
-                      <button onClick={()=>addPlayerToBoard(p)}
+                      <button onClick={()=>addPlayerToBoard(rowToPayload(p))}
                         title="Add to board"
                         style={{flexShrink:0,width:20,height:20,borderRadius:"50%",background:"rgba(255,255,255,0.2)",border:"none",color:fg,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,fontWeight:700}}>+</button>
                     )}
