@@ -1,7 +1,6 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 export type PlayerPayload = {
   id: string; name: string; grade?: string; returning?: string;
   primary?: string; likelihood?: string; pos1?: string; pos2?: string;
@@ -17,23 +16,20 @@ export type BoardObject = {
   tokenLabel?: string; tokenColor?: string;
 };
 
-// ─── Grade colors ─────────────────────────────────────────────────────────────
 function gradeColor(grade?: string): string {
-  const g = parseInt((grade ?? "").replace(/[^0-9]/g, ""), 10);
-  if (g === 12) return "#7f1630";
-  if (g === 11) return "#1a1a1a";
-  if (g === 10) return "#6b7280";
-  if (g === 9)  return "#e5e7eb";
+  const g = parseInt((grade ?? "").replace(/[^0-9]/g,""), 10);
+  if (g===12) return "#7f1630";
+  if (g===11) return "#1a1a1a";
+  if (g===10) return "#6b7280";
+  if (g===9)  return "#e5e7eb";
   return "#2d3748";
 }
 function gradeTextColor(grade?: string): string {
-  const g = parseInt((grade ?? "").replace(/[^0-9]/g, ""), 10);
-  return g === 9 ? "#111827" : "#ffffff";
+  const g = parseInt((grade ?? "").replace(/[^0-9]/g,""), 10);
+  return g===9 ? "#111827" : "#ffffff";
 }
+function uid() { return Math.random().toString(36).slice(2,10); }
 
-function uid() { return Math.random().toString(36).slice(2, 10); }
-
-// ─── Props ────────────────────────────────────────────────────────────────────
 type Props = {
   editMode: boolean; objectsLocked?: boolean;
   placed: PlacedPlayer[]; onPlacedChange: (next: PlacedPlayer[]) => void;
@@ -47,7 +43,10 @@ type Props = {
   onAddPlayerToBoard?: (player: PlayerPayload) => void;
 };
 
-const CARD_SIZES = { large:{w:110,h:70}, medium:{w:90,h:56}, small:{w:72,h:44} };
+const CARD = { large:{w:110,h:70}, medium:{w:90,h:56}, small:{w:72,h:44} };
+const MAROON = "#7f1630";
+const DARK   = "#0d1117";
+const MID    = "#161b27";
 
 export default function HtmlBoard({
   editMode, objectsLocked=false, placed, onPlacedChange,
@@ -58,43 +57,54 @@ export default function HtmlBoard({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef    = useRef<HTMLDivElement>(null);
-  const [pan,  setPan]  = useState({ x: 60, y: 60 });
+  const [pan,  setPan]  = useState({x:60,y:60});
   const [zoom, setZoom] = useState(0.7);
   const panRef  = useRef(pan);  panRef.current  = pan;
   const zoomRef = useRef(zoom); zoomRef.current = zoom;
-  const isPanning     = useRef(false);
-  const panStart      = useRef({ x:0,y:0,px:0,py:0 });
-  const movingPlayer  = useRef<{id:string;ox:number;oy:number}|null>(null);
-  const movingObj     = useRef<{id:string;ox:number;oy:number}|null>(null);
-  const resizingObj   = useRef<{id:string;startX:number;startY:number;ow:number;oh:number}|null>(null);
-  const resizingBg    = useRef<{startX:number;startY:number;ow:number;oh:number}|null>(null);
+
+  const isPanning    = useRef(false);
+  const panStart     = useRef({x:0,y:0,px:0,py:0});
+  const movingPlayer = useRef<{id:string;ox:number;oy:number}|null>(null);
+  const movingObj    = useRef<{id:string;ox:number;oy:number}|null>(null);
+  const resizingObj  = useRef<{id:string;startX:number;startY:number;ow:number;oh:number}|null>(null);
+  const resizingBg   = useRef<{startX:number;startY:number;ow:number;oh:number}|null>(null);
+
   const [editingObjId, setEditingObjId] = useState<string|null>(null);
   const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
-  const [bgSize, setBgSize] = useState({ w: canvasWidth, h: canvasHeight });
-  const cardSize = CARD_SIZES[cardSizeMode];
+  const [bgSize, setBgSize]  = useState({w:1400,h:900});
+  const [bgLocked, setBgLocked] = useState(false);
+  const cardSize = CARD[cardSizeMode];
 
-  function clientToCanvas(clientX:number,clientY:number){
-    const rect=containerRef.current!.getBoundingClientRect();
-    return {x:(clientX-rect.left-panRef.current.x)/zoomRef.current,y:(clientY-rect.top-panRef.current.y)/zoomRef.current};
+  function clientToCanvas(cx:number,cy:number){
+    const r=containerRef.current!.getBoundingClientRect();
+    return {x:(cx-r.left-panRef.current.x)/zoomRef.current, y:(cy-r.top-panRef.current.y)/zoomRef.current};
   }
 
-  // ─── Mouse wheel: scroll to pan, Ctrl+wheel to zoom ──────────────────────
+  // ── Scroll to pan, Ctrl+scroll to zoom, BLOCK pinch ─────────────────────
   useEffect(()=>{
     const el=containerRef.current; if(!el) return;
     const onWheel=(e:WheelEvent)=>{
       e.preventDefault();
-      if (e.ctrlKey||e.metaKey) {
-        const delta=e.deltaY>0?0.9:1.1;
-        setZoom(z=>Math.min(3,Math.max(0.15,z*delta)));
+      if(e.ctrlKey||e.metaKey){
+        const f=e.deltaY>0?0.92:1.08;
+        setZoom(z=>Math.min(3,Math.max(0.15,z*f)));
       } else {
-        setPan(p=>({x:p.x-e.deltaX,y:p.y-e.deltaY}));
+        setPan(p=>({x:p.x-e.deltaX, y:p.y-e.deltaY}));
       }
     };
+    // Block pinch-to-zoom on touch devices
+    const blockPinch=(e:TouchEvent)=>{ if(e.touches.length>1) e.preventDefault(); };
     el.addEventListener("wheel",onWheel,{passive:false});
-    return ()=>el.removeEventListener("wheel",onWheel);
+    el.addEventListener("touchstart",blockPinch,{passive:false});
+    el.addEventListener("touchmove",blockPinch,{passive:false});
+    return()=>{
+      el.removeEventListener("wheel",onWheel);
+      el.removeEventListener("touchstart",blockPinch);
+      el.removeEventListener("touchmove",blockPinch);
+    };
   },[]);
 
-  // ─── Keyboard delete ──────────────────────────────────────────────────────
+  // ── Keyboard delete ───────────────────────────────────────────────────────
   useEffect(()=>{
     const onKey=(e:KeyboardEvent)=>{
       if(!editMode||objectsLocked) return;
@@ -109,53 +119,67 @@ export default function HtmlBoard({
     return()=>window.removeEventListener("keydown",onKey);
   },[editMode,objectsLocked,selectedIds,placed,objects]);
 
-  // ─── Canvas pointer events ────────────────────────────────────────────────
+  // ── Canvas pointer events ─────────────────────────────────────────────────
   function onCanvasPointerDown(e:React.PointerEvent){
     if(e.button===2) return;
     const target=e.target as HTMLElement;
     if(target===canvasRef.current||target===containerRef.current){
       if(editMode&&!objectsLocked&&tool!=="pointer"&&tool!=="select"){
         const pos=clientToCanvas(e.clientX,e.clientY);
-        if(tool==="lane"){onObjectsChange([...objects,{id:uid(),kind:"lane",x:pos.x-100,y:pos.y-30,w:200,h:60,title:"Lane"}]);onToolChange("pointer");}
-        else if(tool==="text"){onObjectsChange([...objects,{id:uid(),kind:"text",x:pos.x-50,y:pos.y-12,w:100,h:24,text:"Label"}]);onToolChange("pointer");}
-        else if(tool==="note"){onObjectsChange([...objects,{id:uid(),kind:"note",x:pos.x-60,y:pos.y-40,w:120,h:80,text:"Note",color:"#fef08a"}]);onToolChange("pointer");}
-        else if(tool==="token"){onObjectsChange([...objects,{id:uid(),kind:"token",x:pos.x-18,y:pos.y-18,w:36,h:36,tokenLabel:"1",tokenColor:"#dc2626"}]);onToolChange("pointer");}
-        else if(tool==="ball"){onObjectsChange([...objects,{id:uid(),kind:"ball",x:pos.x-18,y:pos.y-18,w:36,h:36}]);onToolChange("pointer");}
+        if(tool==="lane")       onObjectsChange([...objects,{id:uid(),kind:"lane",x:pos.x-100,y:pos.y-30,w:200,h:60,title:"Lane"}]);
+        else if(tool==="text")  onObjectsChange([...objects,{id:uid(),kind:"text",x:pos.x-50,y:pos.y-12,w:100,h:24,text:"Label"}]);
+        else if(tool==="note")  onObjectsChange([...objects,{id:uid(),kind:"note",x:pos.x-60,y:pos.y-40,w:120,h:80,text:"Note",color:"#fef08a"}]);
+        else if(tool==="token") onObjectsChange([...objects,{id:uid(),kind:"token",x:pos.x-20,y:pos.y-20,w:40,h:40,tokenLabel:"1",tokenColor:MAROON}]);
+        else if(tool==="ball")  onObjectsChange([...objects,{id:uid(),kind:"ball",x:pos.x-22,y:pos.y-22,w:44,h:44}]);
+        onToolChange("pointer");
         return;
       }
       isPanning.current=true;
       panStart.current={x:e.clientX,y:e.clientY,px:panRef.current.x,py:panRef.current.y};
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      setSelectedIds(new Set());
       return;
     }
-    if(tool==="pointer"||!editMode) setSelectedIds(new Set());
   }
   function onCanvasPointerMove(e:React.PointerEvent){
-    if(isPanning.current){setPan({x:panStart.current.px+(e.clientX-panStart.current.x),y:panStart.current.py+(e.clientY-panStart.current.y)});return;}
+    if(isPanning.current){
+      setPan({x:panStart.current.px+(e.clientX-panStart.current.x),y:panStart.current.py+(e.clientY-panStart.current.y)});
+      return;
+    }
     if(movingPlayer.current&&editMode&&!objectsLocked){
       const pos=clientToCanvas(e.clientX,e.clientY);
       const{id,ox,oy}=movingPlayer.current;
-      onPlacedChange(placed.map(p=>p.id===id?{...p,x:pos.x-ox,y:pos.y-oy}:p));return;
+      onPlacedChange(placed.map(p=>p.id===id?{...p,x:pos.x-ox,y:pos.y-oy}:p));
+      return;
     }
     if(movingObj.current&&editMode&&!objectsLocked){
       const pos=clientToCanvas(e.clientX,e.clientY);
       const{id,ox,oy}=movingObj.current;
-      onObjectsChange(objects.map(o=>o.id===id?{...o,x:pos.x-ox,y:pos.y-oy}:o));return;
+      onObjectsChange(objects.map(o=>o.id===id?{...o,x:pos.x-ox,y:pos.y-oy}:o));
+      return;
     }
     if(resizingObj.current&&editMode&&!objectsLocked){
       const pos=clientToCanvas(e.clientX,e.clientY);
       const{id,startX,startY,ow,oh}=resizingObj.current;
-      onObjectsChange(objects.map(o=>o.id===id?{...o,w:Math.max(30,ow+(pos.x-startX)),h:Math.max(20,oh+(pos.y-startY))}:o));return;
+      onObjectsChange(objects.map(o=>o.id===id?{...o,w:Math.max(20,ow+(pos.x-startX)),h:Math.max(20,oh+(pos.y-startY))}:o));
+      return;
     }
-    if(resizingBg.current){
+    if(resizingBg.current&&!bgLocked){
       const pos=clientToCanvas(e.clientX,e.clientY);
       const{startX,startY,ow,oh}=resizingBg.current;
-      setBgSize({w:Math.max(400,ow+(pos.x-startX)),h:Math.max(300,oh+(pos.y-startY))});return;
+      setBgSize({w:Math.max(200,ow+(pos.x-startX)),h:Math.max(150,oh+(pos.y-startY))});
+      return;
     }
   }
-  function onCanvasPointerUp(){isPanning.current=false;movingPlayer.current=null;movingObj.current=null;resizingObj.current=null;resizingBg.current=null;}
+  function onCanvasPointerUp(){
+    isPanning.current=false;
+    movingPlayer.current=null;
+    movingObj.current=null;
+    resizingObj.current=null;
+    resizingBg.current=null;
+  }
 
-  // ─── HTML drag-and-drop from roster ───────────────────────────────────────
+  // ── Drop from roster ──────────────────────────────────────────────────────
   function onCanvasDragOver(e:React.DragEvent){if(!editMode||objectsLocked)return;e.preventDefault();e.dataTransfer.dropEffect="copy";}
   function onCanvasDrop(e:React.DragEvent){
     if(!editMode||objectsLocked)return;e.preventDefault();
@@ -163,26 +187,26 @@ export default function HtmlBoard({
     const player:PlayerPayload=JSON.parse(raw);
     const pos=clientToCanvas(e.clientX,e.clientY);
     const existing=placed.find(p=>p.player.id===player.id);
-    if(existing){onPlacedChange(placed.map(p=>p.player.id===player.id?{...p,x:pos.x-cardSize.w/2,y:pos.y-cardSize.h/2}:p));}
-    else{onPlacedChange([...placed,{id:uid(),player,x:pos.x-cardSize.w/2,y:pos.y-cardSize.h/2,w:cardSize.w,h:cardSize.h}]);}
+    if(existing) onPlacedChange(placed.map(p=>p.player.id===player.id?{...p,x:pos.x-cardSize.w/2,y:pos.y-cardSize.h/2}:p));
+    else onPlacedChange([...placed,{id:uid(),player,x:pos.x-cardSize.w/2,y:pos.y-cardSize.h/2,w:cardSize.w,h:cardSize.h}]);
   }
 
-  // ─── Player card pointer ──────────────────────────────────────────────────
+  // ── Player card pointer ───────────────────────────────────────────────────
   function onPlayerPointerDown(e:React.PointerEvent,pp:PlacedPlayer){
     if(!editMode||objectsLocked)return;e.stopPropagation();
     const pos=clientToCanvas(e.clientX,e.clientY);
     movingPlayer.current={id:pp.id,ox:pos.x-pp.x,oy:pos.y-pp.y};
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    if(tool==="select"){setSelectedIds(prev=>{const n=new Set(prev);n.has(pp.id)?n.delete(pp.id):n.add(pp.id);return n;});}
+    if(tool==="select") setSelectedIds(prev=>{const n=new Set(prev);n.has(pp.id)?n.delete(pp.id):n.add(pp.id);return n;});
   }
 
-  // ─── Object pointer ───────────────────────────────────────────────────────
+  // ── Object pointer ────────────────────────────────────────────────────────
   function onObjPointerDown(e:React.PointerEvent,obj:BoardObject){
     if(!editMode||objectsLocked)return;e.stopPropagation();
     const pos=clientToCanvas(e.clientX,e.clientY);
     movingObj.current={id:obj.id,ox:pos.x-obj.x,oy:pos.y-obj.y};
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    if(tool==="select"){setSelectedIds(prev=>{const n=new Set(prev);n.has(obj.id)?n.delete(obj.id):n.add(obj.id);return n;});}
+    if(tool==="select") setSelectedIds(prev=>{const n=new Set(prev);n.has(obj.id)?n.delete(obj.id):n.add(obj.id);return n;});
   }
   function onObjResizePointerDown(e:React.PointerEvent,obj:BoardObject){
     if(!editMode||objectsLocked)return;e.stopPropagation();
@@ -191,35 +215,37 @@ export default function HtmlBoard({
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
-  const MAROON="#7f1630"; const DARK="#0d1117"; const MID="#1e2533";
+  // ── Shared UI helpers ─────────────────────────────────────────────────────
+  const delBtn=(id:string,isObj=true)=>editMode&&!objectsLocked?(
+    <button onPointerDown={e=>e.stopPropagation()} onClick={()=>isObj?onObjectsChange(objects.filter(o=>o.id!==id)):onPlacedChange(placed.filter(p=>p.id!==id))}
+      style={{position:"absolute",top:-7,right:-7,width:18,height:18,borderRadius:"50%",background:"#ef4444",border:"none",color:"#fff",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,lineHeight:1,fontWeight:700}}>✕</button>
+  ):null;
 
-  const delBtn=(id:string,isObj=true)=>(
-    editMode&&!objectsLocked
-      ?<button onPointerDown={e=>e.stopPropagation()} onClick={()=>isObj?onObjectsChange(objects.filter(o=>o.id!==id)):onPlacedChange(placed.filter(p=>p.id!==id))}
-          style={{position:"absolute",top:-7,right:-7,width:18,height:18,borderRadius:"50%",background:"#ef4444",border:"none",color:"#fff",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,lineHeight:1,fontWeight:700}}>✕</button>
-      :null
-  );
-  const resizeHandle=(obj:BoardObject)=>(
-    editMode&&!objectsLocked
-      ?<div onPointerDown={e=>onObjResizePointerDown(e,obj)} style={{position:"absolute",bottom:0,right:0,width:14,height:14,cursor:"se-resize",background:"rgba(255,255,255,0.25)",borderRadius:"2px 0 5px 0"}}/>
-      :null
-  );
+  // Resize handle — shared for all resizable objects
+  const resizeHandle=(obj:BoardObject)=>editMode&&!objectsLocked?(
+    <div onPointerDown={e=>onObjResizePointerDown(e,obj)}
+      style={{position:"absolute",bottom:0,right:0,width:14,height:14,cursor:"se-resize",background:"rgba(255,255,255,0.3)",borderRadius:"2px 0 4px 0",zIndex:20}}/>
+  ):null;
 
   const cursor=!editMode?"grab":objectsLocked?"default":
     (tool==="lane"||tool==="text"||tool==="note"||tool==="token"||tool==="ball")?"crosshair":"grab";
 
   return (
     <div style={{width:"100%",height:"100%",display:"flex",flexDirection:"column",background:DARK,overflow:"hidden"}}>
-      {/* ── Zoom bar ── */}
-      <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 12px",background:"#161b27",borderBottom:"1px solid #2a3040",flexShrink:0}}>
-        <button onClick={()=>setZoom(z=>Math.min(3,z+0.1))} style={{width:26,height:26,background:MID,border:"1px solid #2a3040",borderRadius:5,color:"#94a3b8",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+
+      {/* ── Zoom bar: − slider + % Reset ── */}
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"5px 14px",background:"#161b27",borderBottom:"1px solid #2a3040",flexShrink:0,userSelect:"none"}}>
+        <button onClick={()=>setZoom(z=>Math.max(0.15,z-0.1))}
+          style={{width:28,height:28,background:MID,border:"1px solid #2a3040",borderRadius:6,color:"#e2e8f0",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,flexShrink:0}}>−</button>
         <input type="range" min={15} max={200} value={Math.round(zoom*100)}
           onChange={e=>setZoom(+e.target.value/100)}
-          style={{flex:1,maxWidth:180,accentColor:MAROON,cursor:"pointer"}}/>
-        <button onClick={()=>setZoom(z=>Math.max(0.15,z-0.1))} style={{width:26,height:26,background:MID,border:"1px solid #2a3040",borderRadius:5,color:"#94a3b8",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
-        <span style={{color:"#64748b",fontSize:11,minWidth:36,textAlign:"center"}}>{Math.round(zoom*100)}%</span>
-        <button onClick={()=>{setZoom(0.7);setPan({x:60,y:60});}} style={{padding:"3px 8px",background:MID,border:"1px solid #2a3040",borderRadius:5,color:"#64748b",fontSize:11,cursor:"pointer"}}>Reset</button>
-        <span style={{color:"#334155",fontSize:10,marginLeft:4}}>Scroll to pan · Ctrl+scroll to zoom</span>
+          style={{flex:1,maxWidth:200,accentColor:MAROON,cursor:"pointer"}}/>
+        <button onClick={()=>setZoom(z=>Math.min(3,z+0.1))}
+          style={{width:28,height:28,background:MID,border:"1px solid #2a3040",borderRadius:6,color:"#e2e8f0",fontSize:18,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,flexShrink:0}}>+</button>
+        <span style={{color:"#64748b",fontSize:11,minWidth:38,textAlign:"center",flexShrink:0}}>{Math.round(zoom*100)}%</span>
+        <button onClick={()=>{setZoom(0.7);setPan({x:60,y:60});}}
+          style={{padding:"3px 9px",background:MID,border:"1px solid #2a3040",borderRadius:5,color:"#64748b",fontSize:11,cursor:"pointer",flexShrink:0}}>Reset</button>
+        <span style={{color:"#2a3040",fontSize:10,flexShrink:0}}>Scroll=pan · Ctrl+scroll=zoom</span>
       </div>
 
       {/* ── Canvas ── */}
@@ -227,22 +253,51 @@ export default function HtmlBoard({
         onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove}
         onPointerUp={onCanvasPointerUp} onPointerCancel={onCanvasPointerUp}
         onDragOver={onCanvasDragOver} onDrop={onCanvasDrop}>
-        <div ref={canvasRef} style={{position:"absolute",left:pan.x,top:pan.y,width:canvasWidth,height:canvasHeight,transform:`scale(${zoom})`,transformOrigin:"0 0"}}>
+
+        <div ref={canvasRef} style={{position:"absolute",left:pan.x,top:pan.y,width:canvasWidth,height:canvasHeight,
+          transform:`scale(${zoom})`,transformOrigin:"0 0"}}>
+
+          {/* Grid dots */}
+          {!backgroundUrl&&<div style={{position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,#2a3040 1px,transparent 1px)",backgroundSize:"40px 40px",zIndex:0}}/>}
 
           {/* Background image with resize handle */}
           {backgroundUrl&&(
             <div style={{position:"absolute",left:0,top:0,width:bgSize.w,height:bgSize.h,zIndex:0,overflow:"hidden"}}>
-              <img src={backgroundUrl} alt="" style={{width:"100%",height:"100%",objectFit:"fill",display:"block",pointerEvents:"none"}}/>
-              {editMode&&!objectsLocked&&(
-                <div onPointerDown={e=>{e.stopPropagation();const pos=clientToCanvas(e.clientX,e.clientY);resizingBg.current={startX:pos.x,startY:pos.y,ow:bgSize.w,oh:bgSize.h};(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);}}
-                  style={{position:"absolute",bottom:4,right:4,width:20,height:20,background:MAROON,borderRadius:4,cursor:"se-resize",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:10}}>⤡</div>
+              <img src={backgroundUrl} alt="" style={{width:"100%",height:"100%",objectFit:"fill",display:"block",pointerEvents:"none",userSelect:"none"}}/>
+              {editMode&&(
+                <>
+                  {/* Lock/unlock button */}
+                  <button
+                    onPointerDown={e=>e.stopPropagation()}
+                    onClick={()=>setBgLocked(l=>!l)}
+                    title={bgLocked?"Unlock background size":"Lock background size"}
+                    style={{position:"absolute",top:6,right:6,width:28,height:28,background:bgLocked?MAROON:"rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:6,color:"#fff",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10}}>
+                    {bgLocked?"🔒":"🔓"}
+                  </button>
+                  {/* Resize handle — only when not locked */}
+                  {!bgLocked&&(
+                    <div
+                      onPointerDown={e=>{
+                        e.stopPropagation();
+                        const pos=clientToCanvas(e.clientX,e.clientY);
+                        resizingBg.current={startX:pos.x,startY:pos.y,ow:bgSize.w,oh:bgSize.h};
+                        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                      }}
+                      onPointerMove={e=>{
+                        if(!resizingBg.current) return;
+                        e.stopPropagation();
+                        const pos=clientToCanvas(e.clientX,e.clientY);
+                        const{startX,startY,ow,oh}=resizingBg.current;
+                        setBgSize({w:Math.max(200,ow+(pos.x-startX)),h:Math.max(150,oh+(pos.y-startY))});
+                      }}
+                      onPointerUp={()=>{resizingBg.current=null;}}
+                      style={{position:"absolute",bottom:0,right:0,width:28,height:28,cursor:"se-resize",
+                        background:MAROON,borderRadius:"6px 0 0 0",display:"flex",alignItems:"center",
+                        justifyContent:"center",color:"#fff",fontSize:14,zIndex:10,userSelect:"none"}}>⤡</div>
+                  )}
+                </>
               )}
             </div>
-          )}
-
-          {/* Grid dots when no background */}
-          {!backgroundUrl&&(
-            <div style={{position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,#2a3040 1px,transparent 1px)",backgroundSize:"40px 40px",zIndex:0}}/>
           )}
 
           {/* ── Board Objects ── */}
@@ -251,7 +306,7 @@ export default function HtmlBoard({
             const base:React.CSSProperties={position:"absolute",left:obj.x,top:obj.y,width:obj.w,height:obj.h,boxSizing:"border-box",outline:isSel?"2px solid #60a5fa":"none",zIndex:5};
 
             if(obj.kind==="lane") return(
-              <div key={obj.id} style={{...base,background:"rgba(127,22,48,0.12)",border:"2px solid rgba(127,22,48,0.5)",borderRadius:8,cursor:editMode&&!objectsLocked?"move":"default"}}
+              <div key={obj.id} style={{...base,background:"rgba(127,22,48,0.1)",border:"2px solid rgba(127,22,48,0.5)",borderRadius:8,cursor:editMode&&!objectsLocked?"move":"default"}}
                 onPointerDown={e=>onObjPointerDown(e,obj)} onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
                 {editingObjId===obj.id
                   ?<input autoFocus defaultValue={obj.title} onBlur={e=>{onObjectsChange(objects.map(o=>o.id===obj.id?{...o,title:e.target.value}:o));setEditingObjId(null);}} onKeyDown={e=>e.key==="Enter"&&e.currentTarget.blur()} style={{width:"100%",background:"transparent",border:"none",outline:"none",color:"#e2e8f0",fontWeight:700,fontSize:13,textAlign:"center",padding:"4px 8px"}}/>
@@ -262,11 +317,11 @@ export default function HtmlBoard({
             );
 
             if(obj.kind==="text") return(
-              <div key={obj.id} style={{...base,cursor:editMode&&!objectsLocked?"move":"default",zIndex:6}}
+              <div key={obj.id} style={{...base,cursor:editMode&&!objectsLocked?"move":"default",zIndex:6,minWidth:40}}
                 onPointerDown={e=>onObjPointerDown(e,obj)} onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
                 {editingObjId===obj.id
                   ?<input autoFocus defaultValue={obj.text} onBlur={e=>{onObjectsChange(objects.map(o=>o.id===obj.id?{...o,text:e.target.value}:o));setEditingObjId(null);}} style={{background:"transparent",border:"none",outline:"none",color:"#fff",fontWeight:700,fontSize:15,padding:0,width:"100%"}}/>
-                  :<div style={{color:"#ffffff",fontWeight:700,fontSize:15,whiteSpace:"nowrap",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>{obj.text||"Text"}</div>
+                  :<div style={{color:"#fff",fontWeight:700,fontSize:15,whiteSpace:"nowrap",textShadow:"0 1px 3px rgba(0,0,0,0.9)"}}>{obj.text||"Label"}</div>
                 }
                 {delBtn(obj.id)}
               </div>
@@ -284,21 +339,31 @@ export default function HtmlBoard({
             );
 
             if(obj.kind==="token") return(
-              <div key={obj.id} style={{...base,borderRadius:"50%",background:obj.tokenColor||MAROON,display:"flex",alignItems:"center",justifyContent:"center",cursor:editMode&&!objectsLocked?"move":"default",boxShadow:"0 2px 6px rgba(0,0,0,0.5)",border:"2px solid rgba(255,255,255,0.3)",zIndex:6}}
+              <div key={obj.id} style={{...base,borderRadius:"50%",background:obj.tokenColor||MAROON,display:"flex",alignItems:"center",justifyContent:"center",cursor:editMode&&!objectsLocked?"move":"default",boxShadow:"0 2px 8px rgba(0,0,0,0.5)",border:"2.5px solid rgba(255,255,255,0.35)",zIndex:6}}
                 onPointerDown={e=>onObjPointerDown(e,obj)} onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
                 {editingObjId===obj.id
-                  ?<input autoFocus defaultValue={obj.tokenLabel} onBlur={e=>{onObjectsChange(objects.map(o=>o.id===obj.id?{...o,tokenLabel:e.target.value}:o));setEditingObjId(null);}} style={{width:"100%",background:"transparent",border:"none",outline:"none",color:"#fff",fontWeight:800,fontSize:Math.max(10,obj.w*0.4),textAlign:"center",padding:0}}/>
-                  :<span style={{color:"#fff",fontWeight:800,fontSize:Math.max(10,obj.w*0.4),userSelect:"none"}}>{obj.tokenLabel||"1"}</span>
+                  ?<input autoFocus defaultValue={obj.tokenLabel} onBlur={e=>{onObjectsChange(objects.map(o=>o.id===obj.id?{...o,tokenLabel:e.target.value}:o));setEditingObjId(null);}} style={{width:"80%",background:"transparent",border:"none",outline:"none",color:"#fff",fontWeight:800,fontSize:Math.max(10,Math.round(obj.w*0.38)),textAlign:"center",padding:0}}/>
+                  :<span style={{color:"#fff",fontWeight:800,fontSize:Math.max(10,Math.round(obj.w*0.38)),userSelect:"none",pointerEvents:"none"}}>{obj.tokenLabel||"1"}</span>
                 }
                 {delBtn(obj.id)}
+                {/* Token resize handle at bottom-right */}
+                {editMode&&!objectsLocked&&(
+                  <div onPointerDown={e=>onObjResizePointerDown(e,obj)}
+                    style={{position:"absolute",bottom:-1,right:-1,width:14,height:14,cursor:"se-resize",background:"rgba(255,255,255,0.4)",borderRadius:"50%",zIndex:20}}/>
+                )}
               </div>
             );
 
             if(obj.kind==="ball") return(
-              <div key={obj.id} style={{...base,borderRadius:"50%",overflow:"hidden",cursor:editMode&&!objectsLocked?"move":"default",zIndex:6,fontSize:obj.w*0.8,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}
+              <div key={obj.id} style={{...base,borderRadius:"50%",overflow:"visible",cursor:editMode&&!objectsLocked?"move":"default",zIndex:6,display:"flex",alignItems:"center",justifyContent:"center",fontSize:Math.round(obj.w*0.82),lineHeight:1}}
                 onPointerDown={e=>onObjPointerDown(e,obj)}>
-                <span style={{userSelect:"none"}}>⚽</span>
+                <span style={{userSelect:"none",pointerEvents:"none"}}>{obj.color||"⚽"}</span>
                 {delBtn(obj.id)}
+                {/* Ball resize handle */}
+                {editMode&&!objectsLocked&&(
+                  <div onPointerDown={e=>onObjResizePointerDown(e,obj)}
+                    style={{position:"absolute",bottom:-1,right:-1,width:14,height:14,cursor:"se-resize",background:"rgba(255,255,255,0.4)",borderRadius:"50%",zIndex:20}}/>
+                )}
               </div>
             );
             return null;
@@ -311,7 +376,7 @@ export default function HtmlBoard({
             const w=pp.w??cardSize.w; const h=pp.h??cardSize.h;
             const isSel=selectedIds.has(pp.id);
             return(
-              <div key={pp.id} style={{position:"absolute",left:pp.x,top:pp.y,width:w,height:h,background:bg,borderRadius:8,overflow:"hidden",border:isSel?"2px solid #60a5fa":"1.5px solid rgba(255,255,255,0.15)",boxShadow:"0 2px 8px rgba(0,0,0,0.5)",cursor:editMode&&!objectsLocked?"move":"default",display:"flex",flexDirection:"column",userSelect:"none",touchAction:"none",zIndex:10}}
+              <div key={pp.id} style={{position:"absolute",left:pp.x,top:pp.y,width:w,height:h,background:bg,borderRadius:8,overflow:"hidden",border:isSel?"2px solid #60a5fa":"1.5px solid rgba(255,255,255,0.12)",boxShadow:"0 2px 8px rgba(0,0,0,0.5)",cursor:editMode&&!objectsLocked?"move":"default",display:"flex",flexDirection:"column",userSelect:"none",touchAction:"none",zIndex:10}}
                 onPointerDown={e=>onPlayerPointerDown(e,pp)} onDoubleClick={()=>onOpenPlayer?.(pp.id)}>
                 <div style={{position:"absolute",top:3,left:4,fontSize:9,fontWeight:700,color:fg,opacity:0.75,lineHeight:1}}>{pp.player.pos1||""}</div>
                 {editMode&&!objectsLocked&&(
