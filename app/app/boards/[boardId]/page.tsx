@@ -3,8 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
-import HtmlBoard from "@/lib/board/HtmlBoard";
-import type { PlacedPlayer, BoardObject, BoardTool, PlayerPayload } from "@/lib/board/HtmlBoard";
+import { HtmlBoard, type PlacedPlayer, type BoardObject, type BoardTool, type PlayerPayload } from "@/lib/board/HtmlBoard";
 
 const PLAYER_DRAG_MIME = "application/x-lp-player";
 const OBJECT_DRAG_MIME = "application/x-lp-object";
