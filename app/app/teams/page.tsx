@@ -78,16 +78,16 @@ export default function TeamsPage() {
   const teamColor = (id: string) => teamColors[id.charCodeAt(0) % teamColors.length];
 
   return (
-    <div style={{minHeight:"100vh",background:"#0f172a",color:"#f1f5f9"}}>
+    <div style={{minHeight:"100vh",background:"#0d1117",color:"#f1f5f9"}}>
       {/* Header */}
-      <div style={{background:"#1e293b",borderBottom:"1px solid #1e3a5f",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56}}>
+      <div style={{background:"#161b27",borderBottom:"1px solid #7f1630",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:56}}>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
-          <span style={{fontSize:22}}>⚽</span>
-          <span style={{fontWeight:700,fontSize:18,color:"#f1f5f9"}}>Lone Peak Soccer</span>
+          <span style={{fontSize:22}}>⬡</span>
+          <span style={{fontWeight:700,fontSize:18,color:"#f1f5f9"}}>BeSmart Boards</span>
         </div>
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           {isAdmin && (
-            <button onClick={()=>setShowCreate(true)} style={{padding:"7px 16px",background:"#2563eb",color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>
+            <button onClick={()=>setShowCreate(true)} style={{padding:"7px 16px",background:"#7f1630",color:"#fff",border:"none",borderRadius:7,fontSize:13,fontWeight:600,cursor:"pointer"}}>
               + New Team
             </button>
           )}
@@ -106,20 +106,20 @@ export default function TeamsPage() {
         {loading ? (
           <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
             {[1,2,3].map(i=>(
-              <div key={i} style={{width:280,height:140,background:"#1e293b",borderRadius:12,animation:"pulse 1.5s infinite"}}/>
+              <div key={i} style={{width:280,height:140,background:"#161b27",borderRadius:12,animation:"pulse 1.5s infinite"}}/>
             ))}
           </div>
         ) : teams.length === 0 ? (
-          <div style={{textAlign:"center",padding:"60px 20px",background:"#1e293b",borderRadius:12}}>
+          <div style={{textAlign:"center",padding:"60px 20px",background:"#161b27",borderRadius:12}}>
             <div style={{fontSize:48,marginBottom:12}}>🏟️</div>
             <p style={{color:"#94a3b8",fontSize:16}}>You're not a member of any teams yet.</p>
-            {isAdmin && <button onClick={()=>setShowCreate(true)} style={{marginTop:16,padding:"10px 24px",background:"#2563eb",color:"#fff",border:"none",borderRadius:8,fontSize:15,fontWeight:600,cursor:"pointer"}}>Create Your First Team</button>}
+            {isAdmin && <button onClick={()=>setShowCreate(true)} style={{marginTop:16,padding:"10px 24px",background:"#7f1630",color:"#fff",border:"none",borderRadius:8,fontSize:15,fontWeight:600,cursor:"pointer"}}>Create Your First Team</button>}
           </div>
         ) : (
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:20}}>
             {teams.map(team => (
               <Link key={team.id} href={"/app/boards?team=" + team.id} style={{textDecoration:"none"}}>
-                <div style={{background:"#1e293b",borderRadius:12,padding:24,border:"1px solid #1e3a5f",cursor:"pointer",transition:"all 0.15s",position:"relative",overflow:"hidden"}}
+                <div style={{background:"#161b27",borderRadius:12,padding:24,border:"1px solid #2a1520",cursor:"pointer",transition:"all 0.15s",position:"relative",overflow:"hidden"}}
                   onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor="#3b82f6";(e.currentTarget as HTMLElement).style.transform="translateY(-2px)";}}
                   onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor="#1e3a5f";(e.currentTarget as HTMLElement).style.transform="translateY(0)";}}>
                   <div style={{position:"absolute",top:0,left:0,right:0,height:4,background:teamColor(team.id),borderRadius:"12px 12px 0 0"}}/>
@@ -148,7 +148,7 @@ export default function TeamsPage() {
       {/* Create Team Modal */}
       {showCreate && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:100}} onClick={()=>setShowCreate(false)}>
-          <div style={{background:"#1e293b",borderRadius:14,padding:32,width:"100%",maxWidth:420,border:"1px solid #334155"}} onClick={e=>e.stopPropagation()}>
+          <div style={{background:"#161b27",borderRadius:14,padding:32,width:"100%",maxWidth:420,border:"1px solid #334155"}} onClick={e=>e.stopPropagation()}>
             <h2 style={{color:"#f1f5f9",fontSize:20,fontWeight:700,margin:"0 0 20px"}}>Create New Team</h2>
             <label style={{display:"block",color:"#94a3b8",fontSize:13,fontWeight:600,marginBottom:6}}>TEAM NAME</label>
             <input
@@ -158,11 +158,11 @@ export default function TeamsPage() {
               onKeyDown={e=>e.key==="Enter" && createTeam()}
               placeholder="e.g. Varsity Boys"
               autoFocus
-              style={{width:"100%",padding:"10px 14px",background:"#0f172a",border:"1px solid #334155",borderRadius:8,color:"#f1f5f9",fontSize:15,outline:"none",boxSizing:"border-box",marginBottom:20}}
+              style={{width:"100%",padding:"10px 14px",background:"#0d1117",border:"1px solid #334155",borderRadius:8,color:"#f1f5f9",fontSize:15,outline:"none",boxSizing:"border-box",marginBottom:20}}
             />
             <div style={{display:"flex",gap:10,justifyContent:"flex-end"}}>
               <button onClick={()=>setShowCreate(false)} style={{padding:"9px 18px",background:"transparent",color:"#94a3b8",border:"1px solid #334155",borderRadius:8,fontSize:14,cursor:"pointer"}}>Cancel</button>
-              <button onClick={createTeam} disabled={creating||!newTeamName.trim()} style={{padding:"9px 20px",background:"#2563eb",color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:600,cursor:creating?"not-allowed":"pointer",opacity:creating?0.7:1}}>
+              <button onClick={createTeam} disabled={creating||!newTeamName.trim()} style={{padding:"9px 20px",background:"#7f1630",color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:600,cursor:creating?"not-allowed":"pointer",opacity:creating?0.7:1}}>
                 {creating ? "Creating…" : "Create Team"}
               </button>
             </div>
