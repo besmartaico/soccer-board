@@ -1,5 +1,5 @@
 "use client";
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type PlayerPayload = {
@@ -8,443 +8,327 @@ export type PlayerPayload = {
   notes?: string; pictureUrl?: string;
 };
 export type PlacedPlayer = { id: string; x: number; y: number; w?: number; h?: number; player: PlayerPayload; };
-export type BoardTool = "pointer" | "select" | "lane" | "text" | "note";
+export type BoardTool = "pointer" | "select" | "lane" | "text" | "note" | "token" | "ball";
 export type BoardObject = {
-  id: string; kind: "lane" | "text" | "note";
+  id: string;
+  kind: "lane" | "text" | "note" | "token" | "ball";
   x: number; y: number; w: number; h: number;
   title?: string; text?: string; color?: string;
+  tokenLabel?: string; tokenColor?: string;
 };
 
 // ─── Grade colors ─────────────────────────────────────────────────────────────
 function gradeColor(grade?: string): string {
   const g = parseInt((grade ?? "").replace(/[^0-9]/g, ""), 10);
-  if (g === 12) return "#7f1630"; // Maroon
-  if (g === 11) return "#1a1a1a"; // Black
-  if (g === 10) return "#6b7280"; // Grey
-  if (g === 9)  return "#e5e7eb"; // White
-  return "#1e3a5f";
+  if (g === 12) return "#7f1630";
+  if (g === 11) return "#1a1a1a";
+  if (g === 10) return "#6b7280";
+  if (g === 9)  return "#e5e7eb";
+  return "#2d3748";
 }
 function gradeTextColor(grade?: string): string {
   const g = parseInt((grade ?? "").replace(/[^0-9]/g, ""), 10);
-  if (g === 9) return "#111827"; // dark text on white
-  return "#ffffff";
+  return g === 9 ? "#111827" : "#ffffff";
 }
 
-// ─── ID generator ─────────────────────────────────────────────────────────────
 function uid() { return Math.random().toString(36).slice(2, 10); }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 type Props = {
-  editMode: boolean;
-  objectsLocked?: boolean;
-  placed: PlacedPlayer[];
-  onPlacedChange: (next: PlacedPlayer[]) => void;
-  playerDragMime: string;
-  objectDragMime: string;
+  editMode: boolean; objectsLocked?: boolean;
+  placed: PlacedPlayer[]; onPlacedChange: (next: PlacedPlayer[]) => void;
+  playerDragMime: string; objectDragMime: string;
   backgroundUrl?: string | null;
   onOpenPlayer?: (id: string) => void;
-  canvasWidth?: number;
-  canvasHeight?: number;
-  objects: BoardObject[];
-  onObjectsChange: (next: BoardObject[]) => void;
-  tool: BoardTool;
-  onToolChange: (t: BoardTool) => void;
+  canvasWidth?: number; canvasHeight?: number;
+  objects: BoardObject[]; onObjectsChange: (next: BoardObject[]) => void;
+  tool: BoardTool; onToolChange: (t: BoardTool) => void;
   cardSizeMode?: "large" | "medium" | "small";
   onAddPlayerToBoard?: (player: PlayerPayload) => void;
 };
 
-// ─── Card size dimensions ──────────────────────────────────────────────────────
-const CARD_SIZES = {
-  large:  { w: 110, h: 70 },
-  medium: { w: 90,  h: 56 },
-  small:  { w: 72,  h: 44 },
-};
+const CARD_SIZES = { large:{w:110,h:70}, medium:{w:90,h:56}, small:{w:72,h:44} };
 
 export default function HtmlBoard({
-  editMode,
-  objectsLocked = false,
-  placed,
-  onPlacedChange,
-  playerDragMime,
-  objectDragMime,
-  backgroundUrl,
-  onOpenPlayer,
-  canvasWidth  = 3000,
-  canvasHeight = 2000,
-  objects,
-  onObjectsChange,
-  tool,
-  onToolChange,
-  cardSizeMode = "medium",
-  onAddPlayerToBoard,
+  editMode, objectsLocked=false, placed, onPlacedChange,
+  playerDragMime, objectDragMime, backgroundUrl,
+  onOpenPlayer, canvasWidth=3000, canvasHeight=2000,
+  objects, onObjectsChange, tool, onToolChange,
+  cardSizeMode="medium", onAddPlayerToBoard,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef    = useRef<HTMLDivElement>(null);
-
-  // Pan state
-  const [pan, setPan]   = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
-  const panRef = useRef(pan);
-  panRef.current = pan;
-  const zoomRef = useRef(zoom);
-  zoomRef.current = zoom;
-
-  // Drag state for canvas panning
-  const isPanning = useRef(false);
-  const panStart  = useRef({ x: 0, y: 0, px: 0, py: 0 });
-
-  // Drag state for moving placed players
-  const movingPlayer = useRef<{ id: string; startX: number; startY: number; ox: number; oy: number } | null>(null);
-
-  // Drag state for moving board objects
-  const movingObj = useRef<{ id: string; startX: number; startY: number; ox: number; oy: number } | null>(null);
-
-  // Resize state for board objects
-  const resizingObj = useRef<{ id: string; startX: number; startY: number; ow: number; oh: number } | null>(null);
-
-  // Inline editing for objects
-  const [editingObjId, setEditingObjId] = useState<string | null>(null);
-
-  // Selected objects for delete
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
+  const [pan,  setPan]  = useState({ x: 60, y: 60 });
+  const [zoom, setZoom] = useState(0.7);
+  const panRef  = useRef(pan);  panRef.current  = pan;
+  const zoomRef = useRef(zoom); zoomRef.current = zoom;
+  const isPanning     = useRef(false);
+  const panStart      = useRef({ x:0,y:0,px:0,py:0 });
+  const movingPlayer  = useRef<{id:string;ox:number;oy:number}|null>(null);
+  const movingObj     = useRef<{id:string;ox:number;oy:number}|null>(null);
+  const resizingObj   = useRef<{id:string;startX:number;startY:number;ow:number;oh:number}|null>(null);
+  const resizingBg    = useRef<{startX:number;startY:number;ow:number;oh:number}|null>(null);
+  const [editingObjId, setEditingObjId] = useState<string|null>(null);
+  const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
+  const [bgSize, setBgSize] = useState({ w: canvasWidth, h: canvasHeight });
   const cardSize = CARD_SIZES[cardSizeMode];
 
-  // ─── Coordinate helpers ──────────────────────────────────────────────────────
-  function clientToCanvas(clientX: number, clientY: number) {
-    const rect = containerRef.current!.getBoundingClientRect();
-    return {
-      x: (clientX - rect.left - panRef.current.x) / zoomRef.current,
-      y: (clientY - rect.top  - panRef.current.y) / zoomRef.current,
-    };
+  function clientToCanvas(clientX:number,clientY:number){
+    const rect=containerRef.current!.getBoundingClientRect();
+    return {x:(clientX-rect.left-panRef.current.x)/zoomRef.current,y:(clientY-rect.top-panRef.current.y)/zoomRef.current};
   }
 
-  // ─── Zoom ────────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
+  // ─── Mouse wheel: scroll to pan, Ctrl+wheel to zoom ──────────────────────
+  useEffect(()=>{
+    const el=containerRef.current; if(!el) return;
+    const onWheel=(e:WheelEvent)=>{
       e.preventDefault();
-      const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      setZoom(z => Math.min(3, Math.max(0.2, z * delta)));
+      if (e.ctrlKey||e.metaKey) {
+        const delta=e.deltaY>0?0.9:1.1;
+        setZoom(z=>Math.min(3,Math.max(0.15,z*delta)));
+      } else {
+        setPan(p=>({x:p.x-e.deltaX,y:p.y-e.deltaY}));
+      }
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+    el.addEventListener("wheel",onWheel,{passive:false});
+    return ()=>el.removeEventListener("wheel",onWheel);
+  },[]);
 
-  // ─── Keyboard delete ──────────────────────────────────────────────────────────
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!editMode || objectsLocked) return;
-      if ((e.key === "Delete" || e.key === "Backspace") && selectedIds.size > 0) {
-        if ((e.target as HTMLElement).tagName === "INPUT" || (e.target as HTMLElement).tagName === "TEXTAREA") return;
-        onPlacedChange(placed.filter(p => !selectedIds.has(p.id)));
-        onObjectsChange(objects.filter(o => !selectedIds.has(o.id)));
+  // ─── Keyboard delete ──────────────────────────────────────────────────────
+  useEffect(()=>{
+    const onKey=(e:KeyboardEvent)=>{
+      if(!editMode||objectsLocked) return;
+      if((e.key==="Delete"||e.key==="Backspace")&&selectedIds.size>0){
+        if((e.target as HTMLElement).tagName==="INPUT"||(e.target as HTMLElement).tagName==="TEXTAREA") return;
+        onPlacedChange(placed.filter(p=>!selectedIds.has(p.id)));
+        onObjectsChange(objects.filter(o=>!selectedIds.has(o.id)));
         setSelectedIds(new Set());
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [editMode, objectsLocked, selectedIds, placed, objects]);
+    window.addEventListener("keydown",onKey);
+    return()=>window.removeEventListener("keydown",onKey);
+  },[editMode,objectsLocked,selectedIds,placed,objects]);
 
-  // ─── Canvas pointer events (pan + place objects) ─────────────────────────────
-  function onCanvasPointerDown(e: React.PointerEvent) {
-    if (e.button === 2) return;
-    const target = e.target as HTMLElement;
-
-    // If clicking directly on canvas background → pan or place object
-    if (target === canvasRef.current || target === containerRef.current) {
-      if (editMode && !objectsLocked && tool !== "pointer" && tool !== "select") {
-        // Place a new object
-        const pos = clientToCanvas(e.clientX, e.clientY);
-        if (tool === "lane") {
-          const obj: BoardObject = { id: uid(), kind: "lane", x: pos.x - 100, y: pos.y - 30, w: 200, h: 60, title: "Lane" };
-          onObjectsChange([...objects, obj]);
-          onToolChange("pointer");
-        } else if (tool === "text") {
-          const obj: BoardObject = { id: uid(), kind: "text", x: pos.x - 60, y: pos.y - 15, w: 120, h: 30, text: "Text" };
-          onObjectsChange([...objects, obj]);
-          onToolChange("pointer");
-        } else if (tool === "note") {
-          const obj: BoardObject = { id: uid(), kind: "note", x: pos.x - 60, y: pos.y - 40, w: 120, h: 80, text: "Note", color: "#fef08a" };
-          onObjectsChange([...objects, obj]);
-          onToolChange("pointer");
-        }
+  // ─── Canvas pointer events ────────────────────────────────────────────────
+  function onCanvasPointerDown(e:React.PointerEvent){
+    if(e.button===2) return;
+    const target=e.target as HTMLElement;
+    if(target===canvasRef.current||target===containerRef.current){
+      if(editMode&&!objectsLocked&&tool!=="pointer"&&tool!=="select"){
+        const pos=clientToCanvas(e.clientX,e.clientY);
+        if(tool==="lane"){onObjectsChange([...objects,{id:uid(),kind:"lane",x:pos.x-100,y:pos.y-30,w:200,h:60,title:"Lane"}]);onToolChange("pointer");}
+        else if(tool==="text"){onObjectsChange([...objects,{id:uid(),kind:"text",x:pos.x-50,y:pos.y-12,w:100,h:24,text:"Label"}]);onToolChange("pointer");}
+        else if(tool==="note"){onObjectsChange([...objects,{id:uid(),kind:"note",x:pos.x-60,y:pos.y-40,w:120,h:80,text:"Note",color:"#fef08a"}]);onToolChange("pointer");}
+        else if(tool==="token"){onObjectsChange([...objects,{id:uid(),kind:"token",x:pos.x-18,y:pos.y-18,w:36,h:36,tokenLabel:"1",tokenColor:"#dc2626"}]);onToolChange("pointer");}
+        else if(tool==="ball"){onObjectsChange([...objects,{id:uid(),kind:"ball",x:pos.x-18,y:pos.y-18,w:36,h:36}]);onToolChange("pointer");}
         return;
       }
-      // Pan
-      isPanning.current = true;
-      panStart.current = { x: e.clientX, y: e.clientY, px: panRef.current.x, py: panRef.current.y };
+      isPanning.current=true;
+      panStart.current={x:e.clientX,y:e.clientY,px:panRef.current.x,py:panRef.current.y};
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       return;
     }
-
-    // Clear selection if clicking empty space
-    if (tool === "pointer" || !editMode) {
-      setSelectedIds(new Set());
+    if(tool==="pointer"||!editMode) setSelectedIds(new Set());
+  }
+  function onCanvasPointerMove(e:React.PointerEvent){
+    if(isPanning.current){setPan({x:panStart.current.px+(e.clientX-panStart.current.x),y:panStart.current.py+(e.clientY-panStart.current.y)});return;}
+    if(movingPlayer.current&&editMode&&!objectsLocked){
+      const pos=clientToCanvas(e.clientX,e.clientY);
+      const{id,ox,oy}=movingPlayer.current;
+      onPlacedChange(placed.map(p=>p.id===id?{...p,x:pos.x-ox,y:pos.y-oy}:p));return;
+    }
+    if(movingObj.current&&editMode&&!objectsLocked){
+      const pos=clientToCanvas(e.clientX,e.clientY);
+      const{id,ox,oy}=movingObj.current;
+      onObjectsChange(objects.map(o=>o.id===id?{...o,x:pos.x-ox,y:pos.y-oy}:o));return;
+    }
+    if(resizingObj.current&&editMode&&!objectsLocked){
+      const pos=clientToCanvas(e.clientX,e.clientY);
+      const{id,startX,startY,ow,oh}=resizingObj.current;
+      onObjectsChange(objects.map(o=>o.id===id?{...o,w:Math.max(30,ow+(pos.x-startX)),h:Math.max(20,oh+(pos.y-startY))}:o));return;
+    }
+    if(resizingBg.current){
+      const pos=clientToCanvas(e.clientX,e.clientY);
+      const{startX,startY,ow,oh}=resizingBg.current;
+      setBgSize({w:Math.max(400,ow+(pos.x-startX)),h:Math.max(300,oh+(pos.y-startY))});return;
     }
   }
+  function onCanvasPointerUp(){isPanning.current=false;movingPlayer.current=null;movingObj.current=null;resizingObj.current=null;resizingBg.current=null;}
 
-  function onCanvasPointerMove(e: React.PointerEvent) {
-    if (isPanning.current) {
-      const dx = e.clientX - panStart.current.x;
-      const dy = e.clientY - panStart.current.y;
-      setPan({ x: panStart.current.px + dx, y: panStart.current.py + dy });
-      return;
-    }
-    if (movingPlayer.current && editMode && !objectsLocked) {
-      const pos = clientToCanvas(e.clientX, e.clientY);
-      const { id, ox, oy } = movingPlayer.current;
-      onPlacedChange(placed.map(p => p.id === id ? { ...p, x: pos.x - ox, y: pos.y - oy } : p));
-      return;
-    }
-    if (movingObj.current && editMode && !objectsLocked) {
-      const pos = clientToCanvas(e.clientX, e.clientY);
-      const { id, ox, oy } = movingObj.current;
-      onObjectsChange(objects.map(o => o.id === id ? { ...o, x: pos.x - ox, y: pos.y - oy } : o));
-      return;
-    }
-    if (resizingObj.current && editMode && !objectsLocked) {
-      const pos = clientToCanvas(e.clientX, e.clientY);
-      const { id, startX, startY, ow, oh } = resizingObj.current;
-      const dw = pos.x - startX;
-      const dh = pos.y - startY;
-      onObjectsChange(objects.map(o => o.id === id ? { ...o, w: Math.max(60, ow + dw), h: Math.max(30, oh + dh) } : o));
-      return;
-    }
+  // ─── HTML drag-and-drop from roster ───────────────────────────────────────
+  function onCanvasDragOver(e:React.DragEvent){if(!editMode||objectsLocked)return;e.preventDefault();e.dataTransfer.dropEffect="copy";}
+  function onCanvasDrop(e:React.DragEvent){
+    if(!editMode||objectsLocked)return;e.preventDefault();
+    const raw=e.dataTransfer.getData(playerDragMime);if(!raw)return;
+    const player:PlayerPayload=JSON.parse(raw);
+    const pos=clientToCanvas(e.clientX,e.clientY);
+    const existing=placed.find(p=>p.player.id===player.id);
+    if(existing){onPlacedChange(placed.map(p=>p.player.id===player.id?{...p,x:pos.x-cardSize.w/2,y:pos.y-cardSize.h/2}:p));}
+    else{onPlacedChange([...placed,{id:uid(),player,x:pos.x-cardSize.w/2,y:pos.y-cardSize.h/2,w:cardSize.w,h:cardSize.h}]);}
   }
 
-  function onCanvasPointerUp(e: React.PointerEvent) {
-    isPanning.current = false;
-    movingPlayer.current = null;
-    movingObj.current = null;
-    resizingObj.current = null;
-  }
-
-  // ─── HTML drag-and-drop for player cards from roster sidebar ──────────────────
-  function onCanvasDragOver(e: React.DragEvent) {
-    if (!editMode || objectsLocked) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-  }
-
-  function onCanvasDrop(e: React.DragEvent) {
-    if (!editMode || objectsLocked) return;
-    e.preventDefault();
-    const raw = e.dataTransfer.getData(playerDragMime);
-    if (!raw) return;
-    const player: PlayerPayload = JSON.parse(raw);
-    const pos = clientToCanvas(e.clientX, e.clientY);
-    // Check if this player is already placed — if so just move, don't duplicate
-    const existing = placed.find(p => p.player.id === player.id);
-    if (existing) {
-      onPlacedChange(placed.map(p => p.player.id === player.id
-        ? { ...p, x: pos.x - cardSize.w / 2, y: pos.y - cardSize.h / 2 }
-        : p
-      ));
-    } else {
-      const newPlaced: PlacedPlayer = {
-        id: uid(), player,
-        x: pos.x - cardSize.w / 2, y: pos.y - cardSize.h / 2,
-        w: cardSize.w, h: cardSize.h,
-      };
-      onPlacedChange([...placed, newPlaced]);
-    }
-  }
-
-  // ─── Player card pointer drag ──────────────────────────────────────────────────
-  function onPlayerPointerDown(e: React.PointerEvent, pp: PlacedPlayer) {
-    if (!editMode || objectsLocked) return;
-    e.stopPropagation();
-    const pos = clientToCanvas(e.clientX, e.clientY);
-    movingPlayer.current = { id: pp.id, startX: pos.x, startY: pos.y, ox: pos.x - pp.x, oy: pos.y - pp.y };
+  // ─── Player card pointer ──────────────────────────────────────────────────
+  function onPlayerPointerDown(e:React.PointerEvent,pp:PlacedPlayer){
+    if(!editMode||objectsLocked)return;e.stopPropagation();
+    const pos=clientToCanvas(e.clientX,e.clientY);
+    movingPlayer.current={id:pp.id,ox:pos.x-pp.x,oy:pos.y-pp.y};
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    if (tool === "select") {
-      setSelectedIds(prev => {
-        const next = new Set(prev);
-        next.has(pp.id) ? next.delete(pp.id) : next.add(pp.id);
-        return next;
-      });
-    }
+    if(tool==="select"){setSelectedIds(prev=>{const n=new Set(prev);n.has(pp.id)?n.delete(pp.id):n.add(pp.id);return n;});}
   }
 
-  // ─── Object pointer drag ───────────────────────────────────────────────────────
-  function onObjPointerDown(e: React.PointerEvent, obj: BoardObject) {
-    if (!editMode || objectsLocked) return;
-    e.stopPropagation();
-    const pos = clientToCanvas(e.clientX, e.clientY);
-    movingObj.current = { id: obj.id, startX: pos.x, startY: pos.y, ox: pos.x - obj.x, oy: pos.y - obj.y };
+  // ─── Object pointer ───────────────────────────────────────────────────────
+  function onObjPointerDown(e:React.PointerEvent,obj:BoardObject){
+    if(!editMode||objectsLocked)return;e.stopPropagation();
+    const pos=clientToCanvas(e.clientX,e.clientY);
+    movingObj.current={id:obj.id,ox:pos.x-obj.x,oy:pos.y-obj.y};
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    if (tool === "select") {
-      setSelectedIds(prev => { const n=new Set(prev); n.has(obj.id)?n.delete(obj.id):n.add(obj.id); return n; });
-    }
+    if(tool==="select"){setSelectedIds(prev=>{const n=new Set(prev);n.has(obj.id)?n.delete(obj.id):n.add(obj.id);return n;});}
   }
-
-  function onObjResizePointerDown(e: React.PointerEvent, obj: BoardObject) {
-    if (!editMode || objectsLocked) return;
-    e.stopPropagation();
-    const pos = clientToCanvas(e.clientX, e.clientY);
-    resizingObj.current = { id: obj.id, startX: pos.x, startY: pos.y, ow: obj.w, oh: obj.h };
+  function onObjResizePointerDown(e:React.PointerEvent,obj:BoardObject){
+    if(!editMode||objectsLocked)return;e.stopPropagation();
+    const pos=clientToCanvas(e.clientX,e.clientY);
+    resizingObj.current={id:obj.id,startX:pos.x,startY:pos.y,ow:obj.w,oh:obj.h};
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   }
 
-  // ─── Object text editing ───────────────────────────────────────────────────────
-  function updateObjText(id: string, text: string) {
-    onObjectsChange(objects.map(o => o.id === id ? { ...o, text } : o));
-  }
-  function updateObjTitle(id: string, title: string) {
-    onObjectsChange(objects.map(o => o.id === id ? { ...o, title } : o));
-  }
-  function deleteObj(id: string) {
-    onObjectsChange(objects.filter(o => o.id !== id));
-    onPlacedChange(placed.filter(p => p.id !== id));
-  }
+  const MAROON="#7f1630"; const DARK="#0d1117"; const MID="#1e2533";
 
-  // ─── Cursor style ─────────────────────────────────────────────────────────────
-  const cursor = !editMode ? "grab"
-    : objectsLocked ? "default"
-    : tool === "lane" || tool === "text" || tool === "note" ? "crosshair"
-    : "grab";
+  const delBtn=(id:string,isObj=true)=>(
+    editMode&&!objectsLocked
+      ?<button onPointerDown={e=>e.stopPropagation()} onClick={()=>isObj?onObjectsChange(objects.filter(o=>o.id!==id)):onPlacedChange(placed.filter(p=>p.id!==id))}
+          style={{position:"absolute",top:-7,right:-7,width:18,height:18,borderRadius:"50%",background:"#ef4444",border:"none",color:"#fff",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,lineHeight:1,fontWeight:700}}>✕</button>
+      :null
+  );
+  const resizeHandle=(obj:BoardObject)=>(
+    editMode&&!objectsLocked
+      ?<div onPointerDown={e=>onObjResizePointerDown(e,obj)} style={{position:"absolute",bottom:0,right:0,width:14,height:14,cursor:"se-resize",background:"rgba(255,255,255,0.25)",borderRadius:"2px 0 5px 0"}}/>
+      :null
+  );
 
-  // ─── Render ───────────────────────────────────────────────────────────────────
+  const cursor=!editMode?"grab":objectsLocked?"default":
+    (tool==="lane"||tool==="text"||tool==="note"||tool==="token"||tool==="ball")?"crosshair":"grab";
+
   return (
-    <div
-      ref={containerRef}
-      style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", cursor, userSelect: "none", touchAction: "none", background: "#1a2332" }}
-      onPointerDown={onCanvasPointerDown}
-      onPointerMove={onCanvasPointerMove}
-      onPointerUp={onCanvasPointerUp}
-      onPointerCancel={onCanvasPointerUp}
-      onDragOver={onCanvasDragOver}
-      onDrop={onCanvasDrop}
-    >
-      {/* Canvas */}
-      <div
-        ref={canvasRef}
-        style={{
-          position: "absolute",
-          left: pan.x, top: pan.y,
-          width: canvasWidth, height: canvasHeight,
-          transform: `scale(${zoom})`,
-          transformOrigin: "0 0",
-          backgroundImage: backgroundUrl
-            ? `url(${backgroundUrl})`
-            : "radial-gradient(circle, #2a3f5f 1px, transparent 1px)",
-          backgroundSize: backgroundUrl ? "cover" : "40px 40px",
-          backgroundPosition: "center",
-        }}
-      >
-        {/* ── Board Objects (lanes, text, notes) ── */}
-        {objects.map(obj => {
-          const isSelected = selectedIds.has(obj.id);
-          const baseStyle: React.CSSProperties = {
-            position: "absolute", left: obj.x, top: obj.y, width: obj.w, height: obj.h,
-            boxSizing: "border-box",
-            outline: isSelected ? "2px solid #3b82f6" : "none",
-          };
-
-          if (obj.kind === "lane") return (
-            <div key={obj.id} style={{...baseStyle, background:"rgba(255,255,255,0.06)", border:"2px solid rgba(255,255,255,0.25)", borderRadius:8, cursor: editMode&&!objectsLocked?"move":"default"}}
-              onPointerDown={e=>onObjPointerDown(e,obj)}
-              onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
-              {editingObjId===obj.id ? (
-                <input autoFocus defaultValue={obj.title} onBlur={e=>{updateObjTitle(obj.id,e.target.value);setEditingObjId(null);}} onKeyDown={e=>e.key==="Enter"&&(e.currentTarget.blur())}
-                  style={{width:"100%",background:"transparent",border:"none",outline:"none",color:"#fff",fontWeight:700,fontSize:13,textAlign:"center",padding:"4px 8px"}} />
-              ) : (
-                <div style={{color:"#e2e8f0",fontWeight:700,fontSize:13,padding:"4px 8px",textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                  {obj.title || "Lane"}
-                </div>
-              )}
-              {editMode&&!objectsLocked&&<button onPointerDown={e=>e.stopPropagation()} onClick={()=>deleteObj(obj.id)} style={{position:"absolute",top:-8,right:-8,width:18,height:18,borderRadius:"50%",background:"#ef4444",border:"none",color:"#fff",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}>✕</button>}
-              {editMode&&!objectsLocked&&<div onPointerDown={e=>onObjResizePointerDown(e,obj)} style={{position:"absolute",bottom:0,right:0,width:14,height:14,cursor:"se-resize",background:"rgba(255,255,255,0.3)",borderRadius:"2px 0 4px 0"}}/>}
-            </div>
-          );
-
-          if (obj.kind === "text") return (
-            <div key={obj.id} style={{...baseStyle, cursor:editMode&&!objectsLocked?"move":"default"}}
-              onPointerDown={e=>onObjPointerDown(e,obj)}
-              onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
-              {editingObjId===obj.id ? (
-                <input autoFocus defaultValue={obj.text} onBlur={e=>{updateObjText(obj.id,e.target.value);setEditingObjId(null);}} onKeyDown={e=>e.key==="Enter"&&e.currentTarget.blur()}
-                  style={{width:"100%",background:"transparent",border:"none",outline:"none",color:"#fff",fontWeight:700,fontSize:14,padding:0}} />
-              ) : (
-                <div style={{color:"#ffffff",fontWeight:700,fontSize:14,whiteSpace:"nowrap"}}>{obj.text||"Text"}</div>
-              )}
-              {editMode&&!objectsLocked&&<button onPointerDown={e=>e.stopPropagation()} onClick={()=>deleteObj(obj.id)} style={{position:"absolute",top:-8,right:-8,width:18,height:18,borderRadius:"50%",background:"#ef4444",border:"none",color:"#fff",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
-            </div>
-          );
-
-          if (obj.kind === "note") return (
-            <div key={obj.id} style={{...baseStyle, background:obj.color||"#fef08a", borderRadius:6, padding:6, cursor:editMode&&!objectsLocked?"move":"default"}}
-              onPointerDown={e=>onObjPointerDown(e,obj)}
-              onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
-              {editingObjId===obj.id ? (
-                <textarea autoFocus defaultValue={obj.text} onBlur={e=>{updateObjText(obj.id,e.target.value);setEditingObjId(null);}}
-                  style={{width:"100%",height:"100%",background:"transparent",border:"none",outline:"none",color:"#1a1a1a",fontSize:12,resize:"none",fontFamily:"inherit"}}/>
-              ) : (
-                <div style={{color:"#1a1a1a",fontSize:12,overflow:"hidden",height:"100%"}}>{obj.text||"Note"}</div>
-              )}
-              {editMode&&!objectsLocked&&<button onPointerDown={e=>e.stopPropagation()} onClick={()=>deleteObj(obj.id)} style={{position:"absolute",top:-8,right:-8,width:18,height:18,borderRadius:"50%",background:"#ef4444",border:"none",color:"#fff",fontSize:11,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>}
-              {editMode&&!objectsLocked&&<div onPointerDown={e=>onObjResizePointerDown(e,obj)} style={{position:"absolute",bottom:0,right:0,width:14,height:14,cursor:"se-resize",background:"rgba(0,0,0,0.15)",borderRadius:"2px 0 4px 0"}}/>}
-            </div>
-          );
-          return null;
-        })}
-
-        {/* ── Placed Player Cards ── */}
-        {placed.map(pp => {
-          const bg = gradeColor(pp.player.grade);
-          const fg = gradeTextColor(pp.player.grade);
-          const w  = pp.w ?? cardSize.w;
-          const h  = pp.h ?? cardSize.h;
-          const isSelected = selectedIds.has(pp.id);
-          return (
-            <div key={pp.id}
-              style={{
-                position:"absolute", left:pp.x, top:pp.y, width:w, height:h,
-                background:bg, borderRadius:8, overflow:"hidden",
-                border: isSelected ? "2px solid #60a5fa" : "1.5px solid rgba(255,255,255,0.15)",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-                cursor: editMode&&!objectsLocked ? "move" : "default",
-                display:"flex", flexDirection:"column", userSelect:"none",
-                touchAction:"none",
-              }}
-              onPointerDown={e=>onPlayerPointerDown(e,pp)}
-              onDoubleClick={()=>onOpenPlayer?.(pp.id)}
-            >
-              {/* Position badge */}
-              <div style={{position:"absolute",top:3,left:4,fontSize:9,fontWeight:700,color:fg,opacity:0.7,lineHeight:1}}>
-                {pp.player.pos1 || pp.player.primary || ""}
-              </div>
-              {/* Delete button */}
-              {editMode&&!objectsLocked&&(
-                <button
-                  onPointerDown={e=>e.stopPropagation()}
-                  onClick={e=>{e.stopPropagation();onPlacedChange(placed.filter(p=>p.id!==pp.id));}}
-                  style={{position:"absolute",top:-6,right:-6,width:16,height:16,borderRadius:"50%",background:"#ef4444",border:"none",color:"#fff",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10,lineHeight:1}}>✕</button>
-              )}
-              {/* Player photo */}
-              {pp.player.pictureUrl && (
-                <div style={{position:"absolute",right:4,top:4,width:Math.round(h*0.55),height:Math.round(h*0.55),borderRadius:"50%",overflow:"hidden",border:"1.5px solid rgba(255,255,255,0.3)",flexShrink:0}}>
-                  <img src={pp.player.pictureUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";}}/>
-                </div>
-              )}
-              {/* Name */}
-              <div style={{position:"absolute",bottom:6,left:4,right:pp.player.pictureUrl?Math.round(h*0.6)+4:4,color:fg,fontWeight:700,fontSize:Math.max(9,Math.round(h/6)),lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
-                {pp.player.name}
-              </div>
-              {/* Grade badge */}
-              <div style={{position:"absolute",bottom:3,right:4,fontSize:9,color:fg,opacity:0.6,fontWeight:600}}>
-                {pp.player.grade ? "Gr." + pp.player.grade : ""}
-              </div>
-            </div>
-          );
-        })}
+    <div style={{width:"100%",height:"100%",display:"flex",flexDirection:"column",background:DARK,overflow:"hidden"}}>
+      {/* ── Zoom bar ── */}
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 12px",background:"#161b27",borderBottom:"1px solid #2a3040",flexShrink:0}}>
+        <button onClick={()=>setZoom(z=>Math.min(3,z+0.1))} style={{width:26,height:26,background:MID,border:"1px solid #2a3040",borderRadius:5,color:"#94a3b8",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>+</button>
+        <input type="range" min={15} max={200} value={Math.round(zoom*100)}
+          onChange={e=>setZoom(+e.target.value/100)}
+          style={{flex:1,maxWidth:180,accentColor:MAROON,cursor:"pointer"}}/>
+        <button onClick={()=>setZoom(z=>Math.max(0.15,z-0.1))} style={{width:26,height:26,background:MID,border:"1px solid #2a3040",borderRadius:5,color:"#94a3b8",fontSize:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>−</button>
+        <span style={{color:"#64748b",fontSize:11,minWidth:36,textAlign:"center"}}>{Math.round(zoom*100)}%</span>
+        <button onClick={()=>{setZoom(0.7);setPan({x:60,y:60});}} style={{padding:"3px 8px",background:MID,border:"1px solid #2a3040",borderRadius:5,color:"#64748b",fontSize:11,cursor:"pointer"}}>Reset</button>
+        <span style={{color:"#334155",fontSize:10,marginLeft:4}}>Scroll to pan · Ctrl+scroll to zoom</span>
       </div>
 
-      {/* Zoom indicator */}
-      <div style={{position:"absolute",bottom:12,left:12,background:"rgba(0,0,0,0.6)",color:"#94a3b8",fontSize:11,padding:"4px 8px",borderRadius:6,pointerEvents:"none"}}>
-        {Math.round(zoom*100)}%
+      {/* ── Canvas ── */}
+      <div ref={containerRef} style={{flex:1,overflow:"hidden",position:"relative",cursor,userSelect:"none",touchAction:"none"}}
+        onPointerDown={onCanvasPointerDown} onPointerMove={onCanvasPointerMove}
+        onPointerUp={onCanvasPointerUp} onPointerCancel={onCanvasPointerUp}
+        onDragOver={onCanvasDragOver} onDrop={onCanvasDrop}>
+        <div ref={canvasRef} style={{position:"absolute",left:pan.x,top:pan.y,width:canvasWidth,height:canvasHeight,transform:`scale(${zoom})`,transformOrigin:"0 0"}}>
+
+          {/* Background image with resize handle */}
+          {backgroundUrl&&(
+            <div style={{position:"absolute",left:0,top:0,width:bgSize.w,height:bgSize.h,zIndex:0,overflow:"hidden"}}>
+              <img src={backgroundUrl} alt="" style={{width:"100%",height:"100%",objectFit:"fill",display:"block",pointerEvents:"none"}}/>
+              {editMode&&!objectsLocked&&(
+                <div onPointerDown={e=>{e.stopPropagation();const pos=clientToCanvas(e.clientX,e.clientY);resizingBg.current={startX:pos.x,startY:pos.y,ow:bgSize.w,oh:bgSize.h};(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);}}
+                  style={{position:"absolute",bottom:4,right:4,width:20,height:20,background:MAROON,borderRadius:4,cursor:"se-resize",display:"flex",alignItems:"center",justifyContent:"center",color:"#fff",fontSize:10}}>⤡</div>
+              )}
+            </div>
+          )}
+
+          {/* Grid dots when no background */}
+          {!backgroundUrl&&(
+            <div style={{position:"absolute",inset:0,backgroundImage:"radial-gradient(circle,#2a3040 1px,transparent 1px)",backgroundSize:"40px 40px",zIndex:0}}/>
+          )}
+
+          {/* ── Board Objects ── */}
+          {objects.map(obj=>{
+            const isSel=selectedIds.has(obj.id);
+            const base:React.CSSProperties={position:"absolute",left:obj.x,top:obj.y,width:obj.w,height:obj.h,boxSizing:"border-box",outline:isSel?"2px solid #60a5fa":"none",zIndex:5};
+
+            if(obj.kind==="lane") return(
+              <div key={obj.id} style={{...base,background:"rgba(127,22,48,0.12)",border:"2px solid rgba(127,22,48,0.5)",borderRadius:8,cursor:editMode&&!objectsLocked?"move":"default"}}
+                onPointerDown={e=>onObjPointerDown(e,obj)} onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
+                {editingObjId===obj.id
+                  ?<input autoFocus defaultValue={obj.title} onBlur={e=>{onObjectsChange(objects.map(o=>o.id===obj.id?{...o,title:e.target.value}:o));setEditingObjId(null);}} onKeyDown={e=>e.key==="Enter"&&e.currentTarget.blur()} style={{width:"100%",background:"transparent",border:"none",outline:"none",color:"#e2e8f0",fontWeight:700,fontSize:13,textAlign:"center",padding:"4px 8px"}}/>
+                  :<div style={{color:"#e2e8f0",fontWeight:700,fontSize:13,padding:"4px 8px",textAlign:"center",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{obj.title||"Lane"}</div>
+                }
+                {delBtn(obj.id)}{resizeHandle(obj)}
+              </div>
+            );
+
+            if(obj.kind==="text") return(
+              <div key={obj.id} style={{...base,cursor:editMode&&!objectsLocked?"move":"default",zIndex:6}}
+                onPointerDown={e=>onObjPointerDown(e,obj)} onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
+                {editingObjId===obj.id
+                  ?<input autoFocus defaultValue={obj.text} onBlur={e=>{onObjectsChange(objects.map(o=>o.id===obj.id?{...o,text:e.target.value}:o));setEditingObjId(null);}} style={{background:"transparent",border:"none",outline:"none",color:"#fff",fontWeight:700,fontSize:15,padding:0,width:"100%"}}/>
+                  :<div style={{color:"#ffffff",fontWeight:700,fontSize:15,whiteSpace:"nowrap",textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>{obj.text||"Text"}</div>
+                }
+                {delBtn(obj.id)}
+              </div>
+            );
+
+            if(obj.kind==="note") return(
+              <div key={obj.id} style={{...base,background:obj.color||"#fef08a",borderRadius:6,padding:6,cursor:editMode&&!objectsLocked?"move":"default",zIndex:6}}
+                onPointerDown={e=>onObjPointerDown(e,obj)} onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
+                {editingObjId===obj.id
+                  ?<textarea autoFocus defaultValue={obj.text} onBlur={e=>{onObjectsChange(objects.map(o=>o.id===obj.id?{...o,text:e.target.value}:o));setEditingObjId(null);}} style={{width:"100%",height:"100%",background:"transparent",border:"none",outline:"none",color:"#1a1a1a",fontSize:12,resize:"none",fontFamily:"inherit"}}/>
+                  :<div style={{color:"#1a1a1a",fontSize:12,overflow:"hidden",height:"100%",lineHeight:1.4}}>{obj.text||"Note"}</div>
+                }
+                {delBtn(obj.id)}{resizeHandle(obj)}
+              </div>
+            );
+
+            if(obj.kind==="token") return(
+              <div key={obj.id} style={{...base,borderRadius:"50%",background:obj.tokenColor||MAROON,display:"flex",alignItems:"center",justifyContent:"center",cursor:editMode&&!objectsLocked?"move":"default",boxShadow:"0 2px 6px rgba(0,0,0,0.5)",border:"2px solid rgba(255,255,255,0.3)",zIndex:6}}
+                onPointerDown={e=>onObjPointerDown(e,obj)} onDoubleClick={()=>editMode&&!objectsLocked&&setEditingObjId(obj.id)}>
+                {editingObjId===obj.id
+                  ?<input autoFocus defaultValue={obj.tokenLabel} onBlur={e=>{onObjectsChange(objects.map(o=>o.id===obj.id?{...o,tokenLabel:e.target.value}:o));setEditingObjId(null);}} style={{width:"100%",background:"transparent",border:"none",outline:"none",color:"#fff",fontWeight:800,fontSize:Math.max(10,obj.w*0.4),textAlign:"center",padding:0}}/>
+                  :<span style={{color:"#fff",fontWeight:800,fontSize:Math.max(10,obj.w*0.4),userSelect:"none"}}>{obj.tokenLabel||"1"}</span>
+                }
+                {delBtn(obj.id)}
+              </div>
+            );
+
+            if(obj.kind==="ball") return(
+              <div key={obj.id} style={{...base,borderRadius:"50%",overflow:"hidden",cursor:editMode&&!objectsLocked?"move":"default",zIndex:6,fontSize:obj.w*0.8,display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1}}
+                onPointerDown={e=>onObjPointerDown(e,obj)}>
+                <span style={{userSelect:"none"}}>⚽</span>
+                {delBtn(obj.id)}
+              </div>
+            );
+            return null;
+          })}
+
+          {/* ── Placed Player Cards ── */}
+          {placed.map(pp=>{
+            const bg=gradeColor(pp.player.grade);
+            const fg=gradeTextColor(pp.player.grade);
+            const w=pp.w??cardSize.w; const h=pp.h??cardSize.h;
+            const isSel=selectedIds.has(pp.id);
+            return(
+              <div key={pp.id} style={{position:"absolute",left:pp.x,top:pp.y,width:w,height:h,background:bg,borderRadius:8,overflow:"hidden",border:isSel?"2px solid #60a5fa":"1.5px solid rgba(255,255,255,0.15)",boxShadow:"0 2px 8px rgba(0,0,0,0.5)",cursor:editMode&&!objectsLocked?"move":"default",display:"flex",flexDirection:"column",userSelect:"none",touchAction:"none",zIndex:10}}
+                onPointerDown={e=>onPlayerPointerDown(e,pp)} onDoubleClick={()=>onOpenPlayer?.(pp.id)}>
+                <div style={{position:"absolute",top:3,left:4,fontSize:9,fontWeight:700,color:fg,opacity:0.75,lineHeight:1}}>{pp.player.pos1||""}</div>
+                {editMode&&!objectsLocked&&(
+                  <button onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onPlacedChange(placed.filter(p=>p.id!==pp.id));}}
+                    style={{position:"absolute",top:-6,right:-6,width:16,height:16,borderRadius:"50%",background:"#ef4444",border:"none",color:"#fff",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,lineHeight:1,fontWeight:700}}>✕</button>
+                )}
+                {pp.player.pictureUrl&&(
+                  <div style={{position:"absolute",right:4,top:4,width:Math.round(h*0.55),height:Math.round(h*0.55),borderRadius:"50%",overflow:"hidden",border:"1.5px solid rgba(255,255,255,0.3)"}}>
+                    <img src={pp.player.pictureUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";}}/>
+                  </div>
+                )}
+                <div style={{position:"absolute",bottom:6,left:4,right:pp.player.pictureUrl?Math.round(h*0.6)+4:4,color:fg,fontWeight:700,fontSize:Math.max(9,Math.round(h/6)),lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pp.player.name}</div>
+                <div style={{position:"absolute",bottom:2,right:4,fontSize:9,color:fg,opacity:0.55,fontWeight:600}}>{pp.player.grade?"Gr."+pp.player.grade:""}</div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
