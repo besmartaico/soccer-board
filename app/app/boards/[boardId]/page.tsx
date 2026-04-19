@@ -254,11 +254,11 @@ export default function BoardPage() {
     <div style={{display:"flex",flexDirection:"column",height:"100vh",background:"#0f172a",overflow:"hidden"}}>
 
       {/* ── Toolbar ─────────────────────────────────────────────────────────── */}
-      <div style={{display:"flex",alignItems:"center",gap:4,padding:"6px 10px",background:"#0f172a",borderBottom:"1px solid #1e3a5f",overflowX:"auto",flexShrink:0,WebkitOverflowScrolling:"touch" as any,scrollbarWidth:"none" as any}}>
+      <div style={{display:"flex",alignItems:"center",gap:4,padding:"6px 10px",background:"#0d1117",borderBottom:"1px solid #7f1630",overflowX:"auto",flexShrink:0,WebkitOverflowScrolling:"touch" as any,scrollbarWidth:"none" as any}}>
 
         {/* Board name */}
         <Link href={`/app/boards?team=${board?.team_id}`} style={{color:"#64748b",textDecoration:"none",fontSize:12,flexShrink:0}}>←</Link>
-        <span style={{color:"#60a5fa",fontWeight:700,fontSize:13,flexShrink:0,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{board?.name}</span>
+        <span style={{color:"#e8a0b0",fontWeight:700,fontSize:13,flexShrink:0,maxWidth:120,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{board?.name}</span>
 
         <div style={{width:1,height:20,background:"#1e3a5f",flexShrink:0,margin:"0 4px"}}/>
 
@@ -288,6 +288,8 @@ export default function BoardPage() {
           <button onClick={()=>setTool(t=>t==="lane"?"pointer":"lane")}     style={toolBtn(tool==="lane")}>▦ Lane</button>
           <button onClick={()=>setTool(t=>t==="text"?"pointer":"text")}     style={toolBtn(tool==="text")}>T Text</button>
           <button onClick={()=>setTool(t=>t==="note"?"pointer":"note")}     style={toolBtn(tool==="note")}>📝 Note</button>
+          <button onClick={()=>setTool(t=>t==="token"?"pointer":"token")} style={toolBtn(tool==="token")}>⬤ Token</button>
+          <button onClick={()=>setTool(t=>t==="ball"?"pointer":"ball")}   style={toolBtn(tool==="ball")}>⚽ Ball</button>
           <div style={{width:1,height:20,background:"#1e3a5f",flexShrink:0,margin:"0 4px"}}/>
         </>)}
 
