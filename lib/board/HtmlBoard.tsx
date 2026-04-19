@@ -449,3 +449,5 @@ export default function HtmlBoard({
     </div>
   );
 }
+
+export { HtmlBoard };
