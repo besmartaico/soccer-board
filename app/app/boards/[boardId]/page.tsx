@@ -201,13 +201,24 @@ export default function BoardPage() {
   async function onBgFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setSaving(true);
     const ext  = file.name.split(".").pop();
     const path = `${boardId}/bg.${ext}`;
     const { error: upErr } = await supabase.storage.from(BG_BUCKET).upload(path, file, { upsert: true });
-    if (upErr) { setError(upErr.message); return; }
+    if (upErr) { setError(upErr.message); setSaving(false); return; }
     const { data: { publicUrl } } = supabase.storage.from(BG_BUCKET).getPublicUrl(path);
     setBackgroundUrl(publicUrl);
-    setDirty(true);
+    // Auto-save immediately — don't wait for manual Save click
+    if (board) {
+      const nextData = {
+        ...board.data,
+        htmlBoard: { placed: placedPlayers, objects: boardObjects, backgroundUrl: publicUrl, cardSizeMode },
+        googleConfig,
+      };
+      const { error: saveErr } = await supabase.from("boards").update({ data: nextData }).eq("id", boardId);
+      if (saveErr) { setError(saveErr.message); } else { setDirty(false); }
+    }
+    setSaving(false);
   }
 
   // ── Save sheet config ────────────────────────────────────────────────────────
