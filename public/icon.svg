@@ -1,38 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <!-- Background -->
-  <rect width="512" height="512" rx="96" fill="#1a4a2a"/>
-
-  <!-- Ball shadow -->
-  <circle cx="260" cy="264" r="148" fill="rgba(0,0,0,0.25)"/>
-
-  <!-- White ball -->
-  <circle cx="256" cy="256" r="148" fill="#ffffff" stroke="#cccccc" stroke-width="2"/>
-
-  <!-- Soccer ball pentagon pattern (classic black patches) -->
-  <!-- Central pentagon -->
-  <polygon points="256,152 304,186 285,240 227,240 208,186" fill="#1a1a1a"/>
-
-  <!-- Top pentagon -->
-  <polygon points="256,104 284,128 276,160 236,160 228,128" fill="#1a1a1a"/>
-
-  <!-- Top-right pentagon -->
-  <polygon points="330,136 370,152 372,196 334,212 308,184" fill="#1a1a1a"/>
-
-  <!-- Bottom-right pentagon -->
-  <polygon points="346,268 376,296 360,340 316,344 302,308" fill="#1a1a1a"/>
-
-  <!-- Bottom pentagon -->
-  <polygon points="256,348 296,344 302,380 256,400 210,380 216,344" fill="#1a1a1a"/>
-
-  <!-- Bottom-left pentagon -->
-  <polygon points="166,268 210,308 196,344 152,340 136,296" fill="#1a1a1a"/>
-
-  <!-- Top-left pentagon -->
-  <polygon points="182,136 204,184 178,212 140,196 142,152" fill="#1a1a1a"/>
-
-  <!-- Ball outline circle for crispness -->
-  <circle cx="256" cy="256" r="148" fill="none" stroke="#e0e0e0" stroke-width="3"/>
-
-  <!-- "LP" text at bottom -->
-  <text x="256" y="440" text-anchor="middle" font-family="Arial, sans-serif" font-weight="900" font-size="36" fill="#7ec87e" letter-spacing="4">LP SOCCER</text>
+  <!-- Dark background -->
+  <rect width="512" height="512" rx="96" fill="#0d1117"/>
+  <!-- Maroon hexagon -->
+  <polygon points="256,56 432,152 432,360 256,456 80,360 80,152" fill="#7f1630"/>
+  <!-- White B -->
+  <text x="256" y="330" font-family="Georgia, serif" font-size="260" font-weight="700" fill="#ffffff" text-anchor="middle">B</text>
 </svg>
