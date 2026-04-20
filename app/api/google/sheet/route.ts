@@ -11,7 +11,6 @@ function getCreds() {
   return creds;
 }
 
-// Convert a 1-based column index to a letter(s): 1=A, 26=Z, 27=AA, etc.
 function colToLetter(n: number): string {
   let s = "";
   while (n > 0) {
@@ -26,7 +25,6 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
     const sheetId = (url.searchParams.get("sheetId") ?? "").trim();
-    const rangeParam = (url.searchParams.get("range") ?? "").trim();
 
     if (!sheetId) {
       return NextResponse.json({ error: "Missing sheetId" }, { status: 400 });
@@ -40,47 +38,48 @@ export async function GET(req: Request) {
     });
     const sheets = google.sheets({ version: "v4", auth });
 
-    // Determine sheet name from range param or default to first sheet
-    let sheetName = "Sheet1";
-    if (rangeParam && rangeParam.includes("!")) {
-      sheetName = rangeParam.split("!")[0];
-    } else if (rangeParam && !rangeParam.includes(":")) {
-      // treat bare word as sheet name
-      sheetName = rangeParam;
-    }
-
-    // Step 1: Fetch row 1 only to discover actual column count
-    const row1Resp = await sheets.spreadsheets.values.get({
+    // Step 1: Get spreadsheet metadata — actual sheet name + column count
+    const meta = await sheets.spreadsheets.get({
       spreadsheetId: sheetId,
-      range: `${sheetName}!1:1`,
+      fields: "sheets.properties(title,gridProperties)",
     });
 
-    const headerRow: string[] = row1Resp.data.values?.[0] ?? [];
-    // Find last non-empty header
-    let lastCol = 1;
-    for (let i = headerRow.length - 1; i >= 0; i--) {
-      if (headerRow[i]?.trim()) { lastCol = i + 1; break; }
-    }
-    // Ensure at least column A, cap at 52 columns
-    lastCol = Math.min(Math.max(lastCol, 1), 52);
-    const lastColLetter = colToLetter(lastCol);
+    const firstSheet = meta.data.sheets?.[0];
+    const sheetTitle = firstSheet?.properties?.title ?? "Sheet1";
+    const totalCols  = firstSheet?.properties?.gridProperties?.columnCount ?? 26;
 
-    // Step 2: Fetch full data up to discovered last column
-    const dataRange = `${sheetName}!A:${lastColLetter}`;
+    // Step 2: Fetch a wide enough range to cover all columns.
+    // Use A1 notation with concrete cell references — always valid.
+    const lastColLetter = colToLetter(Math.min(totalCols, 52));
+    const dataRange = `${sheetTitle}!A1:${lastColLetter}1000`;
+
     const resp = await sheets.spreadsheets.values.get({
       spreadsheetId: sheetId,
       range: dataRange,
     });
 
+    const rows: string[][] = resp.data.values ?? [];
+
+    // Find last non-empty column from header row
+    const headerRow = rows[0] ?? [];
+    let lastUsedCol = 1;
+    for (let i = headerRow.length - 1; i >= 0; i--) {
+      if (headerRow[i]?.trim()) { lastUsedCol = i + 1; break; }
+    }
+
+    // Filter rows to only include up to the last used column
+    const trimmed = rows.map(r => r.slice(0, lastUsedCol));
+
     return NextResponse.json(
       {
         success: true,
         sheetId,
+        sheetTitle,
         range: dataRange,
-        headers: headerRow,
-        lastCol: lastColLetter,
-        rowCount: resp.data.values?.length ?? 0,
-        values: resp.data.values ?? [],
+        headers: headerRow.slice(0, lastUsedCol),
+        lastCol: colToLetter(lastUsedCol),
+        rowCount: trimmed.length,
+        values: trimmed,
       },
       { headers: { "cache-control": "no-store" } }
     );
