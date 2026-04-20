@@ -43,7 +43,7 @@ type Props = {
   onAddPlayerToBoard?: (player: PlayerPayload) => void;
 };
 
-const CARD = { large:{w:110,h:70}, medium:{w:90,h:56}, small:{w:72,h:44} };
+const CARD = { large:{w:150,h:120}, medium:{w:120,h:96}, small:{w:96,h:76} };
 const MAROON = "#7f1630";
 const DARK   = "#0d1117";
 const MID    = "#161b27";
@@ -371,25 +371,79 @@ export default function HtmlBoard({
 
           {/* ── Placed Player Cards ── */}
           {placed.map(pp=>{
-            const bg=gradeColor(pp.player.grade);
-            const fg=gradeTextColor(pp.player.grade);
-            const w=pp.w??cardSize.w; const h=pp.h??cardSize.h;
-            const isSel=selectedIds.has(pp.id);
-            return(
-              <div key={pp.id} style={{position:"absolute",left:pp.x,top:pp.y,width:w,height:h,background:bg,borderRadius:8,overflow:"hidden",border:isSel?"2px solid #60a5fa":"1.5px solid rgba(255,255,255,0.12)",boxShadow:"0 2px 8px rgba(0,0,0,0.5)",cursor:editMode&&!objectsLocked?"move":"default",display:"flex",flexDirection:"column",userSelect:"none",touchAction:"none",zIndex:10}}
-                onPointerDown={e=>onPlayerPointerDown(e,pp)} onDoubleClick={()=>onOpenPlayer?.(pp.id)}>
-                <div style={{position:"absolute",top:3,left:4,fontSize:9,fontWeight:700,color:fg,opacity:0.75,lineHeight:1}}>{pp.player.pos1||""}</div>
-                {editMode&&!objectsLocked&&(
-                  <button onPointerDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();onPlacedChange(placed.filter(p=>p.id!==pp.id));}}
-                    style={{position:"absolute",top:-6,right:-6,width:16,height:16,borderRadius:"50%",background:"#ef4444",border:"none",color:"#fff",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:20,lineHeight:1,fontWeight:700}}>✕</button>
-                )}
-                {pp.player.pictureUrl&&(
-                  <div style={{position:"absolute",right:4,top:4,width:Math.round(h*0.55),height:Math.round(h*0.55),borderRadius:"50%",overflow:"hidden",border:"1.5px solid rgba(255,255,255,0.3)"}}>
-                    <img src={pp.player.pictureUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";}}/>
+            const bg  = gradeColor(pp.player.grade);
+            const fg  = gradeTextColor(pp.player.grade);
+            const w   = pp.w ?? cardSize.w;
+            const h   = pp.h ?? cardSize.h;
+            const isSel = selectedIds.has(pp.id);
+            // Name bar height at bottom
+            const nameBarH = Math.round(h * 0.30);
+            const photoH   = h - nameBarH;
+            return (
+              <div key={pp.id}
+                style={{position:"absolute",left:pp.x,top:pp.y,width:w,height:h,
+                  background:bg,borderRadius:10,overflow:"hidden",
+                  border:isSel?"2.5px solid #60a5fa":"1.5px solid rgba(255,255,255,0.15)",
+                  boxShadow:"0 3px 12px rgba(0,0,0,0.55)",
+                  cursor:editMode&&!objectsLocked?"move":"default",
+                  userSelect:"none",touchAction:"none",zIndex:10,flexShrink:0}}
+                onPointerDown={e=>onPlayerPointerDown(e,pp)}
+                onDoubleClick={()=>onOpenPlayer?.(pp.id)}>
+
+                {/* ── Photo area ── */}
+                <div style={{position:"absolute",top:0,left:0,width:w,height:photoH,overflow:"hidden",background:"rgba(0,0,0,0.15)"}}>
+                  {pp.player.pictureUrl ? (
+                    <img src={pp.player.pictureUrl} alt=""
+                      style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top",display:"block"}}
+                      onError={e=>{(e.target as HTMLImageElement).style.display="none";}}/>
+                  ) : (
+                    // Placeholder initials when no photo
+                    <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                      <span style={{fontSize:Math.round(photoH*0.45),fontWeight:800,color:fg,opacity:0.5,userSelect:"none"}}>
+                        {(pp.player.name||"?").charAt(0).toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  {/* Position badge top-left */}
+                  {(pp.player.pos1||pp.player.primary) && (
+                    <div style={{position:"absolute",top:4,left:4,background:"rgba(0,0,0,0.55)",color:"#fff",
+                      fontSize:10,fontWeight:700,padding:"1px 5px",borderRadius:4,lineHeight:1.4,backdropFilter:"blur(2px)"}}>
+                      {pp.player.pos1||pp.player.primary}
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Name bar ── */}
+                <div style={{position:"absolute",bottom:0,left:0,width:w,height:nameBarH,
+                  background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",
+                  justifyContent:"center",padding:"0 4px",boxSizing:"border-box"}}>
+                  <span style={{color:"#ffffff",fontWeight:700,
+                    fontSize:Math.max(10, Math.round(nameBarH * 0.42)),
+                    lineHeight:1.2,textAlign:"center",overflow:"hidden",
+                    textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"100%",
+                    textShadow:"0 1px 3px rgba(0,0,0,0.8)"}}>
+                    {pp.player.name}
+                  </span>
+                </div>
+
+                {/* Grade badge top-right */}
+                {pp.player.grade && (
+                  <div style={{position:"absolute",top:4,right:4,background:"rgba(0,0,0,0.55)",
+                    color:"#fff",fontSize:9,fontWeight:700,padding:"1px 4px",borderRadius:4,
+                    lineHeight:1.4,backdropFilter:"blur(2px)"}}>
+                    {pp.player.grade}
                   </div>
                 )}
-                <div style={{position:"absolute",bottom:6,left:4,right:pp.player.pictureUrl?Math.round(h*0.6)+4:4,color:fg,fontWeight:700,fontSize:Math.max(9,Math.round(h/6)),lineHeight:1.2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{pp.player.name}</div>
-                <div style={{position:"absolute",bottom:2,right:4,fontSize:9,color:fg,opacity:0.55,fontWeight:600}}>{pp.player.grade?"Gr."+pp.player.grade:""}</div>
+
+                {/* Delete button */}
+                {editMode&&!objectsLocked&&(
+                  <button onPointerDown={e=>e.stopPropagation()}
+                    onClick={e=>{e.stopPropagation();onPlacedChange(placed.filter(p=>p.id!==pp.id));}}
+                    style={{position:"absolute",top:-7,right:-7,width:20,height:20,borderRadius:"50%",
+                      background:"#ef4444",border:"2px solid #fff",color:"#fff",fontSize:11,
+                      cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+                      zIndex:20,lineHeight:1,fontWeight:700}}>✕</button>
+                )}
               </div>
             );
           })}
