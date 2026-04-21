@@ -308,10 +308,10 @@ export default function BoardPage() {
         return (
           <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.82)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:300,padding:20}} onClick={()=>setOpenedPlayerId(null)}>
             <div style={{background:MID,borderRadius:16,width:"100%",maxWidth:420,border:`1px solid ${BORDER}`,overflow:"hidden",boxShadow:"0 24px 64px rgba(0,0,0,0.7)"}} onClick={e=>e.stopPropagation()}>
-              <div style={{position:"relative",height:230,background:bg,overflow:"hidden"}}>
+              <div style={{position:"relative",background:"#000",overflow:"hidden",display:"flex",alignItems:"center",justifyContent:"center",minHeight:200,maxHeight:480}}>
                 {p.pictureUrl
-                  ?<img src={p.pictureUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";}}/>
-                  :<div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}><span style={{fontSize:100,fontWeight:800,color:fg,opacity:0.25}}>{(p.name||"?")[0].toUpperCase()}</span></div>
+                  ?<img src={p.pictureUrl} alt="" style={{width:"100%",height:"auto",maxHeight:480,objectFit:"contain",display:"block"}} onError={e=>{(e.target as HTMLImageElement).style.display="none";}}/>
+                  :<div style={{width:"100%",height:230,display:"flex",alignItems:"center",justifyContent:"center",background:bg}}><span style={{fontSize:100,fontWeight:800,color:fg,opacity:0.25}}>{(p.name||"?")[0].toUpperCase()}</span></div>
                 }
                 <button onClick={()=>setOpenedPlayerId(null)} style={{position:"absolute",top:10,right:10,width:30,height:30,borderRadius:"50%",background:"rgba(0,0,0,0.6)",border:"none",color:"#fff",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
                 {p.grade&&<div style={{position:"absolute",top:10,left:10,background:bg,color:fg,fontSize:11,fontWeight:700,padding:"2px 9px",borderRadius:5,border:"1px solid rgba(255,255,255,0.2)"}}>Gr. {p.grade}</div>}
