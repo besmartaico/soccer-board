@@ -361,9 +361,7 @@ export default function BoardPage() {
               <button onClick={()=>setSidebarOpen(false)}
                 title="Collapse roster"
                 style={{flexShrink:0,width:26,height:26,background:"#0d1117",border:"1px solid #2a3040",borderRadius:6,color:"#64748b",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>◀</button>
-              <div style={{flex:1}}>
-        </div>
-        <div style={{padding:"0 10px 8px",borderBottom:"1px solid #1e3a5f",flexShrink:0,display:"none"}}>
+             
 
               <input type="text" placeholder="Search players…" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
                 style={{width:"100%",padding:"7px 10px",background:"#0f172a",border:"1px solid #334155",borderRadius:7,color:"#f1f5f9",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
