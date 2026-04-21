@@ -105,17 +105,39 @@ export default function HtmlBoard({
         setPan(p=>({x:p.x-e.deltaX, y:p.y-e.deltaY}));
       }
     };
-    // Block pinch-to-zoom on touch devices
-    const blockPinch=(e:TouchEvent)=>{ if(e.touches.length>1) e.preventDefault(); };
-    el.addEventListener("wheel",onWheel,{passive:false});
-    el.addEventListener("touchstart",blockPinch,{passive:false});
-    el.addEventListener("touchmove",blockPinch,{passive:false});
-    return()=>{
-      el.removeEventListener("wheel",onWheel);
-      el.removeEventListener("touchstart",blockPinch);
-      el.removeEventListener("touchmove",blockPinch);
-    };
-  },[]);
+    // Two-finger pan to scroll canvas; block pinch-zoom (browser default)
+  let lastMid = { x: 0, y: 0 };
+  const onTouchStart = (e: TouchEvent) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      lastMid = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      };
+    }
+  };
+  const onTouchMove = (e: TouchEvent) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const mid = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      };
+      const dx = mid.x - lastMid.x;
+      const dy = mid.y - lastMid.y;
+      setPan(p => ({ x: p.x + dx, y: p.y + dy }));
+      lastMid = mid;
+    }
+  };
+  el.addEventListener("wheel", onWheel, { passive: false });
+  el.addEventListener("touchstart", onTouchStart, { passive: false });
+  el.addEventListener("touchmove", onTouchMove, { passive: false });
+  return () => {
+    el.removeEventListener("wheel", onWheel);
+    el.removeEventListener("touchstart", onTouchStart);
+    el.removeEventListener("touchmove", onTouchMove);
+  };
+},[]);
 
   // ── Keyboard delete ───────────────────────────────────────────────────────
   useEffect(()=>{
