@@ -67,7 +67,8 @@ export default function HtmlBoard({
   const movingPlayer = useRef<{id:string;ox:number;oy:number}|null>(null);
   const movingObj    = useRef<{id:string;ox:number;oy:number}|null>(null);
   const resizingObj  = useRef<{id:string;startX:number;startY:number;ow:number;oh:number}|null>(null);
-  const resizingBg   = useRef<{startX:number;startY:number;ow:number;oh:number}|null>(null);
+  const resizingBg      = useRef<{startX:number;startY:number;ow:number;oh:number}|null>(null);
+  const resizingPlayer  = useRef<{id:string;startX:number;startY:number;ow:number;oh:number}|null>(null);
 
   const [editingObjId, setEditingObjId] = useState<string|null>(null);
   const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
@@ -164,6 +165,14 @@ export default function HtmlBoard({
       onObjectsChange(objects.map(o=>o.id===id?{...o,w:Math.max(20,ow+(pos.x-startX)),h:Math.max(20,oh+(pos.y-startY))}:o));
       return;
     }
+    if(resizingPlayer.current&&editMode&&!objectsLocked){
+      const pos=clientToCanvas(e.clientX,e.clientY);
+      const{id,startX,startY,ow,oh}=resizingPlayer.current;
+      const nw=Math.max(60,ow+(pos.x-startX));
+      const nh=Math.max(50,oh+(pos.y-startY));
+      onPlacedChange(placed.map(p=>p.id===id?{...p,w:nw,h:nh}:p));
+      return;
+    }
     if(resizingBg.current&&!bgLocked){
       const pos=clientToCanvas(e.clientX,e.clientY);
       const{startX,startY,ow,oh}=resizingBg.current;
@@ -177,6 +186,7 @@ export default function HtmlBoard({
     movingObj.current=null;
     resizingObj.current=null;
     resizingBg.current=null;
+    resizingPlayer.current=null;
   }
 
   // ── Drop from roster ──────────────────────────────────────────────────────
@@ -443,6 +453,28 @@ export default function HtmlBoard({
                       background:"#ef4444",border:"2px solid #fff",color:"#fff",fontSize:11,
                       cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
                       zIndex:20,lineHeight:1,fontWeight:700}}>✕</button>
+                )}
+                {/* Resize handle bottom-right */}
+                {editMode&&!objectsLocked&&(
+                  <div
+                    onPointerDown={e=>{
+                      e.stopPropagation();
+                      const pos=clientToCanvas(e.clientX,e.clientY);
+                      resizingPlayer.current={id:pp.id,startX:pos.x,startY:pos.y,ow:w,oh:h};
+                      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                    }}
+                    onPointerMove={e=>{
+                      if(!resizingPlayer.current||resizingPlayer.current.id!==pp.id) return;
+                      e.stopPropagation();
+                      const pos=clientToCanvas(e.clientX,e.clientY);
+                      const{startX,startY,ow,oh}=resizingPlayer.current;
+                      onPlacedChange(placed.map(p=>p.id===pp.id?{...p,w:Math.max(60,ow+(pos.x-startX)),h:Math.max(50,oh+(pos.y-startY))}:p));
+                    }}
+                    onPointerUp={()=>{resizingPlayer.current=null;}}
+                    style={{position:"absolute",bottom:0,right:0,width:16,height:16,
+                      cursor:"se-resize",background:MAROON,borderRadius:"4px 0 8px 0",
+                      zIndex:20,display:"flex",alignItems:"center",justifyContent:"center",
+                      color:"#fff",fontSize:9,userSelect:"none"}}>⤡</div>
                 )}
               </div>
             );
