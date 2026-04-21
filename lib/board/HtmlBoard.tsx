@@ -291,7 +291,7 @@ export default function HtmlBoard({
                   {/* Lock/unlock button */}
                   <button
                     onPointerDown={e=>e.stopPropagation()}
-                    onClick={()=>setBgLocked(l=>!l)}
+                    onClick={()=>setBgLocked((l:boolean)=>!l)}
                     title={bgLocked?"Unlock background size":"Lock background size"}
                     style={{position:"absolute",top:6,right:6,width:28,height:28,background:bgLocked?MAROON:"rgba(0,0,0,0.6)",border:"1px solid rgba(255,255,255,0.3)",borderRadius:6,color:"#fff",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",zIndex:10}}>
                     {bgLocked?"🔒":"🔓"}
