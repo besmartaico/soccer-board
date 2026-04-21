@@ -51,6 +51,9 @@ export default function BoardPage() {
   const [boardObjects,   setBoardObjects]   = useState<BoardObject[]>([]);
   const [backgroundUrl,  setBackgroundUrl]  = useState<string|null>(null);
   const [cardSizeMode,   setCardSizeMode]   = useState<"large"|"medium"|"small">("medium");
+  const [bgSize,         setBgSize]         = useState<{w:number,h:number}>({w:1400,h:900});
+  const [bgLocked,       setBgLocked]       = useState(false);
+  const [openedPlayerId, setOpenedPlayerId] = useState<string|null>(null);
   const [tool,           setTool]           = useState<BoardTool>("pointer");
 
   // Roster
@@ -98,6 +101,8 @@ export default function BoardPage() {
     setPlacedPlayers(hb.placed      ?? []);
     setBoardObjects (hb.objects     ?? []);
     setBackgroundUrl(hb.backgroundUrl ?? null);
+    if (hb.bgSize)  setBgSize(hb.bgSize);
+    if (hb.bgLocked !== undefined) setBgLocked(hb.bgLocked);
     setCardSizeMode (hb.cardSizeMode  ?? "medium");
 
     const gc = row?.data?.googleConfig;
@@ -155,7 +160,7 @@ export default function BoardPage() {
     setSaving(true);
     const nextData = {
       ...board.data,
-      htmlBoard: { placed: placedPlayers, objects: boardObjects, backgroundUrl, cardSizeMode },
+      htmlBoard: { placed: placedPlayers, objects: boardObjects, backgroundUrl, cardSizeMode, bgSize, bgLocked },
       googleConfig,
     };
     const { error: err } = await supabase.from("boards")
@@ -212,7 +217,7 @@ export default function BoardPage() {
     if (board) {
       const nextData = {
         ...board.data,
-        htmlBoard: { placed: placedPlayers, objects: boardObjects, backgroundUrl: publicUrl, cardSizeMode },
+        htmlBoard: { placed: placedPlayers, objects: boardObjects, backgroundUrl: publicUrl, cardSizeMode, bgSize, bgLocked },
         googleConfig,
       };
       const { error: saveErr } = await supabase.from("boards").update({ data: nextData }).eq("id", boardId);
@@ -348,8 +353,18 @@ export default function BoardPage() {
 
         {/* ── Roster Sidebar ───────────────────────────────────────────────── */}
         {sidebarOpen && (
-          <div style={{width:220,flexShrink:0,background:"#1e293b",borderRight:"1px solid #1e3a5f",display:"flex",flexDirection:"column",overflow:"hidden"}}>
-            <div style={{padding:"10px 12px",borderBottom:"1px solid #1e3a5f",flexShrink:0}}>
+          <div style={{width:220,flexShrink:0,background:"#1e293b",borderRight:"1px solid #1e3a5f",display:"flex",flexDirection:"column",overflow:"hidden",position:"relative"}}>
+              {/* Collapse button */}
+              <button onClick={()=>setSidebarOpen(false)} title="Collapse roster"
+                style={{position:"absolute",top:8,right:8,zIndex:10,width:24,height:24,background:"#0d1117",border:"1px solid #2a3040",borderRadius:5,color:"#64748b",cursor:"pointer",fontSize:12,display:"flex",alignItems:"center",justifyContent:"center"}}>◀</button>
+            <div style={{padding:"8px 10px",borderBottom:"1px solid #1e3a5f",flexShrink:0,display:"flex",alignItems:"center",gap:6}}>
+              <button onClick={()=>setSidebarOpen(false)}
+                title="Collapse roster"
+                style={{flexShrink:0,width:26,height:26,background:"#0d1117",border:"1px solid #2a3040",borderRadius:6,color:"#64748b",cursor:"pointer",fontSize:14,display:"flex",alignItems:"center",justifyContent:"center"}}>◀</button>
+              <div style={{flex:1}}>
+        </div>
+        <div style={{padding:"0 10px 8px",borderBottom:"1px solid #1e3a5f",flexShrink:0,display:"none"}}>
+
               <input type="text" placeholder="Search players…" value={searchQuery} onChange={e=>setSearchQuery(e.target.value)}
                 style={{width:"100%",padding:"7px 10px",background:"#0f172a",border:"1px solid #334155",borderRadius:7,color:"#f1f5f9",fontSize:12,outline:"none",boxSizing:"border-box"}}/>
               <select value={gradeFilter} onChange={e=>setGradeFilter(e.target.value)}
@@ -411,6 +426,13 @@ export default function BoardPage() {
           </div>
         )}
 
+        {/* Expand button when sidebar closed */}
+        {!sidebarOpen && (
+          <button onClick={()=>setSidebarOpen(true)} title="Show roster"
+            style={{width:28,flexShrink:0,background:"#1e293b",border:"none",borderRight:"1px solid #1e3a5f",
+              color:"#64748b",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:14,writingMode:"vertical-rl"}}>▶ Roster</button>
+        )}
         {/* ── Board Canvas ──────────────────────────────────────────────────── */}
         <div style={{flex:1,minWidth:0,overflow:"hidden",position:"relative"}}>
           {error && (
@@ -431,11 +453,87 @@ export default function BoardPage() {
             playerDragMime={PLAYER_DRAG_MIME}
             objectDragMime={OBJECT_DRAG_MIME}
             backgroundUrl={backgroundUrl}
+            bgSize={bgSize}
+            onBgSizeChange={(s)=>{setBgSize(s);setDirty(true);}}
+            bgLocked={bgLocked}
+            onBgLockedChange={(v)=>{setBgLocked(v);setDirty(true);}}
             onAddPlayerToBoard={addPlayerToBoard}
+            onOpenPlayer={(id)=>setOpenedPlayerId(id)}
           />
         </div>
       </div>
 
+
+      {/* ── Player Detail Modal ── */}
+      {openedPlayerId && (() => {
+        const pp = placedPlayers.find(p=>p.id===openedPlayerId);
+        if (!pp) { setOpenedPlayerId(null); return null; }
+        const p = pp.player;
+        const bg = (() => {
+          const g = parseInt((p.grade||"").replace(/[^0-9]/g,""),10);
+          if(g===12) return "#7f1630"; if(g===11) return "#1a1a1a";
+          if(g===10) return "#6b7280"; if(g===9)  return "#e5e7eb";
+          return "#2d3748";
+        })();
+        const fg = parseInt((p.grade||"").replace(/[^0-9]/g,""),10)===9?"#111827":"#ffffff";
+        return (
+          <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"center",
+            justifyContent:"center",zIndex:300,padding:20}}
+            onClick={()=>setOpenedPlayerId(null)}>
+            <div style={{background:"#161b27",borderRadius:16,width:"100%",maxWidth:420,
+              border:"1px solid #2a3040",overflow:"hidden",boxShadow:"0 20px 60px rgba(0,0,0,0.7)"}}
+              onClick={e=>e.stopPropagation()}>
+              {/* Photo header */}
+              <div style={{position:"relative",height:220,background:bg,overflow:"hidden"}}>
+                {p.pictureUrl ? (
+                  <img src={p.pictureUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}
+                    onError={e=>{(e.target as HTMLImageElement).style.display="none";}}/>
+                ) : (
+                  <div style={{width:"100%",height:"100%",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                    <span style={{fontSize:96,fontWeight:800,color:fg,opacity:0.3}}>{(p.name||"?")[0].toUpperCase()}</span>
+                  </div>
+                )}
+                {/* Close button */}
+                <button onClick={()=>setOpenedPlayerId(null)}
+                  style={{position:"absolute",top:12,right:12,width:32,height:32,borderRadius:"50%",
+                    background:"rgba(0,0,0,0.6)",border:"none",color:"#fff",fontSize:16,
+                    cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>✕</button>
+                {/* Grade badge */}
+                {p.grade && <div style={{position:"absolute",top:12,left:12,background:bg,color:fg,
+                  fontSize:12,fontWeight:700,padding:"3px 10px",borderRadius:6,border:"1px solid rgba(255,255,255,0.2)"}}>
+                  Grade {p.grade}</div>}
+              </div>
+              {/* Info */}
+              <div style={{padding:"20px 24px"}}>
+                <h2 style={{color:"#f1f5f9",fontSize:22,fontWeight:800,margin:"0 0 4px"}}>{p.name}</h2>
+                <p style={{color:"#64748b",fontSize:13,margin:"0 0 16px"}}>
+                  {[p.pos1||p.primary, p.pos2].filter(Boolean).join(" / ")}
+                </p>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+                  {[
+                    {label:"Grade",     val:p.grade},
+                    {label:"Position",  val:p.pos1||p.primary},
+                    {label:"2nd Pos",   val:p.pos2},
+                    {label:"Returning", val:p.returning},
+                    {label:"Likelihood",val:p.likelihood},
+                  ].filter(x=>x.val).map(({label,val})=>(
+                    <div key={label} style={{background:"#0d1117",borderRadius:8,padding:"8px 12px"}}>
+                      <div style={{color:"#475569",fontSize:10,fontWeight:600,marginBottom:2,letterSpacing:"0.05em"}}>{label.toUpperCase()}</div>
+                      <div style={{color:"#e2e8f0",fontSize:14,fontWeight:600}}>{val}</div>
+                    </div>
+                  ))}
+                </div>
+                {p.notes && (
+                  <div style={{marginTop:12,background:"#0d1117",borderRadius:8,padding:"10px 12px"}}>
+                    <div style={{color:"#475569",fontSize:10,fontWeight:600,marginBottom:4,letterSpacing:"0.05em"}}>NOTES</div>
+                    <div style={{color:"#94a3b8",fontSize:13,lineHeight:1.5}}>{p.notes}</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* ── Sheet Config Modal ───────────────────────────────────────────────── */}
       {showSheetEdit && (
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.7)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:200,padding:20}} onClick={()=>setShowSheetEdit(false)}>
