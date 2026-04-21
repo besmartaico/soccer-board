@@ -355,6 +355,7 @@ export default function BoardPage() {
               <button onClick={saveSheetConfig} disabled={!sheetIdInput.trim()} style={{padding:"9px 20px",background:sheetIdInput.trim()?"#059669":BORDER,color:"#fff",border:"none",borderRadius:8,fontSize:14,fontWeight:700,cursor:"pointer"}}>Save & Load</button>
             </div>
           </div>
+        </div>
       )}
     </div>
   );
