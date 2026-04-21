@@ -402,10 +402,10 @@ export default function HtmlBoard({
             return (
               <div key={pp.id}
                 style={{position:"absolute",left:pp.x,top:pp.y,width:w,
-                  // small: auto height so name wraps fully; medium/large: fixed
                   height: cardSizeMode==="small" ? "auto" : h,
                   minHeight: cardSizeMode==="small" ? 36 : h,
-                  background:bg,borderRadius:8,overflow:"hidden",
+                  background:bg,borderRadius:8,
+                  overflow: cardSizeMode==="small" ? "visible" : "hidden",
                   border:isSel?"2.5px solid #60a5fa":"1.5px solid rgba(255,255,255,0.15)",
                   boxShadow:"0 3px 12px rgba(0,0,0,0.55)",
                   cursor:editMode&&!objectsLocked?"move":"default",
