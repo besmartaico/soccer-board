@@ -50,7 +50,6 @@ function BoardsPageInner() {
   const [boardOrder, setBoardOrder] = useState<string[]>([]);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const dragIdRef = useRef<string | null>(null);
-  const wasDraggedRef = useRef<boolean>(false);
   const [showImport, setShowImport] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [newName,    setNewName]    = useState("");
@@ -206,10 +205,8 @@ function BoardsPageInner() {
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:20}}>
             {(() => { const idx = new Map(boardOrder.map((id, i) => [id, i])); const ordered = [...boards].sort((a, b) => { const ai = idx.has(a.id) ? idx.get(a.id)! : Number.MAX_SAFE_INTEGER; const bi = idx.has(b.id) ? idx.get(b.id)! : Number.MAX_SAFE_INTEGER; if (ai !== bi) return ai - bi; return new Date(b.created_at).getTime() - new Date(a.created_at).getTime(); }); return ordered; })().map(board => (
               <div key={board.id}
-                draggable={canEdit}
-                onDragStart={canEdit ? (e) => { dragIdRef.current = board.id; wasDraggedRef.current = false; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", board.id); } catch {} } : undefined}
-                onDragEnter={canEdit ? () => { if (dragIdRef.current && dragIdRef.current !== board.id) { wasDraggedRef.current = true; setDragOverId(board.id); } } : undefined}
-                onDragOver={canEdit ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } : undefined}
+                onDragEnter={canEdit ? () => { if (dragIdRef.current && dragIdRef.current !== board.id) { setDragOverId(board.id); } } : undefined}
+                onDragOver={canEdit ? (e) => { if (dragIdRef.current && dragIdRef.current !== board.id) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } } : undefined}
                 onDragLeave={canEdit ? () => { setDragOverId(prev => prev === board.id ? null : prev); } : undefined}
                 onDrop={canEdit ? async (e) => {
                   e.preventDefault();
@@ -230,12 +227,11 @@ function BoardsPageInner() {
                     body: JSON.stringify({ orderedIds: next }),
                   }).catch(() => {});
                 } : undefined}
-                onDragEnd={canEdit ? () => { dragIdRef.current = null; setDragOverId(null); setTimeout(() => { wasDraggedRef.current = false; }, 200); } : undefined}
-                style={{background:MID,borderRadius:12,border: dragOverId === board.id ? `2px dashed #60a5fa` : `1px solid ${BORDER}`,overflow:"hidden",position:"relative",transition:"all 0.15s",cursor: canEdit ? "grab" : "default",opacity: dragIdRef.current === board.id ? 0.4 : 1}}
+                style={{background:MID,borderRadius:12,border: dragOverId === board.id ? `2px dashed #60a5fa` : `1px solid ${BORDER}`,overflow:"hidden",position:"relative",transition:"all 0.15s"}}
                 onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=MAROON;(e.currentTarget as HTMLElement).style.transform="translateY(-2px)";}}
                 onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=BORDER;(e.currentTarget as HTMLElement).style.transform="translateY(0)";}}>
                 <div style={{height:3,background:boardColor(board.id)}}/>
-                <Link href={"/app/boards/"+board.id} onClick={(e) => { if (wasDraggedRef.current) { e.preventDefault(); e.stopPropagation(); } }} draggable={false} style={{textDecoration:"none",display:"block",padding:"18px 18px 14px"}}>
+                <Link href={"/app/boards/"+board.id} style={{textDecoration:"none",display:"block",padding:"18px 18px 14px"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
                     <div style={{width:38,height:38,borderRadius:9,background:boardColor(board.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:800,color:"#fff",flexShrink:0}}>
                       {boardInitial(board.name)}
@@ -262,6 +258,13 @@ function BoardsPageInner() {
                   <div style={{marginTop:10,color:MAROON,fontSize:12,fontWeight:600}}>Open →</div>
                 </Link>
                 {canEdit && (<>
+                  <button
+                    draggable={true}
+                    onDragStart={(e) => { dragIdRef.current = board.id; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", board.id); } catch {} }}
+                    onDragEnd={() => { dragIdRef.current = null; setDragOverId(null); }}
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                    title="Drag to reorder"
+                    style={{position:"absolute",top:10,right:66,background:"transparent",border:"none",color:"#475569",cursor:"grab",fontSize:16,padding:"2px 5px",borderRadius:4,lineHeight:1}}>⋮⋮</button>
                   <button onClick={async e=>{e.preventDefault();const res=await fetch(`/api/boards/${board.id}/duplicate`,{method:"POST",headers:{"Content-Type":"application/json",...(accessToken?{Authorization:`Bearer ${accessToken}`}:{})}});if(!res.ok){const err=await res.json().catch(()=>({}));alert(err?.error??"Failed to duplicate");return;}const data=await res.json();setBoards(bs=>[...bs,data.board]);}}
                       style={{position:"absolute",top:10,right:38,background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:14,padding:"2px 5px",borderRadius:4}} title="Duplicate board">⎘</button>
                     <button onClick={e=>{e.preventDefault();setDeleteId(board.id);}}
