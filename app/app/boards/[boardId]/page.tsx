@@ -49,7 +49,7 @@ export default function BoardPage() {
   const [placedPlayers, setPlacedPlayers] = useState<PlacedPlayer[]>([]);
   const [boardObjects,  setBoardObjects]  = useState<BoardObject[]>([]);
   const [backgroundUrl, setBackgroundUrl] = useState<string|null>(null);
-  const [cardSizeMode,  setCardSizeMode]  = useState<"large"|"medium"|"small">("medium");
+  const [cardSizeMode,  setCardSizeMode]  = useState<"large"|"medium"|"small"|"x-small">("medium");
   const [bgSize,        setBgSize]        = useState<{w:number;h:number}>({w:1400,h:900});
   const [bgLocked,      setBgLocked]      = useState(false);
   const [tool,          setTool]          = useState<BoardTool>("pointer");
@@ -207,14 +207,15 @@ export default function BoardPage() {
         {canEdit&&<button onClick={()=>{setObjectsLocked(l=>!l);setTool("pointer");}} style={tb(objectsLocked,"#b45309")}>{objectsLocked?"🔒":"🔓"}</button>}
         <div style={{width:1,height:18,background:BORDER,flexShrink:0,margin:"0 2px"}}/>
         <select value={cardSizeMode} onChange={e=>{
-          const mode = e.target.value as "large"|"medium"|"small";
+          const mode = e.target.value as "large"|"medium"|"small"|"x-small";
           setCardSizeMode(mode);
           // Clear all individual card sizes so they snap to the new mode's defaults
           setPlacedPlayers(prev => prev.map(pp => ({...pp, w:undefined, h:undefined})));
           setDirty(true);
         }}
           style={{padding:"4px 6px",background:MID,color:"#94a3b8",border:`1px solid ${BORDER}`,borderRadius:6,fontSize:11,cursor:"pointer",flexShrink:0}}>
-          <option value="small">S: Name</option>
+          <option value="x-small">XS: Name</option>
+          <option value="small">S: Photo+Name</option>
           <option value="medium">M: Photo+Name</option>
           <option value="large">L: Full</option>
         </select>
