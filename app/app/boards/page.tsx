@@ -3,6 +3,7 @@ import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import RosterImportModal from "./RosterImportModal";
+import InlineEditable from "@/lib/InlineEditable";
 import { supabase } from "@/lib/supabaseClient";
 
 
@@ -149,7 +150,22 @@ function BoardsPageInner() {
       <div style={{background:MID,borderBottom:`1px solid ${BORDER}`,padding:"0 24px",display:"flex",alignItems:"center",height:52,gap:10}}>
         <Link href="/app/teams" style={{color:"#64748b",textDecoration:"none",fontSize:13,display:"flex",alignItems:"center",gap:4}}>← Teams</Link>
         <span style={{color:BORDER,fontSize:16}}>|</span>
-        <span style={{fontWeight:700,fontSize:15,color:"#f1f5f9"}}>{team?.name ?? "…"}</span>
+        <InlineEditable
+          value={team?.name ?? ""}
+          canEdit={canEdit}
+          placeholder="…"
+          style={{fontWeight:700,fontSize:15,color:"#f1f5f9"}}
+          onSave={async (newName) => {
+            const res = await fetch(`/api/teams/${teamId}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+              body: JSON.stringify({ name: newName }),
+            });
+            if (!res.ok) { const err = await res.json().catch(()=>({})); throw new Error(err?.error ?? "Failed to rename team"); }
+            const data = await res.json();
+            setTeam(data.team);
+          }}
+        />
       </div>
 
 
@@ -193,7 +209,20 @@ function BoardsPageInner() {
                     <div style={{width:38,height:38,borderRadius:9,background:boardColor(board.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:800,color:"#fff",flexShrink:0}}>
                       {boardInitial(board.name)}
                     </div>
-                    <div style={{fontWeight:700,fontSize:15,color:"#f1f5f9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{board.name}</div>
+                    <div style={{fontWeight:700,fontSize:15,color:"#f1f5f9",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}><InlineEditable
+                                value={board.name}
+                                canEdit={canEdit}
+                                style={{fontWeight:700,fontSize:16,color:"#f1f5f9",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"inline-block",maxWidth:"100%"}}
+                                onSave={async (newName) => {
+                                  const res = await fetch(`/api/boards/${board.id}`, {
+                                    method: "PATCH",
+                                    headers: { "Content-Type": "application/json", ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+                                    body: JSON.stringify({ name: newName }),
+                                  });
+                                  if (!res.ok) { const err = await res.json().catch(()=>({})); throw new Error(err?.error ?? "Failed to rename board"); }
+                                  setBoards(bs => bs.map(b => b.id === board.id ? { ...b, name: newName } : b));
+                                }}
+                              /></div>
                   </div>
                   <div style={{color:"#475569",fontSize:11,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
                     <span>{(board.data?.htmlBoard?.placed?.length ?? board.data?.placed?.length ?? 0)} players</span>
@@ -201,10 +230,12 @@ function BoardsPageInner() {
                   </div>
                   <div style={{marginTop:10,color:MAROON,fontSize:12,fontWeight:600}}>Open →</div>
                 </Link>
-                {canEdit && (
-                  <button onClick={e=>{e.preventDefault();setDeleteId(board.id);}}
+                {canEdit && (<>
+                  <button onClick={async e=>{e.preventDefault();const res=await fetch(`/api/boards/${board.id}/duplicate`,{method:"POST",headers:{"Content-Type":"application/json",...(accessToken?{Authorization:`Bearer ${accessToken}`}:{})}});if(!res.ok){const err=await res.json().catch(()=>({}));alert(err?.error??"Failed to duplicate");return;}const data=await res.json();setBoards(bs=>[...bs,data.board]);}}
+                      style={{position:"absolute",top:10,right:38,background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:14,padding:"2px 5px",borderRadius:4}} title="Duplicate board">⎘</button>
+                    <button onClick={e=>{e.preventDefault();setDeleteId(board.id);}}
                     style={{position:"absolute",top:10,right:10,background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:15,padding:"2px 5px",borderRadius:4}}>✕</button>
-                )}
+                </>)}
               </div>
             ))}
           </div>
