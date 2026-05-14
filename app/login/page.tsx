@@ -62,7 +62,7 @@ export default function LoginPage() {
         </button>
 
         <p style={{textAlign:"center",color:"#334155",fontSize:11,marginTop:24,marginBottom:0}}>
-          boards.besmartai.co
+          team.besmartai.co
         </p>
       </div>
     </div>
