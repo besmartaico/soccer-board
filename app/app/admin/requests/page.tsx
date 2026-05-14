@@ -124,7 +124,7 @@ export default function AdminRequestsPage() {
   }
 
   return (
-    <main className="min-h-screen p-6 bg-white">
+    <main className="min-h-screen p-6 bg-[#0d1117]">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center justify-between gap-4">
           <h1 className="text-2xl font-bold">Access Requests</h1>
@@ -141,25 +141,25 @@ export default function AdminRequestsPage() {
           </div>
         </div>
 
-        <div className="mt-2 text-sm text-gray-600">
+        <div className="mt-2 text-sm text-[#cbd5e1]">
           Signed in as: <span className="font-medium">{me?.email ?? "..."}</span>
         </div>
 
         {!isMeAdmin ? (
-          <div className="mt-3 text-sm text-amber-700">
+          <div className="mt-3 text-sm text-[#fbbf24]">
             Note: Your email is not listed in <code>NEXT_PUBLIC_ADMIN_EMAILS</code>. Server access is
             enforced by <code>ADMIN_EMAILS</code>.
           </div>
         ) : null}
 
-        {err ? <div className="mt-4 text-sm text-red-600">{err}</div> : null}
-        {toast ? <div className="mt-4 text-sm text-green-700">{toast}</div> : null}
+        {err ? <div className="mt-4 text-sm text-[#ff7088]">{err}</div> : null}
+        {toast ? <div className="mt-4 text-sm text-[#34d399]">{toast}</div> : null}
 
-        <div className="mt-6 border rounded-xl p-4">
+        <div className="mt-6 border border-[#30363d] rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div className="font-semibold">Pending requests</div>
             <button
-              className="border rounded px-3 py-1 text-sm bg-white disabled:opacity-60"
+              className="border border-[#30363d] rounded px-3 py-1 text-sm bg-[#0d1117] disabled:opacity-60"
               type="button"
               onClick={refresh}
               disabled={loading || !!busyId}
@@ -172,20 +172,20 @@ export default function AdminRequestsPage() {
             {loading ? (
               <div className="text-sm">Loading…</div>
             ) : requests.length === 0 ? (
-              <div className="text-sm text-gray-600">No access requests yet.</div>
+              <div className="text-sm text-[#cbd5e1]">No access requests yet.</div>
             ) : (
-              <div className="divide-y">
+              <div className="divide-y divide-[#30363d]">
                 {requests.map((r) => {
                   const isBusy = busyId === r.id || busyId === r.email;
                   return (
                     <div key={r.id} className="py-3 flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <div className="font-medium truncate">{r.email}</div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-[#94a3b8]">
                           Requested {new Date(r.created_at).toLocaleString()}
                         </div>
                         {r.message ? (
-                          <div className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">
+                          <div className="text-sm text-[#cbd5e1] mt-2 whitespace-pre-wrap">
                             {r.message}
                           </div>
                         ) : null}
@@ -193,7 +193,7 @@ export default function AdminRequestsPage() {
 
                       <div className="flex flex-col gap-2 shrink-0">
                         <button
-                          className="border rounded px-3 py-1 text-sm bg-gray-900 text-white disabled:opacity-60"
+                          className="border border-[#30363d] rounded px-3 py-1 text-sm bg-[#161b22] text-[#f1f5f9] disabled:opacity-60"
                           type="button"
                           onClick={() => generateInvite(r.email)}
                           disabled={isBusy}
@@ -203,7 +203,7 @@ export default function AdminRequestsPage() {
                         </button>
 
                         <button
-                          className="border rounded px-3 py-1 text-sm bg-white disabled:opacity-60"
+                          className="border border-[#30363d] rounded px-3 py-1 text-sm bg-[#0d1117] disabled:opacity-60"
                           type="button"
                           onClick={() => deleteRequest(r.id)}
                           disabled={isBusy}
@@ -218,7 +218,7 @@ export default function AdminRequestsPage() {
             )}
           </div>
 
-          <div className="mt-4 text-xs text-gray-500">
+          <div className="mt-4 text-xs text-[#94a3b8]">
             “Generate invite link” copies a link like:
             <div className="mt-1 font-mono break-all">
               https://lpsoccer.besmartai.co/signup?email=...&token=...
