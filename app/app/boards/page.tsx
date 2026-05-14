@@ -47,6 +47,10 @@ function BoardsPageInner() {
 
   // Create board modal
   const [showCreate, setShowCreate] = useState(false);
+  const [boardOrder, setBoardOrder] = useState<string[]>([]);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const dragIdRef = useRef<string | null>(null);
+  const wasDraggedRef = useRef<boolean>(false);
   const [showImport, setShowImport] = useState(false);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [newName,    setNewName]    = useState("");
@@ -73,12 +77,13 @@ function BoardsPageInner() {
 
     const [{ data: teamData }, { data: roleData }, { data: boardData }] = await Promise.all([
       supabase.from("teams").select("id,name").eq("id", teamId).single(),
-      supabase.from("team_members").select("role").eq("team_id", teamId).eq("user_id", user.id).maybeSingle(),
+      supabase.from("team_members").select("role, board_order").eq("team_id", teamId).eq("user_id", user.id).maybeSingle(),
       supabase.from("boards").select("id,name,created_at,team_id,data").eq("team_id", teamId).order("created_at", {ascending:false}),
     ]);
 
 
     setTeam(teamData);
+    setBoardOrder(Array.isArray(roleData?.board_order) ? roleData.board_order : []);
     setMyRole(roleData?.role ?? "viewer");
 
 
@@ -199,12 +204,38 @@ function BoardsPageInner() {
           </div>
         ) : (
           <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(260px,1fr))",gap:20}}>
-            {boards.map(board => (
-              <div key={board.id} style={{background:MID,borderRadius:12,border:`1px solid ${BORDER}`,overflow:"hidden",position:"relative",transition:"all 0.15s"}}
+            {(() => { const idx = new Map(boardOrder.map((id, i) => [id, i])); const ordered = [...boards].sort((a, b) => { const ai = idx.has(a.id) ? idx.get(a.id)! : Number.MAX_SAFE_INTEGER; const bi = idx.has(b.id) ? idx.get(b.id)! : Number.MAX_SAFE_INTEGER; if (ai !== bi) return ai - bi; return new Date(b.created_at).getTime() - new Date(a.created_at).getTime(); }); return ordered; })().map(board => (
+              <div key={board.id}
+                draggable={canEdit}
+                onDragStart={canEdit ? (e) => { dragIdRef.current = board.id; wasDraggedRef.current = false; e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", board.id); } catch {} } : undefined}
+                onDragEnter={canEdit ? () => { if (dragIdRef.current && dragIdRef.current !== board.id) { wasDraggedRef.current = true; setDragOverId(board.id); } } : undefined}
+                onDragOver={canEdit ? (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } : undefined}
+                onDragLeave={canEdit ? () => { setDragOverId(prev => prev === board.id ? null : prev); } : undefined}
+                onDrop={canEdit ? async (e) => {
+                  e.preventDefault();
+                  const sourceId = dragIdRef.current;
+                  setDragOverId(null);
+                  if (!sourceId || sourceId === board.id) return;
+                  const currentOrder = (() => { const idx = new Map(boardOrder.map((id, i) => [id, i])); return [...boards].sort((a, b) => { const ai = idx.has(a.id) ? idx.get(a.id)! : Number.MAX_SAFE_INTEGER; const bi = idx.has(b.id) ? idx.get(b.id)! : Number.MAX_SAFE_INTEGER; if (ai !== bi) return ai - bi; return new Date(b.created_at).getTime() - new Date(a.created_at).getTime(); }).map(b => b.id); })();
+                  const fromIdx = currentOrder.indexOf(sourceId);
+                  const toIdx = currentOrder.indexOf(board.id);
+                  if (fromIdx < 0 || toIdx < 0) return;
+                  const next = [...currentOrder];
+                  next.splice(fromIdx, 1);
+                  next.splice(toIdx, 0, sourceId);
+                  setBoardOrder(next);
+                  fetch(`/api/teams/${teamId}/board-order`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json", ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+                    body: JSON.stringify({ orderedIds: next }),
+                  }).catch(() => {});
+                } : undefined}
+                onDragEnd={canEdit ? () => { dragIdRef.current = null; setDragOverId(null); setTimeout(() => { wasDraggedRef.current = false; }, 200); } : undefined}
+                style={{background:MID,borderRadius:12,border: dragOverId === board.id ? `2px dashed #60a5fa` : `1px solid ${BORDER}`,overflow:"hidden",position:"relative",transition:"all 0.15s",cursor: canEdit ? "grab" : "default",opacity: dragIdRef.current === board.id ? 0.4 : 1}}
                 onMouseEnter={e=>{(e.currentTarget as HTMLElement).style.borderColor=MAROON;(e.currentTarget as HTMLElement).style.transform="translateY(-2px)";}}
                 onMouseLeave={e=>{(e.currentTarget as HTMLElement).style.borderColor=BORDER;(e.currentTarget as HTMLElement).style.transform="translateY(0)";}}>
                 <div style={{height:3,background:boardColor(board.id)}}/>
-                <Link href={"/app/boards/"+board.id} style={{textDecoration:"none",display:"block",padding:"18px 18px 14px"}}>
+                <Link href={"/app/boards/"+board.id} onClick={(e) => { if (wasDraggedRef.current) { e.preventDefault(); e.stopPropagation(); } }} draggable={false} style={{textDecoration:"none",display:"block",padding:"18px 18px 14px"}}>
                   <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:12}}>
                     <div style={{width:38,height:38,borderRadius:9,background:boardColor(board.id),display:"flex",alignItems:"center",justifyContent:"center",fontSize:17,fontWeight:800,color:"#fff",flexShrink:0}}>
                       {boardInitial(board.name)}
