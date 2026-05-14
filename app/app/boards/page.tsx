@@ -264,11 +264,11 @@ function BoardsPageInner() {
                     onDragEnd={() => { dragIdRef.current = null; setDragOverId(null); }}
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                     title="Drag to reorder"
-                    style={{position:"absolute",top:10,right:66,background:"transparent",border:"none",color:"#475569",cursor:"grab",fontSize:16,padding:"2px 5px",borderRadius:4,lineHeight:1}}>⋮⋮</button>
+                    style={{position:"absolute",top:8,right:8,background:"rgba(127,22,48,0.20)",border:"1px solid rgba(127,22,48,0.55)",color:"#f1f5f9",cursor:"grab",fontSize:14,fontWeight:700,padding:"3px 9px",borderRadius:6,lineHeight:1,letterSpacing:1,zIndex:5}}>≡</button>
                   <button onClick={async e=>{e.preventDefault();const res=await fetch(`/api/boards/${board.id}/duplicate`,{method:"POST",headers:{"Content-Type":"application/json",...(accessToken?{Authorization:`Bearer ${accessToken}`}:{})}});if(!res.ok){const err=await res.json().catch(()=>({}));alert(err?.error??"Failed to duplicate");return;}const data=await res.json();setBoards(bs=>[...bs,data.board]);}}
-                      style={{position:"absolute",top:10,right:38,background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:14,padding:"2px 5px",borderRadius:4}} title="Duplicate board">⎘</button>
+                      style={{position:"absolute",top:10,right:76,background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:14,padding:"2px 5px",borderRadius:4}} title="Duplicate board">⎘</button>
                     <button onClick={e=>{e.preventDefault();setDeleteId(board.id);}}
-                    style={{position:"absolute",top:10,right:10,background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:15,padding:"2px 5px",borderRadius:4}}>✕</button>
+                    style={{position:"absolute",top:10,right:46,background:"transparent",border:"none",color:"#475569",cursor:"pointer",fontSize:15,padding:"2px 5px",borderRadius:4}}>✕</button>
                 </>)}
               </div>
             ))}
