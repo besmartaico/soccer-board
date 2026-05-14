@@ -76,13 +76,13 @@ function BoardsPageInner() {
 
     const [{ data: teamData }, { data: roleData }, { data: boardData }] = await Promise.all([
       supabase.from("teams").select("id,name").eq("id", teamId).single(),
-      supabase.from("team_members").select("role, board_order").eq("team_id", teamId).eq("user_id", user.id).maybeSingle(),
+      supabase.from("team_members").select("role").eq("team_id", teamId).eq("user_id", user.id).maybeSingle(),
       supabase.from("boards").select("id,name,created_at,team_id,data").eq("team_id", teamId).order("created_at", {ascending:false}),
     ]);
 
 
     setTeam(teamData);
-    setBoardOrder(Array.isArray(roleData?.board_order) ? roleData.board_order : []);
+    setBoardOrder(Array.isArray((roleData as any)?.board_order) ? (roleData as any).board_order : []);
     setMyRole(roleData?.role ?? "viewer");
 
 
