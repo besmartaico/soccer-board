@@ -138,8 +138,10 @@ function BoardsPageInner() {
             <p style={{color:"#64748b",fontSize:13,margin:0}}>{boards.length} board{boards.length!==1?"s":""}</p>
           </div>
           {canEdit && (
-            <button onClick={()=>setShowImport(true)} style={btnSecondary()}>📥 Import Roster</button>
-            <button onClick={()=>setShowCreate(true)} style={btnPrimary()}>+ Create Board</button>
+            <>
+              <button onClick={()=>setShowImport(true)} style={btnSecondary()}>📥 Import Roster</button>
+              <button onClick={()=>setShowCreate(true)} style={btnPrimary()}>+ Create Board</button>
+            </>
           )}
         </div>
 
