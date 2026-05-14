@@ -21,6 +21,70 @@ function getSupabaseAdmin() {
   });
 }
 
+// GET /api/teams/[teamId]/boards
+// Returns the list of boards in a team. The bearer user must be a member of the team.
+// Used by external integrations to render boards inside their own UI.
+export async function GET(
+  req: NextRequest,
+  ctx: { params: Promise<{ teamId: string }> }
+): Promise<Response> {
+  try {
+    const { teamId } = await ctx.params;
+    const team_id = String(teamId || "").trim();
+    if (!team_id) {
+      return NextResponse.json({ success: false, error: "Missing teamId" }, { status: 400 });
+    }
+
+    const supa = getSupabaseAdmin();
+
+    // Auth
+    const authHeader = req.headers.get("authorization") ?? "";
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    if (!token) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const { data: udata, error: uerr } = await supa.auth.getUser(token);
+    if (uerr || !udata?.user) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const user = udata.user;
+
+    // Membership check
+    const { data: mem, error: memErr } = await supa
+      .from("team_members")
+      .select("role")
+      .eq("team_id", team_id)
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (memErr) {
+      return NextResponse.json({ success: false, error: memErr.message }, { status: 500 });
+    }
+    if (!mem) {
+      return NextResponse.json({ success: false, error: "Not a member of this team" }, { status: 403 });
+    }
+
+    // Boards
+    const { data: boards, error: bErr } = await supa
+      .from("boards")
+      .select("id, name, created_at, data")
+      .eq("team_id", team_id)
+      .order("created_at", { ascending: false });
+
+    if (bErr) {
+      return NextResponse.json({ success: false, error: bErr.message }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      role: (mem as any).role,
+      boards: boards ?? [],
+    });
+  } catch (err: any) {
+    return NextResponse.json({ success: false, error: err?.message ?? "Unknown error" }, { status: 500 });
+  }
+}
+
 export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ teamId: string }> }
