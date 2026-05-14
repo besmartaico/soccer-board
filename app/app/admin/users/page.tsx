@@ -130,10 +130,10 @@ export default function AdminUsersPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-white">
-        <div className="px-8 py-6 border-b">
+      <main className="min-h-screen bg-[#0d1117]">
+        <div className="px-8 py-6 border-b border-[#30363d]">
           <div className="text-2xl font-bold">Admin</div>
-          <div className="text-gray-600">Users & Roles</div>
+          <div className="text-[#cbd5e1]">Users & Roles</div>
         </div>
         <div className="p-8">Loading...</div>
       </main>
@@ -141,11 +141,11 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <main className="min-h-screen bg-white">
-      <div className="flex items-center justify-between px-8 py-6 border-b">
+    <main className="min-h-screen bg-[#0d1117]">
+      <div className="flex items-center justify-between px-8 py-6 border-b border-[#30363d]">
         <div>
           <div className="text-3xl font-bold">Admin</div>
-          <div className="text-gray-600">Manage who can access the app and their role.</div>
+          <div className="text-[#cbd5e1]">Manage who can access the app and their role.</div>
         </div>
 
         <div className="flex items-center gap-4">
@@ -158,12 +158,12 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {error ? <div className="px-8 py-3 text-red-600">{error}</div> : null}
+      {error ? <div className="px-8 py-3 text-[#ff7088]">{error}</div> : null}
 
       <div className="p-8 max-w-4xl mx-auto space-y-6">
-        <div className="border rounded-2xl p-6">
+        <div className="border border-[#30363d] rounded-2xl p-6">
           <div className="text-xl font-semibold mb-2">Add / Update User Role</div>
-          <div className="text-gray-600 mb-4">
+          <div className="text-[#cbd5e1] mb-4">
             Roles: <b>viewer</b> = view only, <b>editor</b> = can edit boards, <b>admin</b> = can manage users.
           </div>
 
@@ -171,7 +171,7 @@ export default function AdminUsersPage() {
             <div>
               <label className="block text-sm font-medium mb-1">Email</label>
               <input
-                className="w-full border rounded px-3 py-2"
+                className="w-full border border-[#30363d] rounded px-3 py-2 bg-[#0d1117] text-[#f1f5f9] placeholder:text-[#64748b]"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="name@example.com"
@@ -181,7 +181,7 @@ export default function AdminUsersPage() {
             <div>
               <label className="block text-sm font-medium mb-1">Role</label>
               <select
-                className="w-full border rounded px-3 py-2 bg-white"
+                className="w-full border border-[#30363d] rounded px-3 py-2 bg-[#0d1117]"
                 value={newRole}
                 onChange={(e) => setNewRole(e.target.value as UserRole)}
               >
@@ -192,36 +192,36 @@ export default function AdminUsersPage() {
             </div>
 
             <button
-              className="rounded-md bg-black px-5 py-2 text-white disabled:opacity-60"
+              className="rounded-md bg-[#7f1630] px-5 py-2 text-[#f1f5f9] disabled:opacity-60"
               disabled={saving}
               onClick={upsert}
             >
               {saving ? "Saving..." : "Save Role"}
             </button>
 
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-[#94a3b8]">
               Tip: users still sign in via Supabase Auth — this list controls what they can do inside the app.
             </div>
           </div>
         </div>
 
-        <div className="border rounded-2xl p-6">
+        <div className="border border-[#30363d] rounded-2xl p-6">
           <div className="text-xl font-semibold mb-4">Current Users</div>
 
           {sorted.length === 0 ? (
-            <div className="text-gray-600">No users found.</div>
+            <div className="text-[#cbd5e1]">No users found.</div>
           ) : (
             <div className="space-y-3">
               {sorted.map((r) => (
-                <div key={r.email} className="border rounded-xl px-4 py-3 flex items-center justify-between">
+                <div key={r.email} className="border border-[#30363d] rounded-xl px-4 py-3 flex items-center justify-between">
                   <div className="min-w-0">
                     <div className="font-medium truncate">{r.email}</div>
-                    <div className="text-sm text-gray-600">Role: {r.role}</div>
+                    <div className="text-sm text-[#cbd5e1]">Role: {r.role}</div>
                   </div>
 
                   <div className="flex items-center gap-2">
                     <select
-                      className="border rounded px-2 py-1 bg-white text-sm"
+                      className="border border-[#30363d] rounded px-2 py-1 bg-[#0d1117] text-sm"
                       value={r.role}
                       onChange={async (e) => {
                         const nextRole = e.target.value as UserRole;
@@ -239,7 +239,7 @@ export default function AdminUsersPage() {
 
                     <button
                       type="button"
-                      className="border px-3 py-1 rounded text-sm bg-white text-red-600 border-red-200 hover:bg-red-50"
+                      className="border border-[#30363d] px-3 py-1 rounded text-sm bg-[#0d1117] text-[#ff7088] border-[#7f1630]/50 hover:bg-[#7f1630]/20"
                       onClick={() => remove(r.email)}
                       disabled={saving}
                       title="Remove user"
@@ -252,12 +252,12 @@ export default function AdminUsersPage() {
             </div>
           )}
 
-          <div className="text-xs text-gray-500 mt-4">
+          <div className="text-xs text-[#94a3b8] mt-4">
             Your role: <b>{role}</b>
           </div>
         </div>
 
-        <div className="border rounded-2xl p-6">
+        <div className="border border-[#30363d] rounded-2xl p-6">
           <div className="text-xl font-semibold mb-2">Other Admin Tools</div>
           <div className="flex items-center gap-4">
             <Link className="underline" href="/app/admin/requests">
