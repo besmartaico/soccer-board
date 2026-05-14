@@ -447,7 +447,7 @@ export default function HtmlBoard({
                 )}
 
                 {/* ── MEDIUM: full photo (contain) + full name ── */}
-                {cardSizeMode==="medium" && (
+                {(cardSizeMode==="medium" || cardSizeMode==="small") && (
                   <>
                     {/* Photo - objectFit contain so full face/body is visible */}
                     <div style={{width:w,height:h-36,background:"#000",overflow:"hidden",
