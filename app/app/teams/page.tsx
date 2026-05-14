@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import InlineEditable from "@/lib/InlineEditable";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabaseClient";
@@ -9,6 +10,8 @@ type TeamRow = { id: string; name: string; created_at: string; };
 export default function TeamsPage() {
   const router = useRouter();
   const [teams, setTeams] = useState<TeamRow[]>([]);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [roleMap, setRoleMap] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
@@ -23,6 +26,8 @@ export default function TeamsPage() {
     setLoading(true);
     setError("");
     const { data: { user } } = await supabase.auth.getUser();
+    const { data: sessData } = await supabase.auth.getSession();
+    setAccessToken(sessData?.session?.access_token ?? null);
     if (!user) { router.push("/login"); return; }
 
     // Check admin
@@ -31,7 +36,7 @@ export default function TeamsPage() {
 
     // Get team memberships
     const { data: memberships, error: memErr } = await supabase
-      .from("team_members").select("team_id").eq("user_id", user.id);
+      .from("team_members").select("team_id, role").eq("user_id", user.id);
     if (memErr) { setError(memErr.message); setLoading(false); return; }
 
     const teamIds = (memberships ?? []).map((m: any) => m.team_id);
@@ -41,6 +46,9 @@ export default function TeamsPage() {
       .from("teams").select("id,name,created_at").in("id", teamIds).order("name");
     if (teamErr) { setError(teamErr.message); setLoading(false); return; }
     setTeams(teamData ?? []);
+    const rm: Record<string, string> = {};
+    for (const m of (memberships ?? []) as any[]) { if (m?.team_id && m?.role) rm[m.team_id] = m.role; }
+    setRoleMap(rm);
 
     // Get board counts per team
     const { data: boardData } = await supabase
@@ -57,6 +65,8 @@ export default function TeamsPage() {
     if (!newTeamName.trim()) return;
     setCreating(true);
     const { data: { user } } = await supabase.auth.getUser();
+    const { data: sessData } = await supabase.auth.getSession();
+    setAccessToken(sessData?.session?.access_token ?? null);
     if (!user) return;
     const { data: team, error: err } = await supabase
       .from("teams").insert({ name: newTeamName.trim() }).select().single();
@@ -128,7 +138,20 @@ export default function TeamsPage() {
                       {teamInitials(team.name)}
                     </div>
                     <div style={{minWidth:0}}>
-                      <div style={{fontWeight:700,fontSize:16,color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{team.name}</div>
+                      <div style={{fontWeight:700,fontSize:16,color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}><InlineEditable
+                        value={team.name}
+                        canEdit={["admin","editor"].includes(roleMap[team.id] ?? "")}
+                        style={{fontWeight:700,fontSize:16,color:"#f1f5f9",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}
+                        onSave={async (newName) => {
+                          const res = await fetch(`/api/teams/${team.id}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json", ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
+                            body: JSON.stringify({ name: newName }),
+                          });
+                          if (!res.ok) { const err = await res.json().catch(()=>({})); throw new Error(err?.error ?? "Failed to rename team"); }
+                          setTeams(ts => ts.map(t2 => t2.id === team.id ? { ...t2, name: newName } : t2));
+                        }}
+                      /></div>
                       <div style={{color:"#64748b",fontSize:12,marginTop:2}}>
                         {boardCounts[team.id] ?? 0} board{(boardCounts[team.id] ?? 0) !== 1 ? "s" : ""}
                       </div>
