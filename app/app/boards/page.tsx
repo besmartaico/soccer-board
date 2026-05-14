@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import RosterImportModal from "./RosterImportModal";
 import { supabase } from "@/lib/supabaseClient";
 
 const MAROON = "#7f1630";
@@ -39,6 +40,8 @@ function BoardsPageInner() {
 
   // Create board modal
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [newName,    setNewName]    = useState("");
   const [sheetUrl,   setSheetUrl]   = useState("");
   const [sheetError, setSheetError] = useState("");
@@ -53,6 +56,8 @@ function BoardsPageInner() {
   async function load() {
     setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
+    const { data: sessData } = await supabase.auth.getSession();
+    setAccessToken(sessData?.session?.access_token ?? null);
     if (!user) { router.push("/login"); return; }
 
     const [{ data: teamData }, { data: roleData }, { data: boardData }] = await Promise.all([
@@ -133,6 +138,7 @@ function BoardsPageInner() {
             <p style={{color:"#64748b",fontSize:13,margin:0}}>{boards.length} board{boards.length!==1?"s":""}</p>
           </div>
           {canEdit && (
+            <button onClick={()=>setShowImport(true)} style={btnSecondary()}>📥 Import Roster</button>
             <button onClick={()=>setShowCreate(true)} style={btnPrimary()}>+ Create Board</button>
           )}
         </div>
@@ -217,6 +223,19 @@ function BoardsPageInner() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Roster Import Modal ── */}
+      {showImport && teamId && (
+        <RosterImportModal
+          teamId={teamId}
+          accessToken={accessToken}
+          onClose={()=>setShowImport(false)}
+          onImported={(count)=>{
+            setShowImport(false);
+            alert(`Imported ${count} players into the team roster.`);
+          }}
+        />
       )}
 
       {/* ── Delete Confirm ── */}
