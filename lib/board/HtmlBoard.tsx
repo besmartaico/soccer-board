@@ -39,7 +39,7 @@ type Props = {
   canvasWidth?: number; canvasHeight?: number;
   objects: BoardObject[]; onObjectsChange: (next: BoardObject[]) => void;
   tool: BoardTool; onToolChange: (t: BoardTool) => void;
-  cardSizeMode?: "large" | "medium" | "small";
+  cardSizeMode?: "large" | "medium" | "small" | "x-small";
   onAddPlayerToBoard?: (player: PlayerPayload) => void;
   bgSize?: { w: number; h: number };
   onBgSizeChange?: (s: { w: number; h: number }) => void;
@@ -47,7 +47,7 @@ type Props = {
   onBgLockedChange?: (locked: boolean) => void;
 };
 
-const CARD = { large:{w:180,h:200}, medium:{w:140,h:140}, small:{w:140,h:44} };
+const CARD = { large:{w:180,h:200}, medium:{w:140,h:140}, small:{w:110,h:110}, "x-small":{w:140,h:44} };
 const MAROON = "#7f1630";
 const DARK   = "#0d1117";
 const MID    = "#161b27";
@@ -158,7 +158,7 @@ export default function HtmlBoard({
   function onCanvasPointerDown(e:React.PointerEvent){
     if(e.button===2) return;
     const target=e.target as HTMLElement;
-    if(target===canvasRef.current||target===containerRef.current){
+    if(true){ /* always pan when canvas pointerdown reaches here; descendants stopPropagation if they handle it */
       if(editMode&&!objectsLocked&&tool!=="pointer"&&tool!=="select"){
         const pos=clientToCanvas(e.clientX,e.clientY);
         if(tool==="lane")       onObjectsChange([...objects,{id:uid(),kind:"lane",x:pos.x-100,y:pos.y-30,w:200,h:60,title:"Lane"}]);
@@ -424,10 +424,10 @@ export default function HtmlBoard({
             return (
               <div key={pp.id}
                 style={{position:"absolute",left:pp.x,top:pp.y,width:w,
-                  height: cardSizeMode==="small" ? "auto" : h,
-                  minHeight: cardSizeMode==="small" ? 36 : h,
+                  height: cardSizeMode==="x-small" ? "auto" : h,
+                  minHeight: cardSizeMode==="x-small" ? 36 : h,
                   background:bg,borderRadius:8,
-                  overflow: cardSizeMode==="small" ? "visible" : "hidden",
+                  overflow: cardSizeMode==="x-small" ? "visible" : "hidden",
                   border:isSel?"2.5px solid #60a5fa":"1.5px solid rgba(255,255,255,0.15)",
                   boxShadow:"0 3px 12px rgba(0,0,0,0.55)",
                   cursor:editMode&&!objectsLocked?"move":"default",
@@ -436,7 +436,7 @@ export default function HtmlBoard({
                 onDoubleClick={()=>onOpenPlayer?.(pp.id)}>
 
                 {/* ── SMALL: name badge only, full name wrapping ── */}
-                {cardSizeMode==="small" && (
+                {cardSizeMode==="x-small" && (
                   <div style={{padding:"6px 8px",display:"flex",alignItems:"center",justifyContent:"center",minHeight:36}}>
                     <span style={{color:fg,fontWeight:700,fontSize:13,textAlign:"center",
                       lineHeight:1.3,wordBreak:"break-word",whiteSpace:"normal",
