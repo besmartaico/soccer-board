@@ -77,8 +77,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tea
   const patternData = {
     placed: htmlBoard.placedPlayers ?? htmlBoard.placed ?? [],
     objects: htmlBoard.objects ?? [],
-    endPositions: {},
-    endObjects: {},
+    backgroundUrl: htmlBoard.backgroundUrl ?? null,
+    bgSize: htmlBoard.bgSize,
+    bgLoc: htmlBoard.bgLoc,
+    cardSizeMode: htmlBoard.cardSizeMode ?? "medium",
+    startPlaced: null,
+    startObjects: null,
   };
 
   const name = String(body?.name ?? "").trim().slice(0, 120) || ("Pattern from " + (board.name ?? "Board")).slice(0, 120);
