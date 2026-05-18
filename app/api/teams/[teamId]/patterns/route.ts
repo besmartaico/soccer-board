@@ -79,7 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tea
     objects: htmlBoard.objects ?? [],
     backgroundUrl: htmlBoard.backgroundUrl ?? null,
     bgSize: htmlBoard.bgSize,
-    bgLoc: htmlBoard.bgLoc,
+    bgLocked: htmlBoard.bgLocked,
     cardSizeMode: htmlBoard.cardSizeMode ?? "medium",
     startPlaced: null,
     startObjects: null,
