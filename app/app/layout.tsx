@@ -53,6 +53,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <span className="font-bold text-lg text-white mr-2">BeSmart Boards</span>
           <Link href="/app/teams" className={`text-sm font-medium ${pathname.startsWith("/app/teams") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Teams</Link>
           <Link href="/app/boards" className={`text-sm font-medium ${pathname.startsWith("/app/boards") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Boards</Link>
+          <Link href="/app/patterns" className={`text-sm font-medium ${pathname.startsWith("/app/patterns") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Patterns</Link>
           {isAdmin && <Link href="/app/admin" className={`text-sm font-medium ${pathname.startsWith("/app/admin") ? "text-white border-b-2 border-white pb-1" : "text-gray-400 hover:text-white"}`}>Admin</Link>}
         </div>
         <div className="flex items-center gap-3">
@@ -96,6 +97,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             <nav style={{flex:1,paddingTop:"8px"}}>
               <Link href="/app/teams" style={drawerLinkStyle(pathname.startsWith("/app/teams"))}>Teams</Link>
               <Link href="/app/boards" style={drawerLinkStyle(pathname.startsWith("/app/boards"))}>Boards</Link>
+            <Link href="/app/patterns" style={drawerLinkStyle(pathname.startsWith("/app/patterns"))}>Patterns</Link>
               {isAdmin && <Link href="/app/admin" style={drawerLinkStyle(pathname.startsWith("/app/admin"))}>Admin</Link>}
             </nav>
           </div>
