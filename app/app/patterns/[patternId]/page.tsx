@@ -36,10 +36,12 @@ function cloneFrameState(placed: PlacedPlayer[], objects: BoardObject[]): { plac
 
 export default function PatternDetailPage() {
   const router = useRouter();
-  const params = useParams<{ patternId: string }>();
-  const patternId = params?.patternId;
+  const params = useParams() as { patternId?: string | string[] } | null;
+  const patternIdRaw = params?.patternId;
+  const patternId = Array.isArray(patternIdRaw) ? patternIdRaw[0] : patternIdRaw;
 
   const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState("");
   const [role, setRole] = useState<string>("");
@@ -71,7 +73,8 @@ export default function PatternDetailPage() {
       try {
         const r = await fetch(`/api/patterns/${patternId}`, { cache: "no-store" });
         if (!r.ok) {
-          router.push("/app/patterns");
+          setLoadError(`Failed to load pattern (${r.status})`);
+          setLoaded(true);
           return;
         }
         const j = await r.json();
@@ -79,8 +82,8 @@ export default function PatternDetailPage() {
         const data = j.pattern?.data ?? {};
         setName(j.pattern?.name ?? "");
         setRole(j.role ?? "");
-        const pl = data.placed ?? [];
-        const oj = data.objects ?? [];
+        const pl = Array.isArray(data.placed) ? data.placed : [];
+        const oj = Array.isArray(data.objects) ? data.objects : [];
         setPlaced(pl);
         setObjects(oj);
         setBackgroundUrl((data as any).backgroundUrl ?? null);
@@ -92,8 +95,8 @@ export default function PatternDetailPage() {
         let fs: Frame[] = Array.isArray(data.frames) ? data.frames : [];
         if (fs.length === 0) {
           // Legacy: build a single Start frame from current state, or from startPlaced/startObjects
-          const startPlaced = (data as any).startPlaced ?? pl;
-          const startObjects = (data as any).startObjects ?? oj;
+          const startPlaced = Array.isArray((data as any).startPlaced) ? (data as any).startPlaced : pl;
+          const startObjects = Array.isArray((data as any).startObjects) ? (data as any).startObjects : oj;
           fs = [{
             id: newId(),
             label: "Start",
@@ -105,13 +108,14 @@ export default function PatternDetailPage() {
         setCurrentFrameIdx(0);
         // Snap to first frame on load
         if (fs[0]) {
-          setPlaced(fs[0].placed);
-          setObjects(fs[0].objects);
+          setPlaced(Array.isArray(fs[0].placed) ? fs[0].placed : []);
+          setObjects(Array.isArray(fs[0].objects) ? fs[0].objects : []);
         }
         setLoaded(true);
-      } catch (err) {
+      } catch (err: any) {
         console.error("load pattern", err);
-        router.push("/app/patterns");
+        setLoadError(String(err?.message || err || "Unknown error"));
+        setLoaded(true);
       }
     })();
     return () => { cancelled = true; };
@@ -289,6 +293,21 @@ export default function PatternDetailPage() {
     return (
       <div style={{ minHeight: "100vh", background: DARK, color: TEXT, padding: 24 }}>
         <div style={{ color: MUTED }}>Loadingâ¦</div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div style={{ minHeight: "100vh", background: DARK, color: TEXT, padding: 24 }}>
+        <button
+          onClick={() => router.push("/app/patterns")}
+          style={{ background: "transparent", border: "none", color: MUTED, cursor: "pointer", fontSize: 13, marginBottom: 16 }}
+        >
+          â Patterns
+        </button>
+        <div style={{ color: "#f87171", fontSize: 14, marginBottom: 8 }}>Failed to load pattern</div>
+        <div style={{ color: MUTED, fontSize: 12, fontFamily: "monospace" }}>{loadError}</div>
       </div>
     );
   }
