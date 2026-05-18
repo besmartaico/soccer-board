@@ -176,6 +176,10 @@ export default function PatternDetailPage() {
         </div>
       </div>
 
+      <div style={{fontSize:11,color:"#64748b",padding:"4px 10px",fontFamily:"monospace"}}>
+        debug: backgroundUrl={backgroundUrl ? `"${backgroundUrl.substring(0, 80)}${backgroundUrl.length > 80 ? "…" : ""}"` : "null"} · placed={placed.length} · objects={objects.length} · cardSize={cardSizeMode}
+      </div>
+
       <div ref={stageRef} data-pattern-stage="true" style={{background:MID,border:`1px solid ${BORDER}`,borderRadius:12,overflow:"hidden",position:"relative",height:"calc(100vh - 200px)",minHeight:480}}>
         <HtmlBoard
           editMode={canEdit && mode !== "playing"}
