@@ -37,6 +37,8 @@ export default function PatternDetailPage() {
   const [objects, setObjects] = useState<BoardObject[]>([]);
   const [startPlaced, setStartPlaced] = useState<PlacedPlayer[]>([]);
   const [startObjects, setStartObjects] = useState<BoardObject[]>([]);
+  const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null);
+  const [cardSizeMode, setCardSizeMode] = useState<"medium" | "small" | "large" | "x-small">("medium");
   const [tool, setTool] = useState<BoardTool>("pointer");
 
   const [mode, setMode] = useState<Mode>("setup");
@@ -71,6 +73,8 @@ export default function PatternDetailPage() {
       setObjects(oj);
       setStartPlaced(data.startPlaced ?? pl);
       setStartObjects(data.startObjects ?? oj);
+      setBackgroundUrl((data as any).backgroundUrl ?? null);
+      setCardSizeMode((data as any).cardSizeMode ?? "medium");
     } catch (e: any) {
       setError(e?.message ?? "Network error");
     }
