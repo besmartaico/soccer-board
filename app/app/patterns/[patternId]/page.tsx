@@ -9,6 +9,8 @@ import type { PlacedPlayer, BoardObject, BoardTool } from "@/lib/board/HtmlBoard
 const MID = "#161b22";
 const BORDER = "#30363d";
 const MAROON = "#7f1630";
+const PATTERN_PLAYER_DRAG_MIME = "application/x-pattern-player";
+const PATTERN_OBJECT_DRAG_MIME = "application/x-pattern-object";
 
 type PatternData = {
   placed: PlacedPlayer[];
@@ -184,6 +186,8 @@ export default function PatternDetailPage() {
           onObjectsChange={setObjects}
           tool={tool}
           onToolChange={setTool}
+          playerDragMime={PATTERN_PLAYER_DRAG_MIME}
+          objectDragMime={PATTERN_OBJECT_DRAG_MIME}
           cardSizeMode="medium"
         />
       </div>
