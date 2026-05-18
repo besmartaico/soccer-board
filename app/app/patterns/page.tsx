@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
@@ -14,7 +14,7 @@ type Team = { id: string; name: string };
 type Board = { id: string; name: string };
 type Pattern = { id: string; name: string; description: string | null; source_board_id: string | null; created_at: string };
 
-export default function PatternsPage() {
+function PatternsInner() {
   const router = useRouter();
   const sp = useSearchParams();
   const initialTeamId = sp.get("teamId");
@@ -280,5 +280,13 @@ function Modal({ children, title, onClose }: { children: any; title: string; onC
         {children}
       </div>
     </div>
+  );
+}
+
+export default function PatternsPage() {
+  return (
+    <Suspense fallback={<div style={{padding:24,color:"#94a3b8"}}>Loading…</div>}>
+      <PatternsInner/>
+    </Suspense>
   );
 }
