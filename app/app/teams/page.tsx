@@ -111,7 +111,7 @@ export default function TeamsPage() {
         <h1 style={{fontSize:26,fontWeight:700,color:"#f1f5f9",margin:"0 0 6px"}}>My Teams</h1>
         <p style={{color:"#64748b",fontSize:14,margin:"0 0 28px"}}>Select a team to view its boards</p>
 
-        {isAdmin && !showCreate && (
+        {!showCreate && (
           <button
             onClick={() => setShowCreate(true)}
             style={{
