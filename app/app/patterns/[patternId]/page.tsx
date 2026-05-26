@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import HtmlBoard from "@/lib/board/HtmlBoard";
 import type { PlacedPlayer, BoardObject, BoardTool } from "@/lib/board/HtmlBoard";
+import { supabase } from "@/lib/supabaseClient";
 
 const DARK = "#0d1117";
 const MID = "#161b22";
@@ -71,7 +72,11 @@ export default function PatternDetailPage() {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(`/api/patterns/${patternId}`, { cache: "no-store" });
+        const { data: sess } = await supabase.auth.getSession();
+        const authH: Record<string, string> = sess?.session
+          ? { Authorization: `Bearer ${sess.session.access_token}` }
+          : {};
+        const r = await fetch(`/api/patterns/${patternId}`, { cache: "no-store", headers: authH });
         if (!r.ok) {
           setLoadError(`Failed to load pattern (${r.status})`);
           setLoaded(true);
@@ -260,9 +265,12 @@ export default function PatternDetailPage() {
         cardSizeMode,
         frames,
       };
+      const { data: sess2 } = await supabase.auth.getSession();
+      const saveH: Record<string, string> = { "Content-Type": "application/json" };
+      if (sess2?.session) saveH.Authorization = `Bearer ${sess2.session.access_token}`;
       const r = await fetch(`/api/patterns/${patternId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: saveH,
         body: JSON.stringify({ data }),
       });
       if (!r.ok) throw new Error("save failed");
