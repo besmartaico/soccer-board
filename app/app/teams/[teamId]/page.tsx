@@ -294,6 +294,14 @@ export default function TeamPage() {
           <div className="text-3xl font-bold text-dark-100 truncate">{team?.name || "Team"}</div>
           <div className="text-dark-400 text-sm">Boards{memberRole ? ` · Your access: ${memberRole}` : ""}</div>
         </div>
+        {memberRole === "admin" && teamId && (
+          <button
+            onClick={() => router.push(`/app/teams/${teamId}/settings/card-template`)}
+            className="px-3 py-2 rounded border border-dark-700 text-dark-100 text-sm hover:bg-dark-800"
+          >
+            ⚙ Card Template
+          </button>
+        )}
       </div>
 
       {error ? <div className="px-8 py-3 text-red-400">{error}</div> : null}
