@@ -69,7 +69,7 @@ export default function TeamsPage() {
     setAccessToken(sessData?.session?.access_token ?? null);
     if (!user) return;
     const { data: team, error: err } = await supabase
-      .from("teams").insert({ name: newTeamName.trim() }).select().single();
+      .from("teams").insert({ name: newTeamName.trim(), created_by: user.id }).select().single();
     if (err) { setError(err.message); setCreating(false); return; }
     await supabase.from("team_members").insert({ team_id: team.id, user_id: user.id, role: "admin" });
     setNewTeamName("");
