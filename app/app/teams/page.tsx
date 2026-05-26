@@ -71,8 +71,7 @@ export default function TeamsPage() {
     const { data: team, error: err } = await supabase
       .from("teams").insert({ name: newTeamName.trim(), created_by: user.id }).select().single();
     if (err) { setError(err.message); setCreating(false); return; }
-    const { error: memErr } = await supabase.from("team_members").insert({ team_id: team.id, user_id: user.id, role: "admin" });
-    if (memErr) { setError("Team created but membership failed: " + memErr.message); setCreating(false); return; }
+    // Membership is created automatically by the on_team_created trigger.
     setNewTeamName("");
     setShowCreate(false);
     setCreating(false);
